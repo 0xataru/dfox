@@ -122,6 +122,7 @@ impl DatabaseClientUI {
     }
 
     pub async fn run_ui(&mut self) -> Result<(), io::Error> {
+        let _guard = TerminalGuard;
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -130,12 +131,6 @@ impl DatabaseClientUI {
 
         let result = self.ui_loop(&mut terminal).await;
 
-        disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
         terminal.show_cursor()?;
 
         result
@@ -197,5 +192,15 @@ impl DatabaseClientUI {
                 }
             }
         }
+    }
+}
+
+struct TerminalGuard;
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let mut stdout = io::stdout();
+        let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
     }
 }

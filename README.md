@@ -1,4 +1,11 @@
-# DFox
+<p align="center">
+  <img src="examples/mini_logo.png" alt="Centered Image" width="300">
+</p>
+
+# DFox - ⚡️ Blazing Fast Terminal Database Manager
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) 
+![GitHub top language](https://img.shields.io/github/languages/top/ataru993/dfox)
 
 **DFox** is a Rust-based database management tool that provides a terminal user interface (TUI) for interacting with PostgreSQL and MySQL databases.
 It allows users to perform database operations easily and efficiently through a simple and intuitive interface.
