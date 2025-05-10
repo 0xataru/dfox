@@ -4,8 +4,9 @@ use std::{
 };
 
 use crossterm::{
-    event::{KeyCode, KeyModifiers},
-    execute, terminal,
+    event::{KeyCode, KeyModifiers, DisableMouseCapture},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType},
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
@@ -45,8 +46,13 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::Char('q') => {
-                terminal::disable_raw_mode().unwrap();
-                execute!(stdout(), terminal::LeaveAlternateScreen).unwrap();
+                disable_raw_mode().unwrap();
+                execute!(
+                    stdout(),
+                    LeaveAlternateScreen,
+                    DisableMouseCapture,
+                    Clear(ClearType::All)
+                ).unwrap();
                 process::exit(0);
             }
             _ => {}
@@ -167,8 +173,13 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::Char('q') => {
-                terminal::disable_raw_mode().unwrap();
-                execute!(stdout(), terminal::LeaveAlternateScreen).unwrap();
+                disable_raw_mode()?;
+                execute!(
+                    stdout(),
+                    LeaveAlternateScreen,
+                    DisableMouseCapture,
+                    Clear(ClearType::All)
+                )?;
                 process::exit(0);
             }
             _ => {}
@@ -220,6 +231,7 @@ impl UIHandler for DatabaseClientUI {
                                 1 => MySqlDatabaseUI::new(self.clone()).describe_table(&selected_table).await,
                                 _ => Err(DbError::Connection("Unsupported database type".to_string())),
                             };
+
                             match result {
                                 Ok(columns) => {
                                     let table_schema = TableSchema {
@@ -258,6 +270,17 @@ impl UIHandler for DatabaseClientUI {
                         eprintln!("Selected table index out of bounds.");
                     }
                 }
+            }
+            KeyCode::Esc => {
+                terminal.clear().unwrap();
+                terminal.show_cursor().unwrap();
+                execute!(
+                    terminal.backend_mut(),
+                    LeaveAlternateScreen,
+                    DisableMouseCapture,
+                    Clear(ClearType::All)
+                ).unwrap();
+                process::exit(0);
             }
             _ => {}
         }

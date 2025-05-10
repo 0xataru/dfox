@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType},
 };
 use dfox_core::{models::schema::TableSchema, DbManager};
 use ratatui::{backend::CrosstermBackend, Terminal};
@@ -141,7 +141,14 @@ impl DatabaseClientUI {
 
         let result = self.ui_loop(&mut terminal).await;
 
+        terminal.clear()?;
         terminal.show_cursor()?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            Clear(ClearType::All)
+        )?;
 
         result
     }
@@ -211,6 +218,13 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
         let mut stdout = io::stdout();
-        let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
+        let _ = execute!(
+            stdout,
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            Clear(ClearType::All)
+        );
+        let _ = execute!(stdout, Clear(ClearType::All));
+        let _ = execute!(stdout, Clear(ClearType::All));
     }
 }
