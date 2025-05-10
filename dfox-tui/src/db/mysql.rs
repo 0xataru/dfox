@@ -1,161 +1,142 @@
-use std::{collections::HashMap, time::Duration};
+use std::sync::Arc;
+use async_trait::async_trait;
 
-use dfox_core::db::{mysql::MySqlClient, DbClient};
-use tokio::time::timeout;
+use dfox_core::{db::{mysql::MySqlClient, DbClient}, errors::DbError};
 
 use crate::ui::DatabaseClientUI;
 
-use super::MySQLUI;
+use super::{DatabaseUI, Connect};
 
-impl MySQLUI for DatabaseClientUI {
-    async fn execute_sql_query(
-        &mut self,
-        query: &str,
-    ) -> Result<(Vec<HashMap<String, serde_json::Value>>, Option<String>), Box<dyn std::error::Error>>
-    {
-        let db_manager = self.db_manager.clone();
-        let connections = db_manager.connections.lock().await;
+pub struct MySqlDatabaseUI {
+    client: DatabaseClientUI,
+}
 
+impl MySqlDatabaseUI {
+    pub fn new(client: DatabaseClientUI) -> Self {
+        Self { client }
+    }
+}
+
+#[async_trait]
+impl DatabaseUI for MySqlDatabaseUI {
+    fn db_manager(&self) -> &Arc<super::DatabaseManager> {
+        &self.client.db_manager
+    }
+
+    fn connection_string(&self) -> String {
+        format!(
+            "mysql://{}:{}@{}:{}/{}",
+            self.client.connection_input.username,
+            self.client.connection_input.password,
+            self.client.connection_input.hostname,
+            self.client.connection_input.port,
+            "mysql"
+        )
+    }
+
+    async fn execute_sql_query(&self, query: &str) -> Result<(Vec<String>, String), DbError> {
+        let connections = self.db_manager().connections.lock().await;
         if let Some(client) = connections.first() {
             let query_trimmed = query.trim();
             let query_upper = query_trimmed.to_uppercase();
 
             if query_upper.starts_with("SELECT") {
-                let rows: Vec<serde_json::Value> = client.query(query_trimmed).await?;
-
-                let hash_map_results: Vec<HashMap<String, serde_json::Value>> = rows
+                let rows = client.query(query_trimmed).await?;
+                let results = rows
                     .into_iter()
-                    .filter_map(|row| {
-                        if let serde_json::Value::Object(map) = row {
-                            Some(
-                                map.into_iter()
-                                    .collect::<HashMap<String, serde_json::Value>>(),
-                            )
-                        } else {
-                            None
-                        }
-                    })
+                    .map(|row| row.to_string())
                     .collect();
-
-                self.sql_query_result = hash_map_results.clone();
-                Ok((hash_map_results, None))
+                Ok((results, String::new()))
             } else {
                 client.execute(query_trimmed).await?;
-                let success_message = "Non-SELECT query executed successfully.".to_string();
-                Ok((Vec::new(), Some(success_message)))
+                Ok((Vec::new(), "Non-SELECT query executed successfully.".to_string()))
             }
         } else {
-            Err("No database connection available.".into())
+            Err(DbError::Connection("No database connection available.".into()))
         }
     }
 
-    async fn describe_table(
-        &self,
-        table_name: &str,
-    ) -> Result<dfox_core::models::schema::TableSchema, Box<dyn std::error::Error>> {
-        let db_manager = self.db_manager.clone();
-        let connections = db_manager.connections.lock().await;
-
+    async fn describe_table(&self, table_name: &str) -> Result<Vec<String>, DbError> {
+        let connections = self.db_manager().connections.lock().await;
         if let Some(client) = connections.first() {
             let schema = client.describe_table(table_name).await?;
-            Ok(schema)
+            Ok(schema.columns.into_iter().map(|c| c.name).collect())
         } else {
-            Err("No database connection available.".into())
+            Err(DbError::Connection("No database connection found".into()))
         }
     }
 
-    async fn fetch_databases(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let db_manager = self.db_manager.clone();
-        let connections = db_manager.connections.lock().await;
-
+    async fn fetch_databases(&self) -> Result<Vec<String>, DbError> {
+        let connections = self.db_manager().connections.lock().await;
         if let Some(client) = connections.first() {
             let databases = client.list_databases().await?;
             Ok(databases)
         } else {
-            Err("No database connection available.".into())
+            Err(DbError::Connection("No database connection found".into()))
         }
     }
 
-    async fn fetch_tables(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let db_manager = self.db_manager.clone();
-        let connections = db_manager.connections.lock().await;
-
+    async fn fetch_tables(&self) -> Result<Vec<String>, DbError> {
+        let connections = self.db_manager().connections.lock().await;
         if let Some(client) = connections.first() {
             let tables = client.list_tables().await?;
             Ok(tables)
         } else {
-            Err("No database connection available.".into())
+            Ok(Vec::new())
         }
     }
 
-    async fn update_tables(&mut self) {
+    async fn update_tables(&self) -> Result<(), DbError> {
         match self.fetch_tables().await {
             Ok(tables) => {
-                self.tables = tables;
-                self.selected_table = 0;
+                let mut client = self.client.clone();
+                client.tables = tables;
+                client.selected_table = 0;
+                Ok(())
             }
             Err(err) => {
-                println!("Error fetching tables: {}", err);
-                self.tables = Vec::new();
-                self.selected_table = 0;
+                let mut client = self.client.clone();
+                client.tables = Vec::new();
+                client.selected_table = 0;
+                Err(err)
             }
         }
     }
 
-    async fn connect_to_selected_db(
-        &mut self,
-        db_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let db_manager = self.db_manager.clone();
-        let mut connections = db_manager.connections.lock().await;
+    async fn connect_to_selected_db(&self, db_name: &str) -> Result<(), DbError> {
+        let mut connections = self.db_manager().connections.lock().await;
         connections.clear();
 
         let connection_string = format!(
             "mysql://{}:{}@{}:{}/{}",
-            self.connection_input.username,
-            self.connection_input.password,
-            self.connection_input.hostname,
-            self.connection_input.port,
-            db_name,
+            self.client.connection_input.username,
+            self.client.connection_input.password,
+            self.client.connection_input.hostname,
+            self.client.connection_input.port,
+            db_name
         );
 
-        let client = MySqlClient::connect(&connection_string).await?;
+        let client = <MySqlClient as Connect>::connect(&connection_string).await?;
         connections.push(Box::new(client) as Box<dyn DbClient + Send + Sync>);
 
         Ok(())
     }
 
-    async fn connect_to_default_db(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let db_manager = self.db_manager.clone();
-        let mut connections = db_manager.connections.lock().await;
+    async fn connect_to_default_db(&self) -> Result<(), DbError> {
+        let mut connections = self.db_manager().connections.lock().await;
+        connections.clear();
 
-        let connection_string = format!(
-            "mysql://{}:{}@{}:{}/mysql",
-            self.connection_input.username,
-            self.connection_input.password,
-            self.connection_input.hostname,
-            self.connection_input.port
-        );
+        let connection_string = self.connection_string();
+        let client = <MySqlClient as Connect>::connect(&connection_string).await?;
+        connections.push(Box::new(client) as Box<dyn DbClient + Send + Sync>);
 
-        let result = timeout(
-            Duration::from_secs(3),
-            MySqlClient::connect(&connection_string),
-        )
-        .await;
+        Ok(())
+    }
+}
 
-        match result {
-            Ok(Ok(client)) => {
-                connections.push(Box::new(client) as Box<dyn DbClient + Send + Sync>);
-                Ok(())
-            }
-            Ok(Err(e)) => {
-                self.connection_error_message = Some(format!("Connection error: {}", e));
-                Err(Box::new(e))
-            }
-            Err(_) => {
-                self.connection_error_message = Some("Connection timed out".to_string());
-                Err("Timed out while trying to connect".into())
-            }
-        }
+#[async_trait]
+impl Connect for MySqlClient {
+    async fn connect(database_url: &str) -> Result<Self, DbError> {
+        MySqlClient::connect(database_url).await
     }
 }

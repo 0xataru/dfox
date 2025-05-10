@@ -391,6 +391,7 @@ dependencies = [
 name = "dfox-tui"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "crossterm",
  "dfox-core",
  "ratatui",
