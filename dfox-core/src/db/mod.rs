@@ -5,6 +5,9 @@ pub mod mysql;
 pub mod postgres;
 pub mod sqlite;
 
+pub use mysql::MySqlClient;
+pub use postgres::PostgresClient;
+
 #[async_trait]
 pub trait DbClient {
     async fn execute(&self, query: &str) -> Result<(), DbError>;
