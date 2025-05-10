@@ -149,11 +149,18 @@ impl UIHandler for DatabaseClientUI {
             KeyCode::Up => {
                 if self.selected_database > 0 {
                     self.selected_database -= 1;
+                    if self.selected_database < self.databases_scroll {
+                        self.databases_scroll = self.selected_database;
+                    }
                 }
             }
             KeyCode::Down => {
                 if !self.databases.is_empty() && self.selected_database < self.databases.len() - 1 {
                     self.selected_database += 1;
+                    let visible_height = 20; // Примерная высота видимой области
+                    if self.selected_database >= self.databases_scroll + visible_height {
+                        self.databases_scroll = self.selected_database - visible_height + 1;
+                    }
                 }
             }
             KeyCode::Enter => {
@@ -206,11 +213,25 @@ impl UIHandler for DatabaseClientUI {
             KeyCode::Up => {
                 if let FocusedWidget::TablesList = self.current_focus {
                     self.move_selection_up();
+                } else if let FocusedWidget::_QueryResult = self.current_focus {
+                    self.scroll_sql_result_up();
                 }
             }
             KeyCode::Down => {
                 if let FocusedWidget::TablesList = self.current_focus {
                     self.move_selection_down();
+                } else if let FocusedWidget::_QueryResult = self.current_focus {
+                    self.scroll_sql_result_down();
+                }
+            }
+            KeyCode::Left => {
+                if let FocusedWidget::_QueryResult = self.current_focus {
+                    self.scroll_sql_result_left();
+                }
+            }
+            KeyCode::Right => {
+                if let FocusedWidget::_QueryResult = self.current_focus {
+                    self.scroll_sql_result_right();
                 }
             }
             KeyCode::Enter => {
@@ -369,12 +390,45 @@ impl DatabaseClientUI {
     pub fn move_selection_up(&mut self) {
         if self.selected_table > 0 {
             self.selected_table -= 1;
+            if self.selected_table < self.tables_scroll {
+                self.tables_scroll = self.selected_table;
+            }
         }
     }
 
     pub fn move_selection_down(&mut self) {
-        if self.selected_table < self.databases.len().saturating_sub(1) {
+        if self.selected_table < self.tables.len().saturating_sub(1) {
             self.selected_table += 1;
+            let visible_height = 20; // Примерная высота видимой области
+            if self.selected_table >= self.tables_scroll + visible_height {
+                self.tables_scroll = self.selected_table - visible_height + 1;
+            }
+        }
+    }
+
+    pub fn scroll_sql_result_up(&mut self) {
+        if self.sql_result_scroll > 0 {
+            self.sql_result_scroll -= 1;
+        }
+    }
+
+    pub fn scroll_sql_result_down(&mut self) {
+        let visible_height = 20; // Примерная высота видимой области
+        if self.sql_result_scroll + visible_height < self.sql_query_result.len() {
+            self.sql_result_scroll += 1;
+        }
+    }
+
+    pub fn scroll_sql_result_left(&mut self) {
+        if self.sql_result_horizontal_scroll > 0 {
+            self.sql_result_horizontal_scroll -= 1;
+        }
+    }
+
+    pub fn scroll_sql_result_right(&mut self) {
+        let visible_width = 80; // Примерная ширина видимой области
+        if self.sql_result_horizontal_scroll + visible_width < 200 { // Максимальная ширина
+            self.sql_result_horizontal_scroll += 1;
         }
     }
 } 

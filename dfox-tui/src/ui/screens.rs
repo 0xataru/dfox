@@ -299,10 +299,12 @@ impl UIRenderer for DatabaseClientUI {
             }
         }
 
-        let db_list: Vec<ListItem> = self
+        let visible_databases: Vec<ListItem> = self
             .databases
             .iter()
             .enumerate()
+            .skip(self.databases_scroll)
+            .take(20) // Примерная высота видимой области
             .map(|(i, db)| {
                 if i == self.selected_database {
                     ListItem::new(db.clone()).style(
@@ -335,11 +337,11 @@ impl UIRenderer for DatabaseClientUI {
             let horizontal_layout = centered_rect(50, chunks[1]);
 
             let block = Block::default()
-                .title("Select Database")
+                .title(format!("Select Database ({}/{})", self.selected_database + 1, self.databases.len()))
                 .borders(Borders::ALL)
                 .title_alignment(Alignment::Center);
 
-            let db_list_widget = List::new(db_list).block(block).highlight_style(
+            let db_list_widget = List::new(visible_databases).block(block).highlight_style(
                 Style::default()
                     .bg(Color::Yellow)
                     .fg(Color::Black)
@@ -440,48 +442,55 @@ impl UIRenderer for DatabaseClientUI {
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(main_chunks[1]);
 
-            let mut table_list: Vec<ListItem> = Vec::new();
+            let visible_tables: Vec<ListItem> = self.tables
+                .iter()
+                .enumerate()
+                .skip(self.tables_scroll)
+                .take(main_chunks[0].height as usize - 2) // Используем всю доступную высоту
+                .map(|(i, table)| {
+                    let style = if i == self.selected_table {
+                        Style::default().bg(Color::Yellow).fg(Color::Black)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
 
-            for (i, table) in self.tables.iter().enumerate() {
-                let style = if i == self.selected_table {
-                    Style::default().bg(Color::Yellow).fg(Color::Black)
-                } else {
-                    Style::default().fg(Color::White)
-                };
+                    let mut items = vec![ListItem::new(table.to_string()).style(style)];
 
-                table_list.push(ListItem::new(table.to_string()).style(style));
-
-                if let Some(expanded_idx) = self.expanded_table {
-                    if expanded_idx == i {
-                        if let Some(schema) = self.table_schemas.get(table) {
-                            for column in &schema.columns {
-                                let column_info = format!(
-                                    "  ├─ {}: {} (Nullable: {}, Default: {:?})",
-                                    column.name,
-                                    column.data_type,
-                                    column.is_nullable,
-                                    column.default
-                                );
-                                table_list.push(
-                                    ListItem::new(column_info)
-                                        .style(Style::default().fg(Color::Gray)),
-                                );
+                    if let Some(expanded_idx) = self.expanded_table {
+                        if expanded_idx == i {
+                            if let Some(schema) = self.table_schemas.get(table) {
+                                for column in &schema.columns {
+                                    let column_info = format!(
+                                        "  ├─ {}: {} (Nullable: {}, Default: {:?})",
+                                        column.name,
+                                        column.data_type,
+                                        column.is_nullable,
+                                        column.default
+                                    );
+                                    items.push(
+                                        ListItem::new(column_info)
+                                            .style(Style::default().fg(Color::Gray)),
+                                    );
+                                }
                             }
                         }
                     }
-                }
-            }
+
+                    items
+                })
+                .flatten()
+                .collect();
 
             let tables_block = Block::default()
                 .borders(Borders::ALL)
-                .title("Tables")
+                .title(format!("Tables ({}/{})", self.selected_table + 1, self.tables.len()))
                 .border_style(if let FocusedWidget::TablesList = self.current_focus {
                     Style::default().fg(Color::Yellow)
                 } else {
                     Style::default().fg(Color::White)
                 });
 
-            let tables_widget = List::new(table_list)
+            let tables_widget = List::new(visible_tables)
                 .block(tables_block)
                 .highlight_style(Style::default().bg(Color::Yellow).fg(Color::Black));
 
@@ -520,6 +529,8 @@ impl UIRenderer for DatabaseClientUI {
                 let rows: Vec<Row> = self
                     .sql_query_result
                     .iter()
+                    .skip(self.sql_result_scroll)
+                    .take(right_chunks[1].height as usize - 2) // Используем всю доступную высоту
                     .map(|result| {
                         let cells: Vec<String> = headers
                             .iter()
@@ -595,7 +606,9 @@ impl UIRenderer for DatabaseClientUI {
                 Span::raw(" - to return to database selection, "),
                 Span::styled(
                     "Esc",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Red)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(" - to quit"),
             ])];
