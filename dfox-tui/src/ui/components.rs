@@ -3,34 +3,39 @@ use std::{collections::HashMap, sync::Arc};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType},
 };
 use dfox_core::{models::schema::TableSchema, DbManager};
 use ratatui::{backend::CrosstermBackend, Terminal};
-use serde_json::Value;
 use std::io;
 
 use super::{UIHandler, UIRenderer};
 
+#[derive(Clone)]
 pub struct DatabaseClientUI {
     pub db_manager: Arc<DbManager>,
     pub connection_input: ConnectionInput,
     pub current_screen: ScreenState,
     pub selected_db_type: usize,
-    pub selected_database: usize,
     pub databases: Vec<String>,
-    pub current_focus: FocusedWidget,
-    pub selected_table: usize,
+    pub selected_database: usize,
     pub tables: Vec<String>,
-    pub sql_editor_content: String,
-    pub sql_query_result: Vec<HashMap<String, Value>>,
+    pub selected_table: usize,
     pub expanded_table: Option<usize>,
     pub table_schemas: HashMap<String, TableSchema>,
+    pub sql_editor_content: String,
+    pub sql_query_result: Vec<HashMap<String, String>>,
     pub sql_query_error: Option<String>,
     pub sql_query_success_message: Option<String>,
+    pub current_focus: FocusedWidget,
     pub connection_error_message: Option<String>,
+    pub needs_db_refresh: bool,
+    pub needs_tables_refresh: bool,
+    pub last_db_update: Option<std::time::Instant>,
+    pub last_tables_update: Option<std::time::Instant>,
 }
 
+#[derive(Clone)]
 pub enum InputField {
     Username,
     Password,
@@ -38,6 +43,7 @@ pub enum InputField {
     Port,
 }
 
+#[derive(Clone)]
 pub struct ConnectionInput {
     pub username: String,
     pub password: String,
@@ -58,15 +64,16 @@ impl ConnectionInput {
     }
 }
 
+#[derive(Clone)]
 pub enum ScreenState {
-    DbTypeSelection,
-    DatabaseSelection,
-    ConnectionInput,
-    TableView,
     MessagePopup,
+    DbTypeSelection,
+    ConnectionInput,
+    DatabaseSelection,
+    TableView,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub enum FocusedWidget {
     TablesList,
     SqlEditor,
@@ -97,18 +104,22 @@ impl DatabaseClientUI {
             connection_input: ConnectionInput::new(),
             current_screen: ScreenState::DbTypeSelection,
             selected_db_type: 0,
-            selected_database: 0,
             databases: Vec::new(),
-            current_focus: FocusedWidget::TablesList,
-            selected_table: 0,
+            selected_database: 0,
             tables: Vec::new(),
-            sql_editor_content: String::new(),
-            sql_query_result: Vec::new(),
+            selected_table: 0,
             expanded_table: None,
             table_schemas: HashMap::new(),
+            sql_editor_content: String::new(),
+            sql_query_result: Vec::new(),
             sql_query_error: None,
             sql_query_success_message: None,
+            current_focus: FocusedWidget::TablesList,
             connection_error_message: None,
+            needs_db_refresh: true,
+            needs_tables_refresh: true,
+            last_db_update: None,
+            last_tables_update: None,
         }
     }
 
@@ -126,12 +137,18 @@ impl DatabaseClientUI {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-        let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
+        let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
         let result = self.ui_loop(&mut terminal).await;
 
+        terminal.clear()?;
         terminal.show_cursor()?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            Clear(ClearType::All)
+        )?;
 
         result
     }
@@ -201,6 +218,13 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
         let mut stdout = io::stdout();
-        let _ = execute!(stdout, LeaveAlternateScreen, DisableMouseCapture);
+        let _ = execute!(
+            stdout,
+            LeaveAlternateScreen,
+            DisableMouseCapture,
+            Clear(ClearType::All)
+        );
+        let _ = execute!(stdout, Clear(ClearType::All));
+        let _ = execute!(stdout, Clear(ClearType::All));
     }
 }

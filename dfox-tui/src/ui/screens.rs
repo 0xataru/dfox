@@ -4,9 +4,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Row, Table, Wrap};
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io;
+use std::{io, time::Duration};
+use tokio::time::timeout;
 
-use crate::db::{MySQLUI, PostgresUI};
+use crate::db::{DatabaseUI, postgres::PostgresDatabaseUI, mysql::MySqlDatabaseUI};
 
 use super::components::{DatabaseType, FocusedWidget};
 use super::{DatabaseClientUI, UIRenderer};
@@ -260,25 +261,42 @@ impl UIRenderer for DatabaseClientUI {
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> io::Result<()> {
-        match self.selected_db_type {
-            0 => match PostgresUI::fetch_databases(self).await {
-                Ok(databases) => {
-                    self.databases = databases;
+        if self.needs_db_refresh {
+            match self.selected_db_type {
+                0 => {
+                    let db_ui = PostgresDatabaseUI::new(self.clone());
+                    match timeout(Duration::from_secs(5), db_ui.fetch_databases()).await {
+                        Ok(Ok(databases)) => {
+                            self.databases = databases;
+                            self.last_db_update = Some(std::time::Instant::now());
+                            self.needs_db_refresh = false;
+                        }
+                        Ok(Err(err)) => {
+                            eprintln!("Error fetching databases: {}", err);
+                        }
+                        Err(_) => {
+                            eprintln!("Timeout while fetching databases");
+                        }
+                    }
                 }
-                Err(_) => {
-                    self.databases = vec!["Error fetching databases".to_string()];
+                1 => {
+                    let db_ui = MySqlDatabaseUI::new(self.clone());
+                    match timeout(Duration::from_secs(5), db_ui.fetch_databases()).await {
+                        Ok(Ok(databases)) => {
+                            self.databases = databases;
+                            self.last_db_update = Some(std::time::Instant::now());
+                            self.needs_db_refresh = false;
+                        }
+                        Ok(Err(e)) => {
+                            self.databases = vec!["Error fetching databases: {}".to_string(), e.to_string()];
+                        }
+                        Err(_) => {
+                            self.databases = vec!["Timeout while fetching databases".to_string()];
+                        }
+                    }
                 }
-            },
-            1 => match MySQLUI::fetch_databases(self).await {
-                Ok(databases) => {
-                    self.databases = databases;
-                }
-                Err(e) => {
-                    self.databases =
-                        vec!["Error fetching databases: {}".to_string(), e.to_string()];
-                }
-            },
-            _ => (),
+                _ => (),
+            }
         }
 
         let db_list: Vec<ListItem> = self
@@ -374,9 +392,35 @@ impl UIRenderer for DatabaseClientUI {
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> io::Result<()> {
-        let tables = PostgresUI::fetch_tables(self)
-            .await
-            .unwrap_or_else(|_| vec![]);
+        if self.needs_tables_refresh {
+            let tables = match self.selected_db_type {
+                0 => {
+                    let db_ui = PostgresDatabaseUI::new(self.clone());
+                    timeout(Duration::from_secs(5), db_ui.fetch_tables()).await
+                }
+                1 => {
+                    let db_ui = MySqlDatabaseUI::new(self.clone());
+                    timeout(Duration::from_secs(5), db_ui.fetch_tables()).await
+                }
+                _ => Ok(Ok(Vec::new())),
+            };
+
+            match tables {
+                Ok(Ok(tables)) => {
+                    self.tables = tables;
+                    self.last_tables_update = Some(std::time::Instant::now());
+                    self.needs_tables_refresh = false;
+                }
+                Ok(Err(e)) => {
+                    eprintln!("Error fetching tables: {}", e);
+                    self.tables = Vec::new();
+                }
+                Err(_) => {
+                    eprintln!("Timeout while fetching tables");
+                    self.tables = Vec::new();
+                }
+            }
+        }
 
         terminal.draw(|f| {
             let size = f.area();
@@ -398,7 +442,7 @@ impl UIRenderer for DatabaseClientUI {
 
             let mut table_list: Vec<ListItem> = Vec::new();
 
-            for (i, table) in tables.iter().enumerate() {
+            for (i, table) in self.tables.iter().enumerate() {
                 let style = if i == self.selected_table {
                     Style::default().bg(Color::Yellow).fg(Color::Black)
                 } else {
