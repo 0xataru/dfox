@@ -33,6 +33,10 @@ pub struct DatabaseClientUI {
     pub needs_tables_refresh: bool,
     pub last_db_update: Option<std::time::Instant>,
     pub last_tables_update: Option<std::time::Instant>,
+    pub tables_scroll: usize,
+    pub sql_result_scroll: usize,
+    pub sql_result_horizontal_scroll: usize,
+    pub databases_scroll: usize,
 }
 
 #[derive(Clone)]
@@ -120,6 +124,10 @@ impl DatabaseClientUI {
             needs_tables_refresh: true,
             last_db_update: None,
             last_tables_update: None,
+            tables_scroll: 0,
+            sql_result_scroll: 0,
+            sql_result_horizontal_scroll: 0,
+            databases_scroll: 0,
         }
     }
 
