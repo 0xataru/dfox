@@ -6,7 +6,7 @@ use std::{
 use crossterm::{
     event::{KeyCode, KeyModifiers, DisableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType},
+    terminal::{disable_raw_mode, LeaveAlternateScreen, Clear, ClearType},
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
@@ -399,7 +399,7 @@ impl DatabaseClientUI {
     pub fn move_selection_down(&mut self) {
         if self.selected_table < self.tables.len().saturating_sub(1) {
             self.selected_table += 1;
-            let visible_height = 20; // Примерная высота видимой области
+            let visible_height = 50; // Примерная высота видимой области
             if self.selected_table >= self.tables_scroll + visible_height {
                 self.tables_scroll = self.selected_table - visible_height + 1;
             }
