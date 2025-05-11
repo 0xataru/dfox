@@ -382,7 +382,7 @@ impl DatabaseClientUI {
     pub fn cycle_focus(&mut self) {
         self.current_focus = match self.current_focus {
             FocusedWidget::TablesList => FocusedWidget::SqlEditor,
-            FocusedWidget::SqlEditor => FocusedWidget::TablesList,
+            FocusedWidget::SqlEditor => FocusedWidget::_QueryResult,
             FocusedWidget::_QueryResult => FocusedWidget::TablesList,
         };
     }
