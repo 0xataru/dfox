@@ -304,7 +304,7 @@ impl UIRenderer for DatabaseClientUI {
             .iter()
             .enumerate()
             .skip(self.databases_scroll)
-            .take(20) // Примерная высота видимой области
+            .take(20) 
             .map(|(i, db)| {
                 if i == self.selected_database {
                     ListItem::new(db.clone()).style(
@@ -446,7 +446,7 @@ impl UIRenderer for DatabaseClientUI {
                 .iter()
                 .enumerate()
                 .skip(self.tables_scroll)
-                .take(main_chunks[0].height as usize - 2) // Используем всю доступную высоту
+                .take(main_chunks[0].height as usize - 2) 
                 .map(|(i, table)| {
                     let style = if i == self.selected_table {
                         Style::default().bg(Color::Yellow).fg(Color::Black)
@@ -551,8 +551,8 @@ impl UIRenderer for DatabaseClientUI {
                     })
                     .collect();
 
-                let mut constraints = vec![Constraint::Length(4)]; // Для номера строки
-                let remaining_width = right_chunks[1].width - 4; // Вычитаем ширину колонки с номером
+                let mut constraints = vec![Constraint::Length(4)]; 
+                let remaining_width = right_chunks[1].width - 4; 
                 let column_width = remaining_width / (headers.len() as u16);
                 constraints.extend(std::iter::repeat(Constraint::Length(column_width)).take(headers.len()));
 

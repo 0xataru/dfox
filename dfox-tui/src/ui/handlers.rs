@@ -20,6 +20,7 @@ use super::{
 };
 
 use std::collections::HashMap;
+use arboard::Clipboard;
 
 impl UIHandler for DatabaseClientUI {
     async fn handle_message_popup_input(&mut self) {
@@ -157,7 +158,7 @@ impl UIHandler for DatabaseClientUI {
             KeyCode::Down => {
                 if !self.databases.is_empty() && self.selected_database < self.databases.len() - 1 {
                     self.selected_database += 1;
-                    let visible_height = 20; // Примерная высота видимой области
+                    let visible_height = 20; 
                     if self.selected_database >= self.databases_scroll + visible_height {
                         self.databases_scroll = self.selected_database - visible_height + 1;
                     }
@@ -366,6 +367,38 @@ impl UIHandler for DatabaseClientUI {
                     _ => Ok(()),
                 };
             }
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                if let FocusedWidget::_QueryResult = self.current_focus {
+                    if !self.sql_query_result.is_empty() {
+                        let mut headers: Vec<String> = self.sql_query_result[0].keys().cloned().collect();
+                        if let Some(id_index) = headers.iter().position(|h| h.to_lowercase() == "id") {
+                            let id_header = headers.remove(id_index);
+                            headers.insert(0, id_header);
+                        }
+
+                        let mut clipboard_content = String::new();
+                        
+                        clipboard_content.push_str(&headers.join("\t"));
+                        clipboard_content.push('\n');
+
+                        for row in &self.sql_query_result {
+                            let mut row_values = Vec::new();
+                            for header in &headers {
+                                row_values.push(
+                                    row.get(header)
+                                        .map_or("NULL".to_string(), |v| v.to_string())
+                                );
+                            }
+                            clipboard_content.push_str(&row_values.join("\t"));
+                            clipboard_content.push('\n');
+                        }
+
+                        if let Err(e) = Clipboard::new().and_then(|mut ctx| ctx.set_text(clipboard_content)) {
+                            eprintln!("Error copying to clipboard: {}", e);
+                        }
+                    }
+                }
+            }
             (KeyCode::Enter, _) => {
                 self.sql_editor_content.push('\n');
             }
@@ -414,7 +447,7 @@ impl DatabaseClientUI {
     pub fn move_selection_down(&mut self) {
         if self.selected_table < self.tables.len().saturating_sub(1) {
             self.selected_table += 1;
-            let visible_height = 50; // Примерная высота видимой области
+            let visible_height = 50; 
             if self.selected_table >= self.tables_scroll + visible_height {
                 self.tables_scroll = self.selected_table - visible_height + 1;
             }
@@ -428,7 +461,7 @@ impl DatabaseClientUI {
     }
 
     pub fn scroll_sql_result_down(&mut self) {
-        let visible_height = 20; // Примерная высота видимой области
+        let visible_height = 20; 
         if self.sql_result_scroll + visible_height < self.sql_query_result.len() {
             self.sql_result_scroll += 1;
         }
@@ -441,8 +474,8 @@ impl DatabaseClientUI {
     }
 
     pub fn scroll_sql_result_right(&mut self) {
-        let visible_width = 80; // Примерная ширина видимой области
-        if self.sql_result_horizontal_scroll + visible_width < 200 { // Максимальная ширина
+        let visible_width = 80; 
+        if self.sql_result_horizontal_scroll + visible_width < 200 { 
             self.sql_result_horizontal_scroll += 1;
         }
     }
