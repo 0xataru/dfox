@@ -525,29 +525,52 @@ impl UIRenderer for DatabaseClientUI {
                 f.render_widget(sql_query_widget, right_chunks[0]);
                 f.render_widget(error_widget, right_chunks[1]);
             } else if !self.sql_query_result.is_empty() {
-                let headers: Vec<String> = self.sql_query_result[0].keys().cloned().collect();
+                let mut headers: Vec<String> = self.sql_query_result[0].keys().cloned().collect();
+                if let Some(id_index) = headers.iter().position(|h| h.to_lowercase() == "id") {
+                    let id_header = headers.remove(id_index);
+                    headers.insert(0, id_header);
+                }
+                
                 let rows: Vec<Row> = self
                     .sql_query_result
                     .iter()
                     .skip(self.sql_result_scroll)
-                    .take(right_chunks[1].height as usize - 2) // Используем всю доступную высоту
-                    .map(|result| {
-                        let cells: Vec<String> = headers
-                            .iter()
-                            .map(|header| {
+                    .take(right_chunks[1].height as usize - 2)
+                    .enumerate()
+                    .map(|(idx, result)| {
+                        let row_num = self.sql_result_scroll + idx + 1;
+                        let mut cells = vec![format!("{}", row_num)];
+                        for header in &headers {
+                            cells.push(
                                 result
                                     .get(header)
                                     .map_or("NULL".to_string(), |v| v.to_string())
-                            })
-                            .collect();
+                            );
+                        }
                         Row::new(cells)
                     })
                     .collect();
 
-                let sql_result_widget =
-                    Table::new(rows, headers.iter().map(|_| Constraint::Percentage(25)))
-                        .header(Row::new(headers).style(Style::default().fg(Color::Yellow)))
-                        .block(sql_result_block);
+                let mut constraints = vec![Constraint::Length(4)]; // Для номера строки
+                let remaining_width = right_chunks[1].width - 4; // Вычитаем ширину колонки с номером
+                let column_width = remaining_width / (headers.len() as u16);
+                constraints.extend(std::iter::repeat(Constraint::Length(column_width)).take(headers.len()));
+
+                let mut header_cells = vec!["#".to_string()];
+                header_cells.extend(headers);
+
+                let sql_result_widget = Table::new(rows, constraints.clone())
+                    .header(Row::new(header_cells).style(Style::default().fg(Color::Yellow)))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(ratatui::widgets::BorderType::Double)
+                            .title("Query Result")
+                    )
+                    .highlight_style(Style::default().bg(Color::Yellow).fg(Color::Black))
+                    .column_spacing(1)
+                    .widths(&constraints)
+                    .style(Style::default().fg(Color::White));
 
                 f.render_widget(tables_widget, main_chunks[0]);
                 f.render_widget(sql_query_widget, right_chunks[0]);

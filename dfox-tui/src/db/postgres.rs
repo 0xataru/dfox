@@ -39,10 +39,44 @@ impl DatabaseUI for PostgresDatabaseUI {
 
             if query_upper.starts_with("SELECT") {
                 let rows = client.query(query_trimmed).await?;
-                let results = rows
+                if rows.is_empty() {
+                    return Ok((Vec::new(), "Query returned no results.".to_string()));
+                }
+
+                // Получаем названия столбцов из первой строки
+                let headers = if let serde_json::Value::Object(map) = &rows[0] {
+                    map.keys().cloned().collect::<Vec<String>>()
+                } else {
+                    Vec::new()
+                };
+
+                // Формируем строку с заголовками
+                let header_row = headers.join("\t");
+
+                // Формируем строки с данными
+                let data_rows = rows
                     .into_iter()
-                    .map(|row| row.to_string())
-                    .collect();
+                    .map(|row| {
+                        if let serde_json::Value::Object(map) = row {
+                            let mut values = Vec::new();
+                            for header in &headers {
+                                if let Some(value) = map.get(header) {
+                                    values.push(value.to_string());
+                                } else {
+                                    values.push("NULL".to_string());
+                                }
+                            }
+                            values.join("\t")
+                        } else {
+                            row.to_string()
+                        }
+                    })
+                    .collect::<Vec<String>>();
+
+                // Объединяем заголовки и данные
+                let mut results = vec![header_row];
+                results.extend(data_rows);
+
                 Ok((results, String::new()))
             } else {
                 client.execute(query_trimmed).await?;

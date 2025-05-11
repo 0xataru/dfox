@@ -326,13 +326,28 @@ impl UIHandler for DatabaseClientUI {
                     };
                     match result {
                         Ok((result, success_message)) => {
-                            self.sql_query_result = result.into_iter()
-                                .map(|row| {
-                                    let mut map = HashMap::new();
-                                    map.insert("value".to_string(), row);
-                                    map
-                                })
-                                .collect();
+                            if !result.is_empty() {
+                                let headers: Vec<String> = result[0]
+                                    .split('\t')
+                                    .map(|s| s.to_string())
+                                    .collect();
+                                
+                                self.sql_query_result = result
+                                    .into_iter()
+                                    .skip(1)
+                                    .map(|row| {
+                                        let mut map = HashMap::new();
+                                        for (i, value) in row.split('\t').enumerate() {
+                                            if let Some(header) = headers.get(i) {
+                                                map.insert(header.clone(), value.to_string());
+                                            }
+                                        }
+                                        map
+                                    })
+                                    .collect();
+                            } else {
+                                self.sql_query_result = Vec::new();
+                            }
                             self.sql_query_success_message = Some(success_message);
                             self.sql_query_error = None;
                             self.needs_tables_refresh = true;
