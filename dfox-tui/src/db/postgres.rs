@@ -38,11 +38,25 @@ impl DatabaseUI for PostgresDatabaseUI {
             let query_upper = query_trimmed.to_uppercase();
 
             if query_upper.starts_with("SELECT") {
-                let rows = client.query(query_trimmed).await?;
-                let results = rows
+                let (column_names, data_rows) = client.query_with_column_order(query_trimmed).await?;
+                
+                if column_names.is_empty() {
+                    return Ok((Vec::new(), "Query returned no results.".to_string()));
+                }
+
+                // Create header row
+                let header_row = column_names.join("\t");
+
+                // Convert data rows to tab-separated strings
+                let data_strings: Vec<String> = data_rows
                     .into_iter()
-                    .map(|row| row.to_string())
+                    .map(|row| row.join("\t"))
                     .collect();
+
+                // Combine header and data
+                let mut results = vec![header_row];
+                results.extend(data_strings);
+
                 Ok((results, String::new()))
             } else {
                 client.execute(query_trimmed).await?;

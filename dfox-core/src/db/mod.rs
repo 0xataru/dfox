@@ -1,5 +1,6 @@
 use crate::{errors::DbError, models::schema::TableSchema};
 use async_trait::async_trait;
+use serde_json::Value;
 
 pub mod mysql;
 pub mod postgres;
@@ -9,9 +10,10 @@ pub use mysql::MySqlClient;
 pub use postgres::PostgresClient;
 
 #[async_trait]
-pub trait DbClient {
+pub trait DbClient: Send + Sync {
     async fn execute(&self, query: &str) -> Result<(), DbError>;
-    async fn query(&self, query: &str) -> Result<Vec<serde_json::Value>, DbError>;
+    async fn query(&self, query: &str) -> Result<Vec<Value>, DbError>;
+    async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError>;
     async fn begin_transaction<'a>(&'a self) -> Result<Box<dyn Transaction + 'a>, DbError>;
     async fn list_databases(&self) -> Result<Vec<String>, DbError>;
     async fn list_tables(&self) -> Result<Vec<String>, DbError>;
