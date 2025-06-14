@@ -38,44 +38,24 @@ impl DatabaseUI for PostgresDatabaseUI {
             let query_upper = query_trimmed.to_uppercase();
 
             if query_upper.starts_with("SELECT") {
-                let rows = client.query(query_trimmed).await?;
-                if rows.is_empty() {
+                let (column_names, data_rows) = client.query_with_column_order(query_trimmed).await?;
+                
+                if column_names.is_empty() {
                     return Ok((Vec::new(), "Query returned no results.".to_string()));
                 }
 
-                // Получаем названия столбцов из первой строки
-                let headers = if let serde_json::Value::Object(map) = &rows[0] {
-                    map.keys().cloned().collect::<Vec<String>>()
-                } else {
-                    Vec::new()
-                };
+                // Create header row
+                let header_row = column_names.join("\t");
 
-                // Формируем строку с заголовками
-                let header_row = headers.join("\t");
-
-                // Формируем строки с данными
-                let data_rows = rows
+                // Convert data rows to tab-separated strings
+                let data_strings: Vec<String> = data_rows
                     .into_iter()
-                    .map(|row| {
-                        if let serde_json::Value::Object(map) = row {
-                            let mut values = Vec::new();
-                            for header in &headers {
-                                if let Some(value) = map.get(header) {
-                                    values.push(value.to_string());
-                                } else {
-                                    values.push("NULL".to_string());
-                                }
-                            }
-                            values.join("\t")
-                        } else {
-                            row.to_string()
-                        }
-                    })
-                    .collect::<Vec<String>>();
+                    .map(|row| row.join("\t"))
+                    .collect();
 
-                // Объединяем заголовки и данные
+                // Combine header and data
                 let mut results = vec![header_row];
-                results.extend(data_rows);
+                results.extend(data_strings);
 
                 Ok((results, String::new()))
             } else {

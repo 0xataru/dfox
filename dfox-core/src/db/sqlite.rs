@@ -74,6 +74,47 @@ impl DbClient for SqliteClient {
         Ok(results)
     }
 
+    async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
+        // TODO: Implement proper column order preservation for SQLite
+        let rows = self.query(query).await?;
+        
+        if rows.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        // Extract column names from first row (alphabetical order for now)
+        let column_names: Vec<String> = if let Value::Object(map) = &rows[0] {
+            map.keys().cloned().collect()
+        } else {
+            Vec::new()
+        };
+
+        // Convert rows to string vectors
+        let data_rows: Vec<Vec<String>> = rows
+            .into_iter()
+            .map(|row| {
+                if let Value::Object(map) = row {
+                    column_names
+                        .iter()
+                        .map(|col| {
+                            map.get(col)
+                                .map(|v| match v {
+                                    Value::Null => "NULL".to_string(),
+                                    Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                })
+                                .unwrap_or_else(|| "NULL".to_string())
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
+
+        Ok((column_names, data_rows))
+    }
+
     async fn begin_transaction<'a>(&'a self) -> Result<Box<dyn Transaction + 'a>, DbError> {
         let tx = self
             .pool
@@ -178,6 +219,7 @@ mod tests {
         impl DbClient for DbClientMock {
             async fn execute(&self, query: &str) -> Result<(), DbError>;
             async fn query(&self, query: &str) -> Result<Vec<serde_json::Value>, DbError>;
+            async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError>;
             async fn list_databases(&self) -> Result<Vec<String>, DbError>;
             async fn list_tables(&self) -> Result<Vec<String>, DbError>;
             async fn describe_table(&self, table_name: &str) -> Result<TableSchema, DbError>;
