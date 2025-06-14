@@ -3,6 +3,7 @@ pub use types::ColumnType;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use indexmap::IndexMap;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row, Column, TypeInfo};
 
 use crate::{
@@ -47,23 +48,60 @@ impl DbClient for PostgresClient {
         let results = rows
             .iter()
             .map(|row| {
-                let json_map = row
-                    .columns()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, column)| {
-                        let column_name = column.name().to_string();
-                        let column_type = ColumnType::from_type_name(column.type_info().name());
-                        let value = column_type.to_json_value(row, i);
-                        (column_name, value)
-                    })
-                    .collect();
+                let mut json_map = IndexMap::new();
+                // Insert columns in the order they appear in the SQL result
+                for (i, column) in row.columns().iter().enumerate() {
+                    let column_name = column.name().to_string();
+                    let column_type = ColumnType::from_type_name(column.type_info().name());
+                    let value = column_type.to_json_value(row, i);
+                    json_map.insert(column_name, value);
+                }
 
-                Value::Object(json_map)
+                Value::Object(json_map.into_iter().collect())
             })
             .collect();
 
         Ok(results)
+    }
+
+    async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
+        let rows = sqlx::query(query)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(DbError::Sqlx)?;
+
+        if rows.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        // Get column names in the order they appear in the SQL result
+        let column_names: Vec<String> = rows[0]
+            .columns()
+            .iter()
+            .map(|col| col.name().to_string())
+            .collect();
+
+        // Convert each row to a vector of string values in column order
+        let data_rows: Vec<Vec<String>> = rows
+            .iter()
+            .map(|row| {
+                row.columns()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, column)| {
+                        let column_type = ColumnType::from_type_name(column.type_info().name());
+                        let value = column_type.to_json_value(row, i);
+                        match value {
+                            Value::Null => "NULL".to_string(),
+                            Value::String(s) => s,
+                            other => other.to_string(),
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+
+        Ok((column_names, data_rows))
     }
 
     async fn begin_transaction<'a>(&'a self) -> Result<Box<dyn Transaction + 'a>, DbError> {
@@ -120,6 +158,7 @@ impl DbClient for PostgresClient {
             SELECT column_name, data_type, is_nullable, column_default
             FROM information_schema.columns
             WHERE table_name = '{}'
+            ORDER BY ordinal_position
             "#,
             table_name
         );

@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use indexmap::IndexMap;
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -10,6 +11,9 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 
 use super::{UIHandler, UIRenderer};
+
+// Constants
+pub const MAX_VISIBLE_COLUMNS: usize = 8;
 
 #[derive(Clone)]
 pub struct DatabaseClientUI {
@@ -24,7 +28,7 @@ pub struct DatabaseClientUI {
     pub expanded_table: Option<usize>,
     pub table_schemas: HashMap<String, TableSchema>,
     pub sql_editor_content: String,
-    pub sql_query_result: Vec<HashMap<String, String>>,
+    pub sql_query_result: Vec<IndexMap<String, String>>,
     pub sql_query_error: Option<String>,
     pub sql_query_success_message: Option<String>,
     pub current_focus: FocusedWidget,
@@ -37,6 +41,11 @@ pub struct DatabaseClientUI {
     pub sql_result_scroll: usize,
     pub sql_result_horizontal_scroll: usize,
     pub databases_scroll: usize,
+    pub selected_result_row: usize,
+    pub sql_editor_scroll: usize,
+    pub sql_editor_cursor_x: usize,
+    pub sql_editor_cursor_y: usize,
+    pub debug_info: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -77,7 +86,7 @@ pub enum ScreenState {
     TableView,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum FocusedWidget {
     TablesList,
     SqlEditor,
@@ -128,7 +137,30 @@ impl DatabaseClientUI {
             sql_result_scroll: 0,
             sql_result_horizontal_scroll: 0,
             databases_scroll: 0,
+            selected_result_row: 0,
+            sql_editor_scroll: 0,
+            sql_editor_cursor_x: 0,
+            sql_editor_cursor_y: 0,
+            debug_info: Vec::new(),
         }
+    }
+
+    pub fn add_debug_info(&mut self, info: String) {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let debug_msg = format!("[{}] {}", timestamp, info);
+        
+        self.debug_info.push(debug_msg.clone());
+        
+        // Keep only last 100 debug messages to prevent memory issues
+        if self.debug_info.len() > 100 {
+            self.debug_info.remove(0);
+        }
+        
+        // Also log to file
+        log::debug!("{}", info);
     }
 
     pub fn current_input_index(&self) -> usize {
@@ -224,15 +256,17 @@ struct TerminalGuard;
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
+        if let Err(e) = disable_raw_mode() {
+            log::error!("Error disabling raw mode: {}", e);
+        }
         let mut stdout = io::stdout();
-        let _ = execute!(
+        if let Err(e) = execute!(
             stdout,
             LeaveAlternateScreen,
             DisableMouseCapture,
             Clear(ClearType::All)
-        );
-        let _ = execute!(stdout, Clear(ClearType::All));
-        let _ = execute!(stdout, Clear(ClearType::All));
+        ) {
+            log::error!("Error cleaning up terminal: {}", e);
+        }
     }
 }

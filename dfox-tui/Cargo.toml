@@ -10,4 +10,9 @@ dfox-core = {path = "../dfox-core/"}
 tokio = { version = "1.40.0", features = ["full"] }
 serde_json = "1.0.128"
 async-trait = "0.1.77"
+arboard = "3.3.0"
+log = "0.4.21"
+env_logger = "0.11.3"
+dotenv = "0.15.0"
+indexmap = "2.0.0"
 
