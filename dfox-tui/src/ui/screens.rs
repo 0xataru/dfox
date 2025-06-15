@@ -535,10 +535,6 @@ impl UIRenderer for DatabaseClientUI {
                 // Get headers from IndexMap which preserves insertion order
                 let headers = if let Some(first_result) = self.sql_query_result.first() {
                     let keys: Vec<String> = first_result.keys().cloned().collect();
-                    // Debug: check headers order in UI
-                    if keys.len() > 5 {
-                        eprintln!("UI Headers order (first 5): {:?}", &keys[0..5]);
-                    }
                     keys
                 } else {
                     Vec::new()
