@@ -10,15 +10,24 @@ use crossterm::{
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
-use crate::db::{DatabaseUI, postgres::PostgresDatabaseUI, mysql::MySqlDatabaseUI};
 use dfox_core::errors::DbError;
 use dfox_core::models::schema::TableSchema;
-
-use super::{
-    components::{FocusedWidget, InputField, ScreenState, MAX_VISIBLE_COLUMNS},
-    DatabaseClientUI, UIHandler, UIRenderer,
+use crate::{
+    db::{
+        mysql::MySqlDatabaseUI, 
+        postgres::PostgresDatabaseUI, 
+        DatabaseUI,
+    }, 
+    ui::components::types::{
+        MAX_VISIBLE_COLUMNS, 
+        FocusedWidget, 
+        ScreenState,
+    },
 };
 
+use super::{DatabaseClientUI, UIHandler, UIRenderer};
+
+use crate::ui::components::connection_input::InputField;
 use arboard::Clipboard;
 use indexmap::IndexMap;
 
@@ -210,7 +219,7 @@ impl UIHandler for DatabaseClientUI {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
                 self.add_debug_info(format!("Ctrl+C pressed, current focus: {:?}", self.current_focus));
                 
-                if let FocusedWidget::_QueryResult = self.current_focus {
+                if let FocusedWidget::QueryResult = self.current_focus {
                     if !self.sql_query_result.is_empty() {
                         // Get headers from IndexMap which preserves insertion order
                         let headers = if let Some(first_result) = self.sql_query_result.first() {
@@ -297,7 +306,7 @@ impl UIHandler for DatabaseClientUI {
             (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
                 self.add_debug_info(format!("Ctrl+A pressed, current focus: {:?}", self.current_focus));
                 
-                if let FocusedWidget::_QueryResult = self.current_focus {
+                if let FocusedWidget::QueryResult = self.current_focus {
                     if !self.sql_query_result.is_empty() {
                         // Get headers from IndexMap which preserves insertion order
                         let headers = if let Some(first_result) = self.sql_query_result.first() {
@@ -398,7 +407,7 @@ impl UIHandler for DatabaseClientUI {
             KeyCode::Up => {
                 if let FocusedWidget::TablesList = self.current_focus {
                     self.move_selection_up();
-                } else if let FocusedWidget::_QueryResult = self.current_focus {
+                } else if let FocusedWidget::QueryResult = self.current_focus {
                     if !self.sql_query_result.is_empty() && self.selected_result_row > 0 {
                         self.selected_result_row -= 1;
                         if self.selected_result_row < self.sql_result_scroll {
@@ -411,7 +420,7 @@ impl UIHandler for DatabaseClientUI {
             KeyCode::Down => {
                 if let FocusedWidget::TablesList = self.current_focus {
                     self.move_selection_down();
-                } else if let FocusedWidget::_QueryResult = self.current_focus {
+                } else if let FocusedWidget::QueryResult = self.current_focus {
                     if !self.sql_query_result.is_empty() && self.selected_result_row < self.sql_query_result.len().saturating_sub(1) {
                         self.selected_result_row += 1;
                         let visible_height = 20;
@@ -423,7 +432,7 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::Left => {
-                if self.current_focus == FocusedWidget::_QueryResult && !self.sql_query_result.is_empty() {
+                if self.current_focus == FocusedWidget::QueryResult && !self.sql_query_result.is_empty() {
                     if self.sql_result_horizontal_scroll > 0 {
                         self.sql_result_horizontal_scroll = self.sql_result_horizontal_scroll.saturating_sub(1);
                     }
@@ -435,7 +444,7 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::Right => {
-                if self.current_focus == FocusedWidget::_QueryResult && !self.sql_query_result.is_empty() {
+                if self.current_focus == FocusedWidget::QueryResult && !self.sql_query_result.is_empty() {
                     // Get the maximum number of columns and account for limited visible columns
                     let total_columns = if let Some(first_row) = self.sql_query_result.first() {
                         first_row.len()
@@ -470,7 +479,7 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::PageUp => {
-                if matches!(self.current_focus, FocusedWidget::_QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
                     let page_size = 10;
                     if self.selected_result_row >= page_size {
                         self.selected_result_row -= page_size;
@@ -482,7 +491,7 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::PageDown => {
-                if matches!(self.current_focus, FocusedWidget::_QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
                     let page_size = 10;
                     let max_row = self.sql_query_result.len().saturating_sub(1);
                     if self.selected_result_row + page_size <= max_row {
@@ -498,7 +507,7 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::Home => {
-                if matches!(self.current_focus, FocusedWidget::_QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
                     self.selected_result_row = 0;
                     self.sql_result_scroll = 0;
                     self.sql_result_horizontal_scroll = 0;
@@ -506,7 +515,7 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::End => {
-                if matches!(self.current_focus, FocusedWidget::_QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
                     self.selected_result_row = self.sql_query_result.len().saturating_sub(1);
                     let visible_height = 20;
                     self.sql_result_scroll = self.selected_result_row.saturating_sub(visible_height - 1);
@@ -895,12 +904,12 @@ impl DatabaseClientUI {
     pub fn cycle_focus(&mut self) {
         self.current_focus = match self.current_focus {
             FocusedWidget::TablesList => FocusedWidget::SqlEditor,
-            FocusedWidget::SqlEditor => FocusedWidget::_QueryResult,
-            FocusedWidget::_QueryResult => FocusedWidget::TablesList,
+            FocusedWidget::SqlEditor => FocusedWidget::QueryResult,
+            FocusedWidget::QueryResult => FocusedWidget::TablesList,
         };
     }
 
-    pub fn move_selection_up(&mut self) {
+    pub fn move_selection_up(&mut self) {   
         if self.selected_table > 0 {
             self.selected_table -= 1;
             if self.selected_table < self.tables_scroll {

@@ -9,7 +9,7 @@ use tokio::time::timeout;
 
 use crate::db::{DatabaseUI, postgres::PostgresDatabaseUI, mysql::MySqlDatabaseUI};
 
-use super::components::{DatabaseType, FocusedWidget, MAX_VISIBLE_COLUMNS};
+use super::components::types::{DatabaseType, FocusedWidget, MAX_VISIBLE_COLUMNS};
 use super::{DatabaseClientUI, UIRenderer};
 
 impl UIRenderer for DatabaseClientUI {
@@ -517,7 +517,7 @@ impl UIRenderer for DatabaseClientUI {
             let sql_result_block = Block::default()
                 .borders(Borders::ALL)
                 .title("Query Result")
-                .border_style(if let FocusedWidget::_QueryResult = self.current_focus {
+                .border_style(if let FocusedWidget::QueryResult = self.current_focus {
                     Style::default().fg(Color::Yellow)
                 } else {
                     Style::default().fg(Color::White)
@@ -642,7 +642,7 @@ impl UIRenderer for DatabaseClientUI {
                             if total_rows > 0 && 
                                self.selected_result_row < total_rows &&
                                safe_scroll + idx == self.selected_result_row && 
-                               matches!(self.current_focus, FocusedWidget::_QueryResult) {
+                               matches!(self.current_focus, FocusedWidget::QueryResult) {
                                 row.style(Style::default().bg(Color::Yellow).fg(Color::Black))
                             } else {
                                 row.style(Style::default().fg(Color::White))
@@ -701,7 +701,7 @@ impl UIRenderer for DatabaseClientUI {
                         Block::default()
                             .borders(Borders::ALL)
                             .border_type(ratatui::widgets::BorderType::Double)
-                            .border_style(if let FocusedWidget::_QueryResult = self.current_focus {
+                            .border_style(if let FocusedWidget::QueryResult = self.current_focus {
                                 Style::default().fg(Color::Yellow)
                             } else {
                                 Style::default().fg(Color::White)
