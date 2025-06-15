@@ -86,7 +86,7 @@ pub enum ScreenState {
     TableView,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum FocusedWidget {
     TablesList,
     SqlEditor,
@@ -154,12 +154,10 @@ impl DatabaseClientUI {
         
         self.debug_info.push(debug_msg.clone());
         
-        // Keep only last 100 debug messages to prevent memory issues
         if self.debug_info.len() > 100 {
             self.debug_info.remove(0);
         }
         
-        // Also log to file
         log::debug!("{}", info);
     }
 
@@ -243,7 +241,7 @@ impl DatabaseClientUI {
                             )
                             .await;
                         } else {
-                            UIHandler::handle_table_view_input(self, key.code, terminal).await;
+                            UIHandler::handle_table_view_input(self, key.code, key.modifiers, terminal).await;
                         }
                     }
                 }

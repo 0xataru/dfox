@@ -17,6 +17,7 @@ pub trait UIHandler {
     async fn handle_table_view_input(
         &mut self,
         key: KeyCode,
+        modifiers: KeyModifiers,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     );
     async fn handle_sql_editor_input(

@@ -202,8 +202,188 @@ impl UIHandler for DatabaseClientUI {
     async fn handle_table_view_input(
         &mut self,
         key: KeyCode,
+        modifiers: KeyModifiers,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) {
+        // Handle clipboard operations first for any focus widget
+        match (key, modifiers) {
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                self.add_debug_info(format!("Ctrl+C pressed, current focus: {:?}", self.current_focus));
+                
+                if let FocusedWidget::_QueryResult = self.current_focus {
+                    if !self.sql_query_result.is_empty() {
+                        // Get headers from IndexMap which preserves insertion order
+                        let headers = if let Some(first_result) = self.sql_query_result.first() {
+                            first_result.keys().cloned().collect::<Vec<String>>()
+                        } else {
+                            Vec::new()
+                        };
+
+                        let mut clipboard_content = String::new();
+                        
+                        // Add headers
+                        clipboard_content.push_str(&headers.join("\t"));
+                        clipboard_content.push('\n');
+
+                        // Add selected row if it exists
+                        if let Some(row) = self.sql_query_result.get(self.selected_result_row) {
+                            let mut row_values = Vec::new();
+                            for header in &headers {
+                                row_values.push(
+                                    row.get(header)
+                                        .map_or("NULL".to_string(), |v| v.to_string())
+                                );
+                            }
+                            clipboard_content.push_str(&row_values.join("\t"));
+                            clipboard_content.push('\n');
+                        }
+
+                        // Add debug info about what we're copying
+                        self.add_debug_info(format!("Attempting to copy {} chars to clipboard", clipboard_content.len()));
+                        self.add_debug_info(format!("Selected row: {}/{}", self.selected_result_row + 1, self.sql_query_result.len()));
+                        self.add_debug_info(format!("Content preview: {:?}", &clipboard_content[..std::cmp::min(50, clipboard_content.len())]));
+                        
+                        match Clipboard::new() {
+                            Ok(mut clipboard) => {
+                                // First try to clear any existing content
+                                let _ = clipboard.set_text("");
+                                
+                                match clipboard.set_text(clipboard_content.clone()) {
+                                    Ok(()) => {
+                                        self.add_debug_info("Successfully copied to clipboard!".to_string());
+                                        
+                                        // Verify the copy worked by reading it back
+                                        match clipboard.get_text() {
+                                            Ok(read_back) => {
+                                                if read_back == clipboard_content {
+                                                    self.add_debug_info("✓ Clipboard verification successful".to_string());
+                                                    self.sql_query_success_message = Some(format!("Copied row {} to clipboard", self.selected_result_row + 1));
+                                                } else {
+                                                    self.add_debug_info(format!("✗ Clipboard verification failed. Expected {} chars, got {} chars", clipboard_content.len(), read_back.len()));
+                                                    self.sql_query_error = Some("Clipboard copy verification failed".to_string());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                self.add_debug_info(format!("Could not verify clipboard: {}", e));
+                                                self.sql_query_success_message = Some(format!("Copied row {} to clipboard (unverified)", self.selected_result_row + 1));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        self.add_debug_info(format!("Failed to set clipboard text: {}", e));
+                                        log::error!("Error setting clipboard text: {}", e);
+                                        // Show error message to user
+                                        self.sql_query_error = Some(format!("Clipboard error: {}", e));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                self.add_debug_info(format!("Failed to create clipboard: {}", e));
+                                log::error!("Error creating clipboard: {}", e);
+                                // Show error message to user
+                                self.sql_query_error = Some(format!("Cannot access clipboard: {}", e));
+                            }
+                        }
+                    } else {
+                        self.add_debug_info("No query results to copy".to_string());
+                        self.sql_query_error = Some("No query results to copy".to_string());
+                    }
+                } else {
+                    self.add_debug_info(format!("Wrong focus for copying. Current focus: {:?}", self.current_focus));
+                    self.sql_query_error = Some("Switch focus to query results (Tab) before copying".to_string());
+                }
+                return;
+            }
+            (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
+                self.add_debug_info(format!("Ctrl+A pressed, current focus: {:?}", self.current_focus));
+                
+                if let FocusedWidget::_QueryResult = self.current_focus {
+                    if !self.sql_query_result.is_empty() {
+                        // Get headers from IndexMap which preserves insertion order
+                        let headers = if let Some(first_result) = self.sql_query_result.first() {
+                            first_result.keys().cloned().collect::<Vec<String>>()
+                        } else {
+                            Vec::new()
+                        };
+
+                        let mut clipboard_content = String::new();
+                        
+                        // Add headers
+                        clipboard_content.push_str(&headers.join("\t"));
+                        clipboard_content.push('\n');
+
+                        // Add all rows
+                        for row in &self.sql_query_result {
+                            let mut row_values = Vec::new();
+                            for header in &headers {
+                                row_values.push(
+                                    row.get(header)
+                                        .map_or("NULL".to_string(), |v| v.to_string())
+                                );
+                            }
+                            clipboard_content.push_str(&row_values.join("\t"));
+                            clipboard_content.push('\n');
+                        }
+
+                        // Add debug info about what we're copying
+                        self.add_debug_info(format!("Attempting to copy {} chars ({} rows) to clipboard", 
+                            clipboard_content.len(), self.sql_query_result.len()));
+                        self.add_debug_info(format!("Content preview: {:?}", &clipboard_content[..std::cmp::min(100, clipboard_content.len())]));
+                        
+                        match Clipboard::new() {
+                            Ok(mut clipboard) => {
+                                // First try to clear any existing content
+                                let _ = clipboard.set_text("");
+                                
+                                match clipboard.set_text(clipboard_content.clone()) {
+                                    Ok(()) => {
+                                        self.add_debug_info("Successfully copied all results to clipboard!".to_string());
+                                        
+                                        // Verify the copy worked by reading it back
+                                        match clipboard.get_text() {
+                                            Ok(read_back) => {
+                                                if read_back == clipboard_content {
+                                                    self.add_debug_info("✓ Clipboard verification successful".to_string());
+                                                    self.sql_query_success_message = Some(format!("Copied {} rows to clipboard", self.sql_query_result.len()));
+                                                } else {
+                                                    self.add_debug_info(format!("✗ Clipboard verification failed. Expected {} chars, got {} chars", clipboard_content.len(), read_back.len()));
+                                                    self.sql_query_error = Some("Clipboard copy verification failed".to_string());
+                                                }
+                                            }
+                                            Err(e) => {
+                                                self.add_debug_info(format!("Could not verify clipboard: {}", e));
+                                                self.sql_query_success_message = Some(format!("Copied {} rows to clipboard (unverified)", self.sql_query_result.len()));
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        self.add_debug_info(format!("Failed to set clipboard text: {}", e));
+                                        log::error!("Error setting clipboard text: {}", e);
+                                        // Show error message to user
+                                        self.sql_query_error = Some(format!("Clipboard error: {}", e));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                self.add_debug_info(format!("Failed to create clipboard: {}", e));
+                                log::error!("Error creating clipboard: {}", e);
+                                // Show error message to user
+                                self.sql_query_error = Some(format!("Cannot access clipboard: {}", e));
+                            }
+                        }
+                    } else {
+                        self.add_debug_info("No query results to copy".to_string());
+                        self.sql_query_error = Some("No query results to copy".to_string());
+                    }
+                } else {
+                    self.add_debug_info(format!("Wrong focus for copying. Current focus: {:?}", self.current_focus));
+                    self.sql_query_error = Some("Switch focus to query results (Tab) before copying".to_string());
+                }
+                return;
+            }
+            _ => {}
+        }
+        
         match key {
             KeyCode::F(1) => {
                 self.current_screen = ScreenState::DatabaseSelection;
@@ -234,7 +414,7 @@ impl UIHandler for DatabaseClientUI {
                 } else if let FocusedWidget::_QueryResult = self.current_focus {
                     if !self.sql_query_result.is_empty() && self.selected_result_row < self.sql_query_result.len().saturating_sub(1) {
                         self.selected_result_row += 1;
-                        let visible_height = 20; // Adjust based on terminal size
+                        let visible_height = 20;
                         if self.selected_result_row >= self.sql_result_scroll + visible_height {
                             self.sql_result_scroll = self.selected_result_row.saturating_sub(visible_height - 1);
                         }
@@ -246,7 +426,6 @@ impl UIHandler for DatabaseClientUI {
                 if self.current_focus == FocusedWidget::_QueryResult && !self.sql_query_result.is_empty() {
                     if self.sql_result_horizontal_scroll > 0 {
                         self.sql_result_horizontal_scroll = self.sql_result_horizontal_scroll.saturating_sub(1);
-                        self.add_debug_info(format!("Horizontal scroll left to: {}", self.sql_result_horizontal_scroll));
                     }
                 } else if self.current_focus == FocusedWidget::SqlEditor {
                     if self.sql_editor_cursor_x > 0 {
@@ -410,6 +589,9 @@ impl UIHandler for DatabaseClientUI {
                 process::exit(0);
             }
             _ => {}
+        }
+        if let Err(err) = UIRenderer::render_table_view_screen(self, terminal).await {
+            log::error!("Error rendering UI: {}", err);
         }
     }
 
@@ -597,76 +779,6 @@ impl UIHandler for DatabaseClientUI {
                     },
                     _ => Ok(()),
                 };
-            }
-            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                if let FocusedWidget::_QueryResult = self.current_focus {
-                    if !self.sql_query_result.is_empty() {
-                        // Get headers from IndexMap which preserves insertion order
-                        let headers = if let Some(first_result) = self.sql_query_result.first() {
-                            first_result.keys().cloned().collect::<Vec<String>>()
-                        } else {
-                            Vec::new()
-                        };
-
-                        let mut clipboard_content = String::new();
-                        
-                        // Add headers
-                        clipboard_content.push_str(&headers.join("\t"));
-                        clipboard_content.push('\n');
-
-                        // Add selected row if it exists
-                        if let Some(row) = self.sql_query_result.get(self.selected_result_row) {
-                            let mut row_values = Vec::new();
-                            for header in &headers {
-                                row_values.push(
-                                    row.get(header)
-                                        .map_or("NULL".to_string(), |v| v.to_string())
-                                );
-                            }
-                            clipboard_content.push_str(&row_values.join("\t"));
-                            clipboard_content.push('\n');
-                        }
-
-                        if let Err(e) = Clipboard::new().and_then(|mut ctx| ctx.set_text(clipboard_content)) {
-                            log::error!("Error copying to clipboard: {}", e);
-                        }
-                    }
-                }
-            }
-            (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
-                if let FocusedWidget::_QueryResult = self.current_focus {
-                    if !self.sql_query_result.is_empty() {
-                        // Get headers from IndexMap which preserves insertion order
-                        let headers = if let Some(first_result) = self.sql_query_result.first() {
-                            first_result.keys().cloned().collect::<Vec<String>>()
-                        } else {
-                            Vec::new()
-                        };
-
-                        let mut clipboard_content = String::new();
-                        
-                        // Add headers
-                        clipboard_content.push_str(&headers.join("\t"));
-                        clipboard_content.push('\n');
-
-                        // Add all rows
-                        for row in &self.sql_query_result {
-                            let mut row_values = Vec::new();
-                            for header in &headers {
-                                row_values.push(
-                                    row.get(header)
-                                        .map_or("NULL".to_string(), |v| v.to_string())
-                                );
-                            }
-                            clipboard_content.push_str(&row_values.join("\t"));
-                            clipboard_content.push('\n');
-                        }
-
-                        if let Err(e) = Clipboard::new().and_then(|mut ctx| ctx.set_text(clipboard_content)) {
-                            log::error!("Error copying to clipboard: {}", e);
-                        }
-                    }
-                }
             }
             (KeyCode::Enter, _) => {
                 if let FocusedWidget::SqlEditor = self.current_focus {
