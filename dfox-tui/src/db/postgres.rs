@@ -1,8 +1,11 @@
-use std::sync::Arc;
-use async_trait::async_trait;
-use dfox_core::{db::{DbClient, postgres::PostgresClient}, errors::DbError};
-use crate::db::{Connect, DatabaseUI, DatabaseManager};
+use crate::db::{Connect, DatabaseManager, DatabaseUI};
 use crate::ui::DatabaseClientUI;
+use async_trait::async_trait;
+use dfox_core::{
+    db::{postgres::PostgresClient, DbClient},
+    errors::DbError,
+};
+use std::sync::Arc;
 
 pub struct PostgresDatabaseUI {
     client: DatabaseClientUI,
@@ -38,8 +41,9 @@ impl DatabaseUI for PostgresDatabaseUI {
             let query_upper = query_trimmed.to_uppercase();
 
             if query_upper.starts_with("SELECT") {
-                let (column_names, data_rows) = client.query_with_column_order(query_trimmed).await?;
-                
+                let (column_names, data_rows) =
+                    client.query_with_column_order(query_trimmed).await?;
+
                 if column_names.is_empty() {
                     return Ok((Vec::new(), "Query returned no results.".to_string()));
                 }
@@ -48,10 +52,8 @@ impl DatabaseUI for PostgresDatabaseUI {
                 let header_row = column_names.join("\t");
 
                 // Convert data rows to tab-separated strings
-                let data_strings: Vec<String> = data_rows
-                    .into_iter()
-                    .map(|row| row.join("\t"))
-                    .collect();
+                let data_strings: Vec<String> =
+                    data_rows.into_iter().map(|row| row.join("\t")).collect();
 
                 // Combine header and data
                 let mut results = vec![header_row];
@@ -60,10 +62,15 @@ impl DatabaseUI for PostgresDatabaseUI {
                 Ok((results, String::new()))
             } else {
                 client.execute(query_trimmed).await?;
-                Ok((Vec::new(), "Non-SELECT query executed successfully.".to_string()))
+                Ok((
+                    Vec::new(),
+                    "Non-SELECT query executed successfully.".to_string(),
+                ))
             }
         } else {
-            Err(DbError::Connection("No database connection available.".into()))
+            Err(DbError::Connection(
+                "No database connection available.".into(),
+            ))
         }
     }
 
@@ -150,4 +157,4 @@ impl Connect for PostgresClient {
     async fn connect(database_url: &str) -> Result<Self, DbError> {
         PostgresClient::connect(database_url).await
     }
-} 
+}

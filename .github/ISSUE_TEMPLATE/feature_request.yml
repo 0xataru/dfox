@@ -1,0 +1,18 @@
+name: Feature request
+description: Suggest a new feature, database backend or keybinding
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and why is it awkward today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: How should it work in the TUI? Which screens and keys are involved?
+    validations:
+      required: true

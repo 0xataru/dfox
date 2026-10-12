@@ -1,14 +1,9 @@
 use std::io;
 
 use crossterm::{
-    event::DisableMouseCapture, 
-    execute, 
-    terminal::{
-        disable_raw_mode, 
-        Clear, 
-        ClearType, 
-        LeaveAlternateScreen,
-    },
+    event::DisableMouseCapture,
+    execute,
+    terminal::{disable_raw_mode, Clear, ClearType, LeaveAlternateScreen},
 };
 
 pub struct TerminalGuard;

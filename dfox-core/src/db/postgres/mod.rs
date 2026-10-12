@@ -2,9 +2,9 @@ mod types;
 pub use types::ColumnType;
 
 use async_trait::async_trait;
-use serde_json::Value;
 use indexmap::IndexMap;
-use sqlx::{postgres::PgPoolOptions, PgPool, Row, Column, TypeInfo};
+use serde_json::Value;
+use sqlx::{postgres::PgPoolOptions, Column, PgPool, Row, TypeInfo};
 
 use crate::{
     errors::DbError,
@@ -64,7 +64,10 @@ impl DbClient for PostgresClient {
         Ok(results)
     }
 
-    async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
+    async fn query_with_column_order(
+        &self,
+        query: &str,
+    ) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
         let rows = sqlx::query(query)
             .fetch_all(&self.pool)
             .await
@@ -212,4 +215,4 @@ impl<'a> Transaction for PostgresTransaction<'a> {
             .await
             .map_err(|e| DbError::Transaction(e.to_string()))
     }
-} 
+}

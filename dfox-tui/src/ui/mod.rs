@@ -1,7 +1,6 @@
-
+mod components;
 mod handlers;
 mod screens;
-mod components;
 mod utils;
 
 use std::io;

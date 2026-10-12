@@ -1,37 +1,20 @@
-use std::{collections::HashMap, io, sync::Arc};
 use indexmap::IndexMap;
+use std::{collections::HashMap, io, sync::Arc};
 
 use crossterm::{
-    event::{
-        self, 
-        DisableMouseCapture, 
-        EnableMouseCapture, 
-        Event, 
-        KeyCode,
-    }, 
-    execute, 
-    terminal::{
-        enable_raw_mode, 
-        Clear, 
-        ClearType, 
-        EnterAlternateScreen, 
-        LeaveAlternateScreen,
-    },
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{enable_raw_mode, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
-use dfox_core::{models::schema::TableSchema, DbManager};
-use crate::ui::{UIHandler, UIRenderer};
-use crate::ui::utils::terminal_guard::TerminalGuard;
 use crate::ui::components::{
-    connection_input::{
-        ConnectionInput, 
-        InputField}, 
-        types::{
-            FocusedWidget, 
-            ScreenState,
-        },
-    };
+    connection_input::{ConnectionInput, InputField},
+    types::{FocusedWidget, ScreenState},
+};
+use crate::ui::utils::terminal_guard::TerminalGuard;
+use crate::ui::{UIHandler, UIRenderer};
+use dfox_core::{models::schema::TableSchema, DbManager};
 
 #[derive(Clone)]
 pub struct DatabaseClientUI {
@@ -107,13 +90,13 @@ impl DatabaseClientUI {
             .unwrap_or_default()
             .as_secs();
         let debug_msg = format!("[{}] {}", timestamp, info);
-        
+
         self.debug_info.push(debug_msg.clone());
-        
+
         if self.debug_info.len() > 100 {
             self.debug_info.remove(0);
         }
-        
+
         log::debug!("{}", info);
     }
 
@@ -197,7 +180,13 @@ impl DatabaseClientUI {
                             )
                             .await;
                         } else {
-                            UIHandler::handle_table_view_input(self, key.code, key.modifiers, terminal).await;
+                            UIHandler::handle_table_view_input(
+                                self,
+                                key.code,
+                                key.modifiers,
+                                terminal,
+                            )
+                            .await;
                         }
                     }
                 }

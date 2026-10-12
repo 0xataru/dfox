@@ -1,11 +1,10 @@
-
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dfox_core::{DbManager, errors::DbError};
+use dfox_core::{errors::DbError, DbManager};
 
-pub mod postgres;
 pub mod mysql;
+pub mod postgres;
 
 pub type DatabaseManager = DbManager;
 
@@ -27,4 +26,4 @@ pub trait DatabaseUI {
     async fn update_tables(&self) -> Result<(), DbError>;
     async fn connect_to_selected_db(&self, db_name: &str) -> Result<(), DbError>;
     async fn connect_to_default_db(&self) -> Result<(), DbError>;
-} 
+}

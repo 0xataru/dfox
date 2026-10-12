@@ -1,0 +1,52 @@
+name: Coverage
+
+# Measures line coverage with cargo-llvm-cov and uploads it to Codecov, which
+# serves the README badge and comments the change on pull requests.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
+        with:
+          tool: cargo-llvm-cov
+
+      - name: measure
+        run: |
+          cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
+          {
+            echo '### Coverage'
+            echo '```'
+            cargo llvm-cov report --summary-only | tail -n 1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Pull requests from forks get no secrets; Codecov accepts those uploads
+      # without a token for public repositories. On main the token is required,
+      # so a missing CODECOV_TOKEN secret fails loudly there.
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          files: lcov.info
+          disable_search: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: ${{ github.event_name == 'push' }}

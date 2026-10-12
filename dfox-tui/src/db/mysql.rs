@@ -1,11 +1,14 @@
-use std::sync::Arc;
 use async_trait::async_trait;
+use std::sync::Arc;
 
-use dfox_core::{db::{mysql::MySqlClient, DbClient}, errors::DbError};
+use dfox_core::{
+    db::{mysql::MySqlClient, DbClient},
+    errors::DbError,
+};
 
 use crate::ui::DatabaseClientUI;
 
-use super::{DatabaseUI, Connect};
+use super::{Connect, DatabaseUI};
 
 pub struct MySqlDatabaseUI {
     client: DatabaseClientUI,
@@ -42,17 +45,19 @@ impl DatabaseUI for MySqlDatabaseUI {
 
             if query_upper.starts_with("SELECT") {
                 let rows = client.query(query_trimmed).await?;
-                let results = rows
-                    .into_iter()
-                    .map(|row| row.to_string())
-                    .collect();
+                let results = rows.into_iter().map(|row| row.to_string()).collect();
                 Ok((results, String::new()))
             } else {
                 client.execute(query_trimmed).await?;
-                Ok((Vec::new(), "Non-SELECT query executed successfully.".to_string()))
+                Ok((
+                    Vec::new(),
+                    "Non-SELECT query executed successfully.".to_string(),
+                ))
             }
         } else {
-            Err(DbError::Connection("No database connection available.".into()))
+            Err(DbError::Connection(
+                "No database connection available.".into(),
+            ))
         }
     }
 

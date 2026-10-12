@@ -13,7 +13,10 @@ pub use postgres::PostgresClient;
 pub trait DbClient: Send + Sync {
     async fn execute(&self, query: &str) -> Result<(), DbError>;
     async fn query(&self, query: &str) -> Result<Vec<Value>, DbError>;
-    async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError>;
+    async fn query_with_column_order(
+        &self,
+        query: &str,
+    ) -> Result<(Vec<String>, Vec<Vec<String>>), DbError>;
     async fn begin_transaction<'a>(&'a self) -> Result<Box<dyn Transaction + 'a>, DbError>;
     async fn list_databases(&self) -> Result<Vec<String>, DbError>;
     async fn list_tables(&self) -> Result<Vec<String>, DbError>;

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/0xataru/dfox/discussions
+    about: Usage questions and open-ended ideas belong in Discussions.
+  - name: Security vulnerability
+    url: https://github.com/0xataru/dfox/security/advisories/new
+    about: Please report vulnerabilities privately, not as an issue.
