@@ -1,0 +1,11 @@
+---
+source: dfox-tui/src/config.rs
+expression: text
+---
+theme = "dfox"
+keymap = "standard"
+animations = true
+icons = "auto"
+row_limit = 100000
+
+[keys]

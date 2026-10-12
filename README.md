@@ -43,7 +43,7 @@ RUST_LOG=debug
 
 2. Run the application as usual. Debug logs will be written to `dfox-debug.log` in the current directory.
 
-3. You can also view debug information directly in the application by pressing **F12** while using the interface.
+3. You can also view the event log directly in the application by pressing **F12** while using the interface.
 
 ### Log Levels
 - `off` - No logging (default)
@@ -100,29 +100,62 @@ RUST_LOG=trace
 
 ## Keyboard Shortcuts
 
-DFox provides several keyboard shortcuts for efficient navigation and operation:
+Press **?** (or **F2**) in the app for the full list, generated from your keymap.
+**Space** opens a command menu outside text fields.
 
 ### General Navigation
-- **Tab** - Navigate between interface elements
-- **↑/↓** - Navigate up/down in lists and tables
-- **←/→** - Horizontal scroll in query results
-- **Page Up/Page Down** - Scroll pages in results
-- **Home/End** - Jump to beginning/end of results
+- **Tab** / **Shift+Tab** - Move between the tables, the query editor and the results
+- **↑/↓** - Move in lists and results
+- **←/→** - Scroll the result columns
+- **Page Up/Page Down** - Scroll a page
+- **Home/End** - Jump to the first/last row
 
-### Query Operations  
-- **F5** or **Ctrl+E** - Execute SQL query
-- **Ctrl+C** - Copy selected row to clipboard
-- **Ctrl+A** - Copy all query results to clipboard
+### Query Operations
+- **F5** or **Ctrl+E** - Run the query
+- **Ctrl+C** - Cancel the running query, or copy the selected row
+- **Ctrl+A** - Copy all rows
 
 ### Interface Controls
-- **F1** - Return to database selection
-- **F12** - Toggle debug information display
-- **Esc** or **q** - Quit application
+- **F1** - Back to the database list
+- **Ctrl+T** - Next theme
+- **F12** - Event log
+- **Esc**, **q** or **Ctrl+Q** - Quit (asks first while connected)
 
 ### SQL Editor
-- Standard text editing controls
-- **Enter** - New line
-- **Backspace/Delete** - Character deletion
+- Typing inserts at the cursor; **Enter** starts a new line
+- **Backspace** deletes, joining lines at the start of a line
+
+## Configuration
+
+dfox reads `config.toml` from `~/.config/dfox/` (or `$XDG_CONFIG_HOME/dfox/`,
+`%APPDATA%\dfox\` on Windows, or the directory in `DFOX_CONFIG_DIR`). Every
+setting is optional:
+
+```toml
+theme = "dfox"        # dfox, tokyo-night, catppuccin-mocha, catppuccin-latte,
+                      # gruvbox, nord, high-contrast, or a file in themes/
+keymap = "standard"   # or "vim": hjkl, g/G, Ctrl+D/Ctrl+U outside text fields
+animations = true     # false shows still symbols instead of spinners
+icons = "auto"        # "nerd" for Nerd Font glyphs, "ascii" for plain text
+row_limit = 100000    # rows kept from a query; the rest are read and dropped
+
+[keys]                # replaces all keys of an action
+execute = ["f5", "ctrl+r"]
+```
+
+A theme file in `themes/<name>.toml` sets any colours as `"#rrggbb"` and takes
+the rest from the theme it `extends`:
+
+```toml
+extends = "nord"
+accent = "#ff9e3b"
+border_focus = "#ff9e3b"
+```
+
+The colours are `bg`, `surface`, `surface_alt`, `border`, `border_focus`,
+`text`, `text_dim`, `accent`, `accent_alt`, `success`, `warning`, `danger`,
+`null`, `number`, `string`, `keyword`, `comment` and `selection`. On terminals
+without true colour, dfox picks the nearest of 256 or 16 colours.
 
 ## Installation
 

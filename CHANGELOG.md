@@ -9,6 +9,31 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Themes: dfox, tokyo-night, catppuccin-mocha, catppuccin-latte, gruvbox, nord
+  and high-contrast, plus your own in `themes/<name>.toml`. `Ctrl+T` switches
+  theme. Colours fall back to 256 or 16 colours on terminals without true
+  colour
+- `config.toml` for the theme, keymap (`standard` or `vim`), animations, icons
+  (`auto`, `nerd`, `ascii`), the row limit and key overrides. Mistakes in it
+  show as a warning instead of stopping dfox
+- A help screen (`?` or `F2`) listing every key, generated from the keymap
+- A command menu on `Space`
+- Toasts for copies, cancelled queries, theme changes and errors, a status bar
+  that shows the connection and the running query, and a progress bar along
+  the results while a query runs
+- Quitting while connected asks for confirmation
+- Snapshot tests of every screen at 120×40 and 80×24
+
+### Changed
+
+- The screens are rebuilt as components with rounded panels, and result values
+  are coloured by kind, with numbers right-aligned
+- The SQL editor inserts and deletes at the cursor, and joins lines on
+  Backspace
+- SQLite on the first screen shows a notice instead of a separate screen
+
+### Added
+
 - Queries run in the background: the screen stays responsive, shows a spinner
   and the elapsed time while a query runs, and rows appear as they arrive
 - `Ctrl+C` cancels the running query (Postgres and MySQL cancel it on the

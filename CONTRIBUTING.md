@@ -45,13 +45,18 @@ docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
    ```
 
 2. **Make your change.** Add a test where the code can be tested without a
-   terminal, for example type mapping in `dfox-core`.
+   terminal, for example type mapping in `dfox-core`. Anything drawn on screen
+   gets an `insta` snapshot test; after changing how something looks, run
+   `cargo insta review` (from `cargo install cargo-insta`) and accept the
+   snapshots that show what you meant. Colours come only from the theme in
+   `dfox-tui/src/theme/`, and components never `.await`; `scripts/guards.sh`
+   checks both.
 
 3. **Run what CI runs:**
 
    ```sh
    make fmt     # format the workspace
-   make check   # rustfmt check, clippy with -D warnings, tests: exactly what CI runs
+   make check   # rustfmt check, clippy with -D warnings, guards, tests: exactly what CI runs
    ```
 
    `make cover` shows which lines your tests reach. Pull requests also get a

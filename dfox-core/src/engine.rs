@@ -37,7 +37,7 @@ pub type QueryId = u64;
 /// before the engine drops it.
 const CANCEL_GRACE: Duration = Duration::from_secs(2);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     /// Connects, replacing the current connection. Queries still running on
     /// the old connection are dropped.

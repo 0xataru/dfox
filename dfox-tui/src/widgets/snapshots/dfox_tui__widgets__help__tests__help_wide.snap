@@ -1,0 +1,32 @@
+---
+source: dfox-tui/src/widgets/help.rs
+expression: "render(&test, 120, 40, super::render)"
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+                     ╭ Keys ──────────────────────────────────────────────────────────────────────╮
+                     │                                                                            │
+                     │ F5 Ctrl+E   Run the query            q Ctrl+Q    Quit                      │
+                     │ Ctrl+C      Copy row / cancel query  Enter       Select / new line         │
+                     │ Ctrl+A      Copy all rows            ↑           Up                        │
+                     │ Tab         Next panel               ↓           Down                      │
+                     │ Shift+Tab   Previous panel           ←           Left / previous column    │
+                     │ F1          Database list            →           Right / next column       │
+                     │ Ctrl+T      Next theme               PgUp        Page up                   │
+                     │ F12         Event log                PgDn        Page down                 │
+                     │ Space       Command menu             Home        First row / line start    │
+                     │ ? F2        Show keys                End         Last row / line end       │
+                     │ Esc         Back / close             Backspace   Delete a character        │
+                     │                                                                            │
+                     ╰───────────────────────────── any key to close ─────────────────────────────╯
