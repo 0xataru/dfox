@@ -1,10 +1,12 @@
-mod components;
+
 mod handlers;
 mod screens;
+mod components;
+mod utils;
 
 use std::io;
 
-pub use components::DatabaseClientUI;
+pub use components::database_client::DatabaseClientUI;
 use crossterm::event::{KeyCode, KeyModifiers};
 use dfox_core::models::schema::TableSchema;
 use ratatui::{prelude::CrosstermBackend, Terminal};
