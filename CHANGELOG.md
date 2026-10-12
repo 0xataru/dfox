@@ -7,6 +7,41 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Fixed
+
+- Values are no longer shown as `NULL` when dfox can't map their type: every
+  cell now shows the server's own text form (Postgres `int2`, `numeric`,
+  `timestamptz`, `money`, `inet`, arrays; MySQL `TINYINT`, `SMALLINT`,
+  unsigned integers, `DECIMAL`, `BIT`)
+- MySQL results showed each row as a single JSON string; they now fill the
+  result grid like Postgres results
+- Columns keep the order of the query, and repeated names (`id` from two
+  joined tables) no longer overwrite each other
+- Statements other than `SELECT` that return rows (`WITH`, `VALUES`, `SHOW`,
+  `EXPLAIN`, `... RETURNING`, `PRAGMA`) now show their results, and a script
+  with several statements shows the last result set
+- `BEGIN`/`COMMIT`, `SET` and temporary tables now work across runs: queries
+  use one pinned connection instead of any connection from a pool
+- Passwords containing `@`, `:`, `/`, `#` or `%` can connect
+- Describing a table no longer splices its name into SQL
+- Connection errors are shown on the connection screen instead of being ignored
+- Errors while loading databases or tables no longer write over the screen
+- Values containing tabs no longer split into extra columns, and empty strings
+  are no longer shown as `NULL`
+- Large result sets keep only the first 1,000 rows in memory
+
+### Changed
+
+- `dfox-core`: `DbClient::run` replaces `query` and `query_with_column_order`
+  and returns `QueryOutput`. The unused `Transaction` API, `DbError::Transaction`
+  and the per-driver `ColumnType` mappings are removed. Clients can connect
+  from `ConnectionParams` and have a `close` method.
+
+### Added
+
+- Integration tests against real Postgres 16, MySQL 8.4 and SQLite, run with
+  `make test-it` locally and in a new CI job
+
 ## [0.1.1] - 2026-10-12
 
 ### Added

@@ -14,7 +14,10 @@ use crate::ui::components::{
 };
 use crate::ui::utils::terminal_guard::TerminalGuard;
 use crate::ui::{UIHandler, UIRenderer};
-use dfox_core::{models::schema::TableSchema, DbManager};
+use dfox_core::{
+    models::{connections::DbType, schema::TableSchema},
+    DbManager,
+};
 
 #[derive(Clone)]
 pub struct DatabaseClientUI {
@@ -98,6 +101,16 @@ impl DatabaseClientUI {
         }
 
         log::debug!("{}", info);
+    }
+
+    /// The server type picked on the first screen. SQLite has no server
+    /// connection flow yet.
+    pub fn server_db_type(&self) -> Option<DbType> {
+        match self.selected_db_type {
+            0 => Some(DbType::Postgres),
+            1 => Some(DbType::MySql),
+            _ => None,
+        }
     }
 
     pub fn current_input_index(&self) -> usize {

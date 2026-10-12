@@ -50,6 +50,44 @@ jobs:
       - name: test
         run: cargo test --workspace --locked
 
+  # The driver tests against real servers. Linux only: service containers
+  # need Docker, which the macOS and Windows runners don't provide.
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: dfox
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: dfox
+          MYSQL_DATABASE: dfox
+        ports: ["53306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pdfox"
+          --health-interval 2s --health-retries 60
+    env:
+      DFOX_IT_REQUIRED: "1"
+      DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
+      DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: integration tests
+        run: cargo test -p dfox-core --locked --tests
+
   # Known vulnerabilities in dependencies. Not required for merging: an advisory
   # can appear overnight on code that has not changed.
   audit:

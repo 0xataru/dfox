@@ -1,168 +1,137 @@
-mod types;
-pub use types::ColumnType;
-
 use async_trait::async_trait;
-use serde_json::Value;
-use sqlx::{mysql::MySqlPoolOptions, Column, MySqlPool, Row, TypeInfo};
+use sqlx::{
+    mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlRow},
+    pool::PoolConnection,
+    MySql, MySqlPool, Row, TypeInfo, ValueRef,
+};
+use tokio::sync::Mutex;
 
 use crate::{
     errors::DbError,
-    models::schema::{ColumnSchema, TableSchema},
+    models::{
+        connections::ConnectionParams,
+        schema::{ColumnSchema, TableSchema},
+    },
 };
 
-use super::{DbClient, Transaction};
+use super::{bytes_to_display, run_on_session, undecodable, DbClient, QueryOutput};
 
 pub struct MySqlClient {
+    /// Used for metadata, and to replace a dead session connection.
     pub pool: MySqlPool,
+    /// Pinned connection for user SQL, so session state survives between runs.
+    session: Mutex<PoolConnection<MySql>>,
 }
 
 impl MySqlClient {
     pub async fn connect(database_url: &str) -> Result<Self, DbError> {
+        let options = database_url
+            .parse::<MySqlConnectOptions>()
+            .map_err(|e| DbError::Config(e.to_string()))?;
+        Self::connect_with(options).await
+    }
+
+    pub async fn connect_params(params: &ConnectionParams) -> Result<Self, DbError> {
+        let mut options = MySqlConnectOptions::new()
+            .host(&params.host)
+            .port(params.port)
+            .username(&params.username)
+            .password(&params.password);
+        if let Some(database) = &params.database {
+            options = options.database(database);
+        }
+        Self::connect_with(options).await
+    }
+
+    pub async fn connect_with(options: MySqlConnectOptions) -> Result<Self, DbError> {
         let pool = MySqlPoolOptions::new()
             .max_connections(5)
-            .connect(database_url)
+            .connect_with(options)
+            .await
+            .map_err(|e| DbError::Connection(e.to_string()))?;
+        let session = pool
+            .acquire()
             .await
             .map_err(|e| DbError::Connection(e.to_string()))?;
 
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            session: Mutex::new(session),
+        })
     }
+
+    /// Closes every connection. The session connection is released first,
+    /// because the pool waits for all of its connections to come back.
+    pub async fn close(self) {
+        drop(self.session);
+        self.pool.close().await;
+    }
+}
+
+/// MySQL sends every value as length-prefixed bytes: text in the text
+/// protocol, and text or raw bytes for strings in the binary protocol. Reading
+/// the bytes directly works for every column type, including unsigned
+/// integers, DECIMAL, BIT and columns with a binary collation.
+pub(crate) fn mysql_cell(row: &MySqlRow, index: usize) -> Option<String> {
+    let value = match row.try_get_raw(index) {
+        Ok(value) => value,
+        Err(err) => return undecodable("?", err),
+    };
+    if value.is_null() {
+        return None;
+    }
+    let type_name = value.type_info().name().to_string();
+    match row.try_get_unchecked::<&[u8], _>(index) {
+        Ok(bytes) => Some(bytes_to_display(bytes)),
+        Err(err) => undecodable(&type_name, err),
+    }
+}
+
+/// Text value of a metadata column that is never NULL.
+fn text(row: &MySqlRow, index: usize) -> String {
+    mysql_cell(row, index).unwrap_or_default()
 }
 
 #[async_trait]
 impl DbClient for MySqlClient {
     async fn execute(&self, query: &str) -> Result<(), DbError> {
-        sqlx::query(query)
-            .execute(&self.pool)
-            .await
-            .map_err(DbError::Sqlx)?;
+        run_on_session(&self.pool, &self.session, query, 0, mysql_cell).await?;
         Ok(())
     }
 
-    async fn query(&self, query: &str) -> Result<Vec<serde_json::Value>, DbError> {
-        let rows = sqlx::query(query)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(DbError::Sqlx)?;
-
-        let results = rows
-            .iter()
-            .map(|row| {
-                let json_map = row
-                    .columns()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, column)| {
-                        let column_name = column.name().to_string();
-                        let column_type = ColumnType::from_type_name(column.type_info().name());
-                        let value = column_type.to_json_value(row, i);
-                        (column_name, value)
-                    })
-                    .collect();
-
-                Value::Object(json_map)
-            })
-            .collect();
-
-        Ok(results)
-    }
-
-    async fn query_with_column_order(
-        &self,
-        query: &str,
-    ) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
-        // TODO: Implement proper column order preservation for MySQL
-        let rows = self.query(query).await?;
-
-        if rows.is_empty() {
-            return Ok((Vec::new(), Vec::new()));
-        }
-
-        // Extract column names from first row (alphabetical order for now)
-        let column_names: Vec<String> = if let Value::Object(map) = &rows[0] {
-            map.keys().cloned().collect()
-        } else {
-            Vec::new()
-        };
-
-        // Convert rows to string vectors
-        let data_rows: Vec<Vec<String>> = rows
-            .into_iter()
-            .map(|row| {
-                if let Value::Object(map) = row {
-                    column_names
-                        .iter()
-                        .map(|col| {
-                            map.get(col)
-                                .map(|v| match v {
-                                    Value::Null => "NULL".to_string(),
-                                    Value::String(s) => s.clone(),
-                                    other => other.to_string(),
-                                })
-                                .unwrap_or_else(|| "NULL".to_string())
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                }
-            })
-            .collect();
-
-        Ok((column_names, data_rows))
-    }
-
-    async fn begin_transaction<'a>(&'a self) -> Result<Box<dyn Transaction + 'a>, DbError> {
-        let tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| DbError::Transaction(e.to_string()))?;
-        Ok(Box::new(MySqlTransaction { tx }))
+    async fn run(&self, query: &str, row_limit: usize) -> Result<QueryOutput, DbError> {
+        run_on_session(&self.pool, &self.session, query, row_limit, mysql_cell).await
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, DbError> {
-        let query = "SHOW DATABASES";
-        let rows = sqlx::query(query)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(DbError::Sqlx)?;
-
-        let databases: Vec<String> = rows
-            .iter()
-            .map(|row| row.try_get::<String, _>(0).unwrap_or_default())
-            .collect();
-
-        Ok(databases)
+        let rows = sqlx::query("SHOW DATABASES").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(|row| text(row, 0)).collect())
     }
 
     async fn list_tables(&self) -> Result<Vec<String>, DbError> {
-        let query = "SHOW TABLES";
-        let rows = sqlx::query(query)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(DbError::Sqlx)?;
-
-        let tables = rows
-            .iter()
-            .map(|row| row.try_get::<String, _>(0).unwrap_or_default())
-            .collect();
-
-        Ok(tables)
+        let rows = sqlx::query("SHOW TABLES").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(|row| text(row, 0)).collect())
     }
 
     async fn describe_table(&self, table_name: &str) -> Result<TableSchema, DbError> {
-        let query = format!("DESCRIBE {}", table_name);
-        let rows = sqlx::query(&query)
+        let query = r#"
+            SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+            ORDER BY ORDINAL_POSITION
+        "#;
+        let rows = sqlx::query(query)
+            .bind(table_name)
             .fetch_all(&self.pool)
-            .await
-            .map_err(DbError::Sqlx)?;
+            .await?;
 
         let columns = rows
             .iter()
             .map(|row| ColumnSchema {
-                name: row.try_get("Field").unwrap(),
-                data_type: row.try_get("Type").unwrap(),
-                is_nullable: row.try_get::<String, _>("Null").unwrap() == "YES",
-                default: row.try_get("Default").ok(),
+                name: text(row, 0),
+                data_type: text(row, 1),
+                is_nullable: text(row, 2) == "YES",
+                default: mysql_cell(row, 3),
             })
             .collect();
 
@@ -171,34 +140,5 @@ impl DbClient for MySqlClient {
             columns,
             indexes: Vec::new(),
         })
-    }
-}
-
-pub struct MySqlTransaction<'a> {
-    tx: sqlx::Transaction<'a, sqlx::MySql>,
-}
-
-#[async_trait]
-impl<'a> Transaction for MySqlTransaction<'a> {
-    async fn execute_transaction(&mut self, query: &str) -> Result<(), DbError> {
-        sqlx::query(query)
-            .execute(&mut *self.tx)
-            .await
-            .map_err(|e| DbError::Transaction(e.to_string()))?;
-        Ok(())
-    }
-
-    async fn commit_transaction(self: Box<Self>) -> Result<(), DbError> {
-        self.tx
-            .commit()
-            .await
-            .map_err(|e| DbError::Transaction(e.to_string()))
-    }
-
-    async fn rollback_transaction(self: Box<Self>) -> Result<(), DbError> {
-        self.tx
-            .rollback()
-            .await
-            .map_err(|e| DbError::Transaction(e.to_string()))
     }
 }
