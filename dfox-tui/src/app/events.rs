@@ -3,7 +3,7 @@
 use dfox_core::engine::{Command as DbCommand, EngineEvent};
 use tokio::time::Instant;
 
-use super::{describe, App, Connecting, Screen};
+use super::{App, Connecting, Screen};
 use crate::{
     component::Ctx,
     components::{databases::DatabasesScreen, workspace::Workspace},
@@ -22,7 +22,9 @@ impl App {
         match event {
             EngineEvent::Connected(result) => match (self.connecting.take(), result) {
                 (Some(Connecting::Server(db_type, params)), Ok(())) => {
-                    ctx.log.push(format!("Connected to {}", describe(&params)));
+                    // No username: the event log also goes to the debug log file.
+                    ctx.log
+                        .push(format!("Connected to {}:{}", params.host, params.port));
                     self.connect.connecting = false;
                     self.server = Some((db_type, params));
                     self.databases = DatabasesScreen::loading();
