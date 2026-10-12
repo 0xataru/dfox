@@ -563,14 +563,11 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "chrono",
- "env_logger",
  "indexmap",
- "log",
  "mockall",
  "serde",
  "serde_json",
  "sqlx",
- "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "uuid",
@@ -589,7 +586,6 @@ dependencies = [
  "indexmap",
  "log",
  "ratatui",
- "serde_json",
  "tokio",
 ]
 
@@ -740,12 +736,6 @@ dependencies = [
  "bit-set",
  "regex",
 ]
-
-[[package]]
-name = "fastrand"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fax"
@@ -2864,19 +2854,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.8",
-]
-
-[[package]]
-name = "tempfile"
-version = "3.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
-dependencies = [
- "fastrand",
- "getrandom 0.4.3",
- "once_cell",
- "rustix",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
