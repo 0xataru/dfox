@@ -17,8 +17,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   debug panel on `F12`
 - `Makefile` and `scripts/` with a release flow: `make release VERSION=X.Y.Z`
   opens the release pull request, `make publish` tags it once merged
-- CI on Linux, macOS and Windows (rustfmt, clippy, tests), CodeQL, OpenSSF
-  Scorecard, Dependabot, and a release workflow that attaches prebuilt binaries
+- CI on Linux, macOS and Windows (rustfmt, clippy, tests), `cargo audit`,
+  coverage on Codecov, CodeQL, OpenSSF Scorecard, Dependabot, and a release
+  workflow that attaches prebuilt binaries
+- `make cover` for a local HTML coverage report
 - `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, issue and pull request
   templates
 
@@ -26,5 +28,7 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 - UI code split into `ui/components/`, with a `TerminalGuard` that restores the
   terminal on exit
+- `dotenv` replaced with its maintained fork `dotenvy`, and dependencies updated
+  to clear RustSec advisories
 - The workspace shares one version, edition and licence through
   `[workspace.package]`, and uses Cargo resolver 2

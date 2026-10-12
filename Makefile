@@ -2,7 +2,7 @@ CURRENT := $(shell ./scripts/version.sh 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run build release-build fmt fmt-check lint test check audit version bump release publish clean
+.PHONY: help run build release-build fmt fmt-check lint test cover check audit version bump release publish clean
 
 help: ## Show available commands
 	@echo "dfox — v$(CURRENT)"
@@ -29,6 +29,12 @@ lint: ## Run clippy with warnings as errors
 
 test: ## Run the test suite
 	cargo test --workspace --locked
+
+cover: ## Line coverage; HTML report in target/llvm-cov/html (needs cargo-llvm-cov)
+	@command -v cargo-llvm-cov >/dev/null || { echo "install it with: cargo install cargo-llvm-cov --locked"; exit 1; }
+	cargo llvm-cov --workspace --locked --html
+	@cargo llvm-cov report --summary-only | tail -n 1
+	@echo "html: target/llvm-cov/html/index.html"
 
 check: ## Everything CI requires: fmt-check, lint, test
 	@./scripts/check.sh

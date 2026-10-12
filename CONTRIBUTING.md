@@ -54,6 +54,9 @@ docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
    make check   # rustfmt check, clippy with -D warnings, tests: exactly what CI runs
    ```
 
+   `make cover` shows which lines your tests reach. Pull requests also get a
+   Codecov comment with the coverage of the changed lines.
+
 4. **Run it:** `make run`, and try the screens your change touches.
 
 5. **Add a line under `[Unreleased]`** in [CHANGELOG.md](CHANGELOG.md) if users
@@ -86,6 +89,7 @@ on `main`**.
 | `make test` | The test suite |
 | `make fmt` | Format the workspace with rustfmt |
 | `make lint` | clippy with warnings as errors |
+| `make cover` | Line coverage with an HTML report (needs `cargo-llvm-cov`) |
 | `make build` | Build the workspace |
 | `make release-build` | Optimised build of `dfox-tui` |
 | `make audit` | Check dependencies against the RustSec advisory database |

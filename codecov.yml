@@ -1,0 +1,15 @@
+# Coverage is reported, never enforced: the database clients need a live server
+# to test, so the number is low and a drop should start a conversation in the
+# PR comment rather than block the merge.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "diff, files"
+  require_changes: true
