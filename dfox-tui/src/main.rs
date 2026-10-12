@@ -1,9 +1,6 @@
 use std::env;
-use std::sync::Arc;
 
-use dfox_core::DbManager;
 use ui::DatabaseClientUI;
-mod db;
 mod ui;
 
 #[tokio::main]
@@ -24,9 +21,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Starting dfox application");
 
-    let db_manager = Arc::new(DbManager::new());
-    let mut tui = DatabaseClientUI::new(db_manager);
-    tui.run_ui().await?;
+    let (engine, events) = dfox_core::engine::spawn();
+    let mut tui = DatabaseClientUI::new(engine);
+    tui.run_ui(events).await?;
 
     log::info!("dfox application finished");
     Ok(())

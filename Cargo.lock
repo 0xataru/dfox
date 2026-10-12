@@ -369,6 +369,7 @@ dependencies = [
  "crossterm_winapi",
  "derive_more",
  "document-features",
+ "futures-core",
  "mio",
  "parking_lot",
  "rustix",
@@ -540,12 +541,11 @@ name = "dfox-tui"
 version = "0.1.2"
 dependencies = [
  "arboard",
- "async-trait",
  "crossterm",
  "dfox-core",
  "dotenvy",
  "env_logger",
- "indexmap",
+ "futures-util",
  "log",
  "ratatui",
  "tokio",

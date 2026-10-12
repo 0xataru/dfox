@@ -7,6 +7,34 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Queries run in the background: the screen stays responsive, shows a spinner
+  and the elapsed time while a query runs, and rows appear as they arrive
+- `Ctrl+C` cancels the running query (Postgres and MySQL cancel it on the
+  server); the connection stays usable
+- Spinners while connecting and while loading databases and tables
+- `dfox-core`: an `engine` module that runs database work as background tasks
+  and reports back with events; the `ResultSet` trait, `Cell` values and the
+  appendable `RowStore` that hold results
+
+### Changed
+
+- Results keep up to 100,000 rows instead of 1,000, and the status line shows
+  how long the query took
+- The screen redraws only when something changed, and uses no CPU while idle
+- `dfox-core`: `DbClient::stream` sends rows in chunks as they arrive, and
+  `DbClient::cancel` stops the running statement; `run` and `execute` are now
+  built on `stream`. New `DbError::Cancelled`. `DbType` is `Copy` and
+  `PartialEq`
+
+### Fixed
+
+- Keys no longer register twice on Windows
+- Expanding a table in the list shows its column types, nullability and
+  defaults again
+- Tabs and line breaks inside a value no longer break the result grid's layout
+
 ## [0.1.2] - 2026-10-12
 
 ### Fixed

@@ -1,10 +1,12 @@
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use async_trait::async_trait;
 use sqlx::{
     pool::PoolConnection,
     postgres::{PgConnectOptions, PgPoolOptions, PgRow, PgValueFormat},
     PgPool, Postgres, Row, TypeInfo, ValueRef,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 use crate::{
     errors::DbError,
@@ -12,15 +14,23 @@ use crate::{
         connections::ConnectionParams,
         schema::{ColumnSchema, TableSchema},
     },
+    result::OwnedCell,
 };
 
-use super::{bytes_to_display, run_on_session, undecodable, DbClient, QueryOutput};
+use super::{
+    bytes_cell, replace_if_lost, replace_session, stream_raw, undecodable, Chunk, DbClient,
+    RunGuard, StreamSummary,
+};
 
 pub struct PostgresClient {
     /// Used for metadata, and to replace a dead session connection.
     pub pool: PgPool,
     /// Pinned connection for user SQL, so session state survives between runs.
     session: Mutex<PoolConnection<Postgres>>,
+    /// Server process id of the session connection, for cancelling; 0 until
+    /// the first query on a connection looks it up.
+    session_pid: AtomicU32,
+    run_guard: RunGuard,
 }
 
 impl PostgresClient {
@@ -57,6 +67,8 @@ impl PostgresClient {
         Ok(Self {
             pool,
             session: Mutex::new(session),
+            session_pid: AtomicU32::new(0),
+            run_guard: RunGuard::default(),
         })
     }
 
@@ -70,33 +82,62 @@ impl PostgresClient {
 
 /// With the simple-query protocol Postgres sends every value as text, in the
 /// same form psql prints it, so no type is ever misread.
-pub(crate) fn pg_cell(row: &PgRow, index: usize) -> Option<String> {
+pub(crate) fn pg_cell(row: &PgRow, index: usize) -> OwnedCell {
     let value = match row.try_get_raw(index) {
         Ok(value) => value,
         Err(err) => return undecodable("?", err),
     };
     if value.is_null() {
-        return None;
+        return OwnedCell::Null;
     }
     let decoded = match value.format() {
-        PgValueFormat::Text => value.as_str().map(str::to_owned),
-        PgValueFormat::Binary => value.as_bytes().map(bytes_to_display),
+        PgValueFormat::Text => value.as_str().map(|s| OwnedCell::Text(s.into())),
+        PgValueFormat::Binary => value.as_bytes().map(bytes_cell),
     };
-    match decoded {
-        Ok(text) => Some(text),
-        Err(err) => undecodable(value.type_info().name(), err),
-    }
+    decoded.unwrap_or_else(|err| undecodable(value.type_info().name(), err))
 }
 
 #[async_trait]
 impl DbClient for PostgresClient {
-    async fn execute(&self, query: &str) -> Result<(), DbError> {
-        run_on_session(&self.pool, &self.session, query, 0, pg_cell).await?;
-        Ok(())
+    async fn stream(
+        &self,
+        query: &str,
+        row_limit: usize,
+        tx: mpsc::Sender<Chunk>,
+    ) -> Result<StreamSummary, DbError> {
+        let mut conn = self.session.lock().await;
+        if self.run_guard.start() && replace_session(&self.pool, &mut conn).await {
+            log::warn!("replaced the session connection after an interrupted query");
+            self.session_pid.store(0, Ordering::Relaxed);
+        }
+        if self.session_pid.load(Ordering::Relaxed) == 0 {
+            match sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+                .fetch_one(&mut **conn)
+                .await
+            {
+                Ok(pid) => self.session_pid.store(pid as u32, Ordering::Relaxed),
+                Err(err) => log::warn!("could not read the session's backend pid: {err}"),
+            }
+        }
+
+        let result = stream_raw(&mut **conn, query, row_limit, pg_cell, &tx).await;
+        self.run_guard.finish();
+        if replace_if_lost(&self.pool, &mut conn, &result).await {
+            self.session_pid.store(0, Ordering::Relaxed);
+        }
+        result
     }
 
-    async fn run(&self, query: &str, row_limit: usize) -> Result<QueryOutput, DbError> {
-        run_on_session(&self.pool, &self.session, query, row_limit, pg_cell).await
+    async fn cancel(&self) -> Result<bool, DbError> {
+        let pid = self.session_pid.load(Ordering::Relaxed);
+        if pid == 0 {
+            return Ok(false);
+        }
+        sqlx::query("SELECT pg_cancel_backend($1)")
+            .bind(pid as i32)
+            .execute(&self.pool)
+            .await?;
+        Ok(true)
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, DbError> {

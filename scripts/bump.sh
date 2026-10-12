@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Release version bump: syncs the workspace version in Cargo.toml (and Cargo.lock),
-# CHANGELOG.md and the README version badge.
+# and CHANGELOG.md. The README shows the latest GitHub release, so it needs no
+# change.
 #
 # It deliberately stops there. Committing, opening the release pull request and
 # tagging are separate steps (`make release`, then `make publish` once merged).
@@ -23,7 +24,7 @@ die() {
 
 cd "$root"
 
-for f in Cargo.toml CHANGELOG.md README.md; do
+for f in Cargo.toml CHANGELOG.md; do
 	[ -f "$f" ] || die "missing $f"
 done
 
@@ -83,15 +84,6 @@ mv Cargo.toml.tmp Cargo.toml
 # Rewrites only the workspace members' entries in the lockfile.
 cargo update --workspace --offline -q 2>/dev/null || cargo update --workspace -q
 
-# sed -i is spelled differently on BSD and GNU, so write through a temp file.
-sed -E "s#(img\.shields\.io/badge/version-)[^-\"']+(-blue)#\1${version}\2#" README.md >README.md.tmp
-if cmp -s README.md README.md.tmp && ! grep -q "badge/version-${version}-blue" README.md; then
-	rm -f README.md.tmp
-	die "README.md: version badge not found"
-fi
-mv README.md.tmp README.md
-
 echo "Bumped $current → $version"
 echo "  Cargo.toml, Cargo.lock"
 echo "  CHANGELOG.md"
-echo "  README.md (badge)"

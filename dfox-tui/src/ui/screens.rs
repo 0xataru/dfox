@@ -1,71 +1,65 @@
-use dfox_core::models::schema::TableSchema;
+//! Rendering. Every function here draws the current state and returns; none
+//! waits on a database.
+
+use dfox_core::result::{Cell, ResultSet};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Row, Table, Wrap};
-use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{io, time::Duration};
-use tokio::time::timeout;
+use ratatui::widgets::{
+    Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Row, Table, Wrap,
+};
+use ratatui::Frame;
 
-use crate::db::ServerDatabaseUI;
+use super::components::database_client::{format_duration, ConnectTarget};
+use super::components::types::{DatabaseType, FocusedWidget, ScreenState, MAX_VISIBLE_COLUMNS};
+use super::DatabaseClientUI;
 
-use super::components::types::{DatabaseType, FocusedWidget, MAX_VISIBLE_COLUMNS};
-use super::{DatabaseClientUI, UIRenderer};
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-impl UIRenderer for DatabaseClientUI {
-    async fn render_message_popup(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> io::Result<()> {
-        terminal.draw(|f| {
-            let size = f.area();
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(30),
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(20),
-                        Constraint::Percentage(10),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
+/// Longest cell text shown in the result grid, in characters.
+const MAX_CELL_CHARS: usize = 100;
 
-            let popup_area = centered_rect(50, chunks[1]);
-
-            let block = Block::default()
-                .title("Message")
-                .borders(Borders::ALL)
-                .title_alignment(Alignment::Center);
-
-            let message = Paragraph::new("SQLite is not implemented yet.")
-                .block(block)
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true });
-
-            f.render_widget(message, popup_area);
-
-            let help_message = vec![Line::from(vec![Span::styled(
-                "Press any key to return.",
-                Style::default().fg(Color::White),
-            )])];
-
-            let help_paragraph = Paragraph::new(help_message)
-                .style(Style::default().fg(Color::White))
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true });
-
-            f.render_widget(help_paragraph, chunks[2]);
-        })?;
-
-        Ok(())
+impl DatabaseClientUI {
+    pub fn render(&self, f: &mut Frame) {
+        match self.current_screen {
+            ScreenState::DbTypeSelection => self.render_db_type_selection_screen(f),
+            ScreenState::MessagePopup => self.render_message_popup(f),
+            ScreenState::ConnectionInput => self.render_connection_input_screen(f),
+            ScreenState::DatabaseSelection => self.render_database_selection_screen(f),
+            ScreenState::TableView => self.render_table_view_screen(f),
+        }
     }
 
-    async fn render_db_type_selection_screen(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> io::Result<()> {
+    fn spinner(&self) -> &'static str {
+        let frame = self.started_at.elapsed().as_millis() / 100;
+        SPINNER[frame as usize % SPINNER.len()]
+    }
+
+    fn render_message_popup(&self, f: &mut Frame) {
+        let chunks = popup_layout(f.area());
+
+        let block = Block::default()
+            .title("Message")
+            .borders(Borders::ALL)
+            .title_alignment(Alignment::Center);
+
+        let message = Paragraph::new("SQLite is not implemented yet.")
+            .block(block)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
+
+        f.render_widget(message, centered_rect(50, chunks[1]));
+        render_help(
+            f,
+            chunks[2],
+            vec![Span::styled(
+                "Press any key to return.",
+                Style::default().fg(Color::White),
+            )],
+        );
+    }
+
+    fn render_db_type_selection_screen(&self, f: &mut Frame) {
         let db_types = [
             DatabaseType::Postgres,
             DatabaseType::MySQL,
@@ -75,218 +69,95 @@ impl UIRenderer for DatabaseClientUI {
             .iter()
             .enumerate()
             .map(|(i, db_type)| {
-                let db = db_type.as_str();
-
-                if i == self.selected_db_type {
-                    ListItem::new(db).style(
-                        Style::default()
-                            .bg(Color::Yellow)
-                            .fg(Color::Black)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    ListItem::new(db).style(Style::default().fg(Color::White))
-                }
+                ListItem::new(db_type.as_str()).style(item_style(i == self.selected_db_type))
             })
             .collect();
 
-        terminal.draw(|f| {
-            let size = f.area();
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(30),
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(20),
-                        Constraint::Percentage(10),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
+        let chunks = popup_layout(f.area());
+        let block = Block::default()
+            .title("Select Database Type")
+            .borders(Borders::ALL)
+            .title_alignment(Alignment::Center);
 
-            let horizontal_layout = centered_rect(50, chunks[1]);
-
-            let block = Block::default()
-                .title("Select Database Type")
-                .borders(Borders::ALL)
-                .title_alignment(Alignment::Center);
-
-            let db_type_widget = List::new(db_type_list).block(block).highlight_style(
-                Style::default()
-                    .bg(Color::Yellow)
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::BOLD),
-            );
-
-            f.render_widget(db_type_widget, horizontal_layout);
-
-            let help_message = vec![Line::from(vec![
-                Span::styled(
-                    "Up",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
+        f.render_widget(
+            List::new(db_type_list).block(block),
+            centered_rect(50, chunks[1]),
+        );
+        render_help(
+            f,
+            chunks[2],
+            [
+                hint("Up", Color::Yellow),
                 Span::raw("/"),
-                Span::styled(
-                    "Down",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                hint("Down", Color::Yellow),
                 Span::raw(" to navigate, "),
-                Span::styled(
-                    "Enter",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                hint("Enter", Color::Green),
                 Span::raw(" to select, "),
-                Span::styled(
-                    "q",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
+                hint("q", Color::Red),
                 Span::raw(" to quit"),
-            ])];
-
-            let help_paragraph = Paragraph::new(help_message)
-                .style(Style::default().fg(Color::White))
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true });
-
-            f.render_widget(help_paragraph, chunks[2]);
-        })?;
-
-        Ok(())
+            ]
+            .to_vec(),
+        );
     }
 
-    async fn render_connection_input_screen(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> io::Result<()> {
-        terminal.draw(|f| {
-            let size = f.area();
-            let vertical_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(30),
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(20),
-                        Constraint::Percentage(10),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
+    fn render_connection_input_screen(&self, f: &mut Frame) {
+        let chunks = popup_layout(f.area());
+        let area = centered_rect(50, chunks[1]);
 
-            let horizontal_layout = centered_rect(50, vertical_chunks[1]);
+        let block = Block::default()
+            .title("Enter Connection Details")
+            .borders(Borders::ALL)
+            .title_alignment(Alignment::Center);
 
-            let block = Block::default()
-                .title("Enter Connection Details")
-                .borders(Borders::ALL)
-                .title_alignment(Alignment::Center);
-
-            let mut content = [
-                format!("Username: {}", self.connection_input.username),
-                format!(
-                    "Password: {}",
-                    "*".repeat(self.connection_input.password.len())
-                ),
-                format!("Hostname: {}", self.connection_input.hostname),
-                format!("Port: {}", self.connection_input.port),
-            ];
-
-            // Safely add cursor indicator to current field
-            let current_index = self.current_input_index();
-            if current_index < content.len() {
-                content[current_index].push_str(" <");
-            }
-
-            let input_paragraph = Paragraph::new(content.join("\n"))
-                .block(block)
-                .style(Style::default().fg(Color::White))
-                .alignment(Alignment::Left)
-                .wrap(Wrap { trim: true });
-
-            f.render_widget(input_paragraph, horizontal_layout);
-
-            if let Some(error_message) = &self.connection_error_message {
-                let error_block = Block::default()
-                    .title("Error")
-                    .borders(Borders::ALL)
-                    .style(Style::default().fg(Color::Red))
-                    .title_alignment(Alignment::Center);
-
-                let error_paragraph = Paragraph::new(error_message.clone())
-                    .block(error_block)
-                    .style(Style::default().fg(Color::White))
-                    .alignment(Alignment::Center)
-                    .wrap(Wrap { trim: true });
-
-                let error_area = centered_rect(50, vertical_chunks[1]);
-                f.render_widget(Clear, error_area);
-                f.render_widget(error_paragraph, error_area);
-            } else {
-                let help_message = vec![Line::from(vec![
-                    Span::styled(
-                        "Enter",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" to confirm input, "),
-                    Span::styled(
-                        "Up/Down",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" to navigate fields, "),
-                    Span::styled(
-                        "Esc",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw(" to go back"),
-                ])];
-
-                let help_paragraph = Paragraph::new(help_message)
-                    .style(Style::default().fg(Color::White))
-                    .alignment(Alignment::Center)
-                    .wrap(Wrap { trim: true });
-
-                f.render_widget(help_paragraph, vertical_chunks[2]);
-            }
-        })?;
-
-        Ok(())
-    }
-
-    async fn render_database_selection_screen(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> io::Result<()> {
-        if self.needs_db_refresh {
-            if let Some(db_type) = self.server_db_type() {
-                let db_ui = ServerDatabaseUI::new(self.clone(), db_type);
-                match timeout(Duration::from_secs(5), db_ui.fetch_databases()).await {
-                    Ok(Ok(databases)) => {
-                        self.databases = databases;
-                        self.last_db_update = Some(std::time::Instant::now());
-                        self.needs_db_refresh = false;
-                    }
-                    Ok(Err(err)) => {
-                        log::error!("Error fetching databases: {}", err);
-                        self.databases = vec![format!("Error fetching databases: {}", err)];
-                    }
-                    Err(_) => {
-                        log::error!("Timeout while fetching databases");
-                        self.databases = vec!["Timeout while fetching databases".to_string()];
-                    }
-                }
-            }
+        let mut content = [
+            format!("Username: {}", self.connection_input.username),
+            format!(
+                "Password: {}",
+                "*".repeat(self.connection_input.password.len())
+            ),
+            format!("Hostname: {}", self.connection_input.hostname),
+            format!("Port: {}", self.connection_input.port),
+        ];
+        if let Some(field) = content.get_mut(self.current_input_index()) {
+            field.push_str(" <");
         }
 
+        let input_paragraph = Paragraph::new(content.join("\n"))
+            .block(block)
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: true });
+        f.render_widget(input_paragraph, area);
+
+        if let Some(error_message) = &self.connection_error_message {
+            render_error_popup(f, area, error_message);
+        } else if self.pending.connect.is_some() {
+            render_help(
+                f,
+                chunks[2],
+                vec![Span::styled(
+                    format!("{} Connecting…", self.spinner()),
+                    Style::default().fg(Color::Yellow),
+                )],
+            );
+        } else {
+            render_help(
+                f,
+                chunks[2],
+                [
+                    hint("Enter", Color::Green),
+                    Span::raw(" to confirm input, "),
+                    hint("Up/Down", Color::Yellow),
+                    Span::raw(" to navigate fields, "),
+                    hint("Esc", Color::Red),
+                    Span::raw(" to go back"),
+                ]
+                .to_vec(),
+            );
+        }
+    }
+
+    fn render_database_selection_screen(&self, f: &mut Frame) {
         let visible_databases: Vec<ListItem> = self
             .databases
             .iter()
@@ -294,710 +165,523 @@ impl UIRenderer for DatabaseClientUI {
             .skip(self.databases_scroll)
             .take(20)
             .map(|(i, db)| {
-                if i == self.selected_database {
-                    ListItem::new(db.clone()).style(
-                        Style::default()
-                            .bg(Color::Yellow)
-                            .fg(Color::Black)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                } else {
-                    ListItem::new(db.clone()).style(Style::default().fg(Color::White))
-                }
+                ListItem::new(db.as_str()).style(item_style(i == self.selected_database))
             })
             .collect();
 
-        terminal.draw(|f| {
-            let size = f.area();
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(30),
+                Constraint::Percentage(40),
+                Constraint::Percentage(30),
+            ])
+            .split(f.area());
+        let area = centered_rect(50, chunks[1]);
 
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(
-                    [
-                        Constraint::Percentage(30),
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(30),
-                    ]
-                    .as_ref(),
-                )
-                .split(size);
+        let title = if self.pending.databases {
+            format!("Select Database ({} loading…)", self.spinner())
+        } else {
+            format!(
+                "Select Database ({}/{})",
+                self.selected_database + 1,
+                self.databases.len()
+            )
+        };
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .title_alignment(Alignment::Center);
+        f.render_widget(List::new(visible_databases).block(block), area);
 
-            let horizontal_layout = centered_rect(50, chunks[1]);
-
-            let block = Block::default()
-                .title(format!(
-                    "Select Database ({}/{})",
-                    self.selected_database + 1,
-                    self.databases.len()
-                ))
-                .borders(Borders::ALL)
-                .title_alignment(Alignment::Center);
-
-            let db_list_widget = List::new(visible_databases).block(block).highlight_style(
-                Style::default()
-                    .bg(Color::Yellow)
-                    .fg(Color::Black)
-                    .add_modifier(Modifier::BOLD),
+        if let Some(error_message) = &self.connection_error_message {
+            render_error_popup(f, area, error_message);
+        } else if self.pending.connect == Some(ConnectTarget::Database) {
+            let name = self
+                .databases
+                .get(self.selected_database)
+                .map_or("", String::as_str);
+            render_help(
+                f,
+                chunks[2],
+                vec![Span::styled(
+                    format!("{} Connecting to {name}…", self.spinner()),
+                    Style::default().fg(Color::Yellow),
+                )],
             );
-
-            f.render_widget(db_list_widget, horizontal_layout);
-
-            let help_message = vec![Line::from(vec![
-                Span::styled(
-                    "Up",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("/"),
-                Span::styled(
-                    "Down",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" to navigate, "),
-                Span::styled(
-                    "Enter",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" to select, "),
-                Span::styled(
-                    "q",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" to quit"),
-            ])];
-
-            let help_paragraph = Paragraph::new(help_message)
-                .style(Style::default().fg(Color::White))
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true });
-
-            f.render_widget(help_paragraph, chunks[2]);
-        })?;
-
-        Ok(())
+        } else {
+            render_help(
+                f,
+                chunks[2],
+                [
+                    hint("Up", Color::Yellow),
+                    Span::raw("/"),
+                    hint("Down", Color::Yellow),
+                    Span::raw(" to navigate, "),
+                    hint("Enter", Color::Green),
+                    Span::raw(" to select, "),
+                    hint("q", Color::Red),
+                    Span::raw(" to quit"),
+                ]
+                .to_vec(),
+            );
+        }
     }
 
-    async fn render_table_view_screen(
-        &mut self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    ) -> io::Result<()> {
-        if self.needs_tables_refresh {
-            let tables = match self.server_db_type() {
-                Some(db_type) => {
-                    let db_ui = ServerDatabaseUI::new(self.clone(), db_type);
-                    timeout(Duration::from_secs(5), db_ui.fetch_tables()).await
-                }
-                None => Ok(Ok(Vec::new())),
-            };
+    fn render_table_view_screen(&self, f: &mut Frame) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(95), Constraint::Percentage(5)])
+            .split(f.area());
+        let main_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+            .split(chunks[0]);
+        let right_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(main_chunks[1]);
 
-            // A failed refresh is not retried on every redraw; the error stays
-            // on screen until the next query asks for a refresh again.
-            self.needs_tables_refresh = false;
-            match tables {
-                Ok(Ok(tables)) => {
-                    self.tables = tables;
-                    self.last_tables_update = Some(std::time::Instant::now());
+        self.render_tables(f, main_chunks[0]);
+        self.render_sql_editor(f, right_chunks[0]);
+        self.render_result(f, right_chunks[1]);
+
+        let mut help = vec![
+            hint("Tab", Color::Yellow),
+            Span::raw(" - navigate, "),
+            hint("F5", Color::Green),
+            Span::raw("/"),
+            hint("Ctrl+E", Color::Green),
+            Span::raw(" - execute, "),
+        ];
+        if self.running_query.is_some() {
+            help.extend([hint("Ctrl+C", Color::Red), Span::raw(" - cancel, ")]);
+        } else {
+            help.extend([
+                hint("Ctrl+C", Color::Cyan),
+                Span::raw(" - copy row, "),
+                hint("Ctrl+A", Color::Cyan),
+                Span::raw(" - copy all, "),
+            ]);
+        }
+        help.extend([
+            hint("F12", Color::Magenta),
+            Span::raw(" - debug, "),
+            hint("F1", Color::Blue),
+            Span::raw(" - databases, "),
+            hint("Esc", Color::Red),
+            Span::raw(" - quit"),
+        ]);
+        render_help(f, chunks[1], help);
+    }
+
+    fn render_tables(&self, f: &mut Frame, area: Rect) {
+        let visible_tables: Vec<ListItem> = self
+            .tables
+            .iter()
+            .enumerate()
+            .skip(self.tables_scroll)
+            .take((area.height as usize).saturating_sub(2))
+            .flat_map(|(i, table)| {
+                let style = if i == self.selected_table {
+                    Style::default().bg(Color::Yellow).fg(Color::Black)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                let mut items = vec![ListItem::new(table.as_str()).style(style)];
+
+                if self.expanded_table == Some(i) {
+                    if let Some(schema) = self.table_schemas.get(table) {
+                        items.extend(schema.columns.iter().map(|column| {
+                            ListItem::new(format!(
+                                "  ├─ {}: {} (Nullable: {}, Default: {:?})",
+                                column.name, column.data_type, column.is_nullable, column.default
+                            ))
+                            .style(Style::default().fg(Color::Gray))
+                        }));
+                    }
                 }
-                Ok(Err(e)) => {
-                    log::error!("Error fetching tables: {}", e);
-                    self.sql_query_error = Some(format!("Error fetching tables: {}", e));
-                    self.tables = Vec::new();
-                }
-                Err(_) => {
-                    log::error!("Timeout while fetching tables");
-                    self.sql_query_error = Some("Timeout while fetching tables".to_string());
-                    self.tables = Vec::new();
-                }
+                items
+            })
+            .collect();
+
+        let title = if self.pending.tables {
+            format!("Tables ({} loading…)", self.spinner())
+        } else if self.pending.describe.is_some() {
+            format!(
+                "Tables ({}/{}) {}",
+                self.selected_table + 1,
+                self.tables.len(),
+                self.spinner()
+            )
+        } else {
+            format!("Tables ({}/{})", self.selected_table + 1, self.tables.len())
+        };
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(title)
+            .border_style(focus_style(self.current_focus == FocusedWidget::TablesList));
+
+        f.render_widget(List::new(visible_tables).block(block), area);
+        render_scrollbar(
+            f,
+            area,
+            self.tables.len(),
+            (area.height as usize).saturating_sub(2),
+            self.tables_scroll,
+        );
+    }
+
+    fn render_sql_editor(&self, f: &mut Frame, area: Rect) {
+        let focused = self.current_focus == FocusedWidget::SqlEditor;
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title("SQL Query")
+            .border_style(focus_style(focused));
+
+        let editor = Paragraph::new(self.sql_editor_content.as_str())
+            .block(block)
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: false })
+            .scroll((self.sql_editor_scroll as u16, 0));
+        f.render_widget(editor, area);
+
+        if focused {
+            let x = area.x + self.sql_editor_cursor_x as u16 + 1;
+            let y = (area.y + self.sql_editor_cursor_y as u16 + 1)
+                .saturating_sub(self.sql_editor_scroll as u16);
+            if y > area.y && y < area.y + area.height - 1 && x < area.x + area.width - 1 {
+                f.set_cursor_position((x, y));
             }
         }
+    }
 
-        terminal.draw(|f| {
-            let size = f.area();
+    fn render_result(&self, f: &mut Frame, area: Rect) {
+        let focused = self.current_focus == FocusedWidget::QueryResult;
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title("Query Result")
+            .border_style(focus_style(focused));
 
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(95), Constraint::Percentage(5)].as_ref())
-                .split(size);
-
-            let main_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
-                .split(chunks[0]);
-
-            let right_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .split(main_chunks[1]);
-
-            let visible_tables: Vec<ListItem> = self
-                .tables
-                .iter()
-                .enumerate()
-                .skip(self.tables_scroll)
-                .take(main_chunks[0].height as usize - 2)
-                .flat_map(|(i, table)| {
-                    let style = if i == self.selected_table {
-                        Style::default().bg(Color::Yellow).fg(Color::Black)
-                    } else {
-                        Style::default().fg(Color::White)
-                    };
-
-                    let mut items = vec![ListItem::new(table.to_string()).style(style)];
-
-                    if let Some(expanded_idx) = self.expanded_table {
-                        if expanded_idx == i {
-                            if let Some(schema) = self.table_schemas.get(table) {
-                                for column in &schema.columns {
-                                    let column_info = format!(
-                                        "  ├─ {}: {} (Nullable: {}, Default: {:?})",
-                                        column.name,
-                                        column.data_type,
-                                        column.is_nullable,
-                                        column.default
-                                    );
-                                    items.push(
-                                        ListItem::new(column_info)
-                                            .style(Style::default().fg(Color::Gray)),
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    items
-                })
-                .collect();
-
-            let tables_block = Block::default()
-                .borders(Borders::ALL)
-                .title(format!(
-                    "Tables ({}/{})",
-                    self.selected_table + 1,
-                    self.tables.len()
-                ))
-                .border_style(if let FocusedWidget::TablesList = self.current_focus {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::White)
-                });
-
-            let tables_widget = List::new(visible_tables)
-                .block(tables_block)
-                .highlight_style(Style::default().bg(Color::Yellow).fg(Color::Black));
-
-            let sql_query_block = Block::default()
-                .borders(Borders::ALL)
-                .title("SQL Query")
-                .border_style(if let FocusedWidget::SqlEditor = self.current_focus {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::White)
-                });
-
-            let sql_query_widget = Paragraph::new(self.sql_editor_content.clone())
-                .block(sql_query_block)
-                .style(Style::default().fg(Color::White))
-                .wrap(Wrap { trim: false })
-                .scroll((self.sql_editor_scroll as u16, 0));
-
-            let sql_result_block = Block::default()
-                .borders(Borders::ALL)
-                .title("Query Result")
-                .border_style(if let FocusedWidget::QueryResult = self.current_focus {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::White)
-                });
-
-            if let Some(error) = &self.sql_query_error {
-                let error_widget = Paragraph::new(format!("Error: {}", error))
-                    .block(sql_result_block)
-                    .style(Style::default().fg(Color::Red));
-
-                f.render_widget(tables_widget, main_chunks[0]);
-                f.render_widget(sql_query_widget, right_chunks[0]);
-                f.render_widget(error_widget, right_chunks[1]);
-            } else if !self.sql_query_result.is_empty() {
-                // Get headers from IndexMap which preserves insertion order
-                let headers = if let Some(first_result) = self.sql_query_result.first() {
-                    let keys: Vec<String> = first_result.keys().cloned().collect();
-                    keys
-                } else {
-                    Vec::new()
-                };
-
-                // Apply horizontal scroll to headers
-                let max_visible_columns = MAX_VISIBLE_COLUMNS; // Limit visible columns to prevent overcrowding
-                let total_columns = headers.len();
-
-                let visible_headers: Vec<String> = if self.sql_result_horizontal_scroll > 0
-                    && headers.len() > self.sql_result_horizontal_scroll
-                {
-                    headers
-                        .iter()
-                        .skip(self.sql_result_horizontal_scroll)
-                        .take(max_visible_columns)
-                        .cloned()
-                        .collect()
-                } else {
-                    headers.iter().take(max_visible_columns).cloned().collect()
-                };
-
-                // Calculate column widths for visible headers only with minimum widths
-                let mut column_widths = vec![6u16]; // Row number column (wider for better readability)
-                for header in &visible_headers {
-                    let header_width = header.len() as u16;
-                    let max_content_width = self
-                        .sql_query_result
-                        .iter()
-                        .take(std::cmp::min(50, self.sql_query_result.len())) // Sample fewer rows for performance
-                        .map(|row| {
-                            row.get(header).map_or(4, |v| std::cmp::min(v.len(), 50)) as u16
-                            // Limit sample width to 50 chars
-                        })
-                        .max()
-                        .unwrap_or(header_width) as u16;
-
-                    // Use reasonable width limits to prevent extreme stretching
-                    let optimal_width = std::cmp::max(header_width + 2, max_content_width + 2);
-                    let final_width = std::cmp::min(optimal_width, 40); // Max 40 chars per column
-                    column_widths.push(std::cmp::max(final_width, 8)); // Min 8 chars per column
-                }
-
-                let visible_rows = (right_chunks[1].height as usize).saturating_sub(3); // Account for borders and headers
-                let total_rows = self.sql_query_result.len();
-
-                // Ensure scroll position is within bounds
-                let safe_scroll =
-                    std::cmp::min(self.sql_result_scroll, total_rows.saturating_sub(1));
-
-                // Limit the number of rows to prevent performance issues
-                let max_displayable_rows = std::cmp::min(visible_rows, 1000); // Max 1000 rows at once
-                let end_index = std::cmp::min(safe_scroll + max_displayable_rows, total_rows);
-
-                let rows: Vec<Row> = if total_rows > 0 && end_index > safe_scroll {
-                    self.sql_query_result
-                        .iter()
-                        .skip(safe_scroll)
-                        .take(end_index - safe_scroll)
-                        .enumerate()
-                        .map(|(idx, result)| {
-                            let row_num = safe_scroll + idx + 1;
-                            let mut cells = vec![format!("{}", row_num)];
-
-                            // Apply horizontal scroll to data columns
-                            for header in &visible_headers {
-                                let value = result.get(header).map_or("NULL".to_string(), |v| {
-                                    // More aggressive data cleaning but preserve full length
-                                    let cleaned = v
-                                        .chars()
-                                        .filter(|c| {
-                                            // Keep all printable characters, including Unicode (Cyrillic, emojis, etc.)
-                                            !c.is_control() || *c == '\t' || *c == '\n'
-                                        })
-                                        .collect::<String>()
-                                        .trim()
-                                        .to_string();
-
-                                    // Smart truncation for display - keep reasonable cell sizes
-                                    if cleaned.len() > 100 {
-                                        let mut chars: Vec<char> = cleaned.chars().collect();
-                                        if chars.len() >= 97 {
-                                            chars.truncate(97);
-                                            let truncated: String = chars.into_iter().collect();
-                                            format!("{}...", truncated)
-                                        } else {
-                                            cleaned
-                                        }
-                                    } else if cleaned.is_empty() {
-                                        "NULL".to_string()
-                                    } else {
-                                        cleaned
-                                    }
-                                });
-                                cells.push(value);
-                            }
-
-                            let row = Row::new(cells);
-
-                            // Highlight selected row (with bounds checking)
-                            if total_rows > 0
-                                && self.selected_result_row < total_rows
-                                && safe_scroll + idx == self.selected_result_row
-                                && matches!(self.current_focus, FocusedWidget::QueryResult)
-                            {
-                                row.style(Style::default().bg(Color::Yellow).fg(Color::Black))
-                            } else {
-                                row.style(Style::default().fg(Color::White))
-                            }
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-
-                // Create constraints based on calculated widths - no compression needed with horizontal scroll
-                let constraints: Vec<Constraint> =
-                    column_widths.into_iter().map(Constraint::Length).collect();
-
-                let mut header_cells = vec!["#".to_string()];
-                header_cells.extend(visible_headers.clone());
-
-                // Create title with scroll indicators
-                let title = if total_rows > visible_rows
-                    || self.sql_result_horizontal_scroll > 0
-                    || total_columns > max_visible_columns
-                {
-                    let h_scroll_info = if total_columns > max_visible_columns {
-                        let start_col = self.sql_result_horizontal_scroll + 1;
-                        let end_col = std::cmp::min(
-                            self.sql_result_horizontal_scroll + visible_headers.len(),
-                            total_columns,
-                        );
-                        format!(" | Cols {}-{}/{}", start_col, end_col, total_columns)
-                    } else {
-                        String::new()
-                    };
-
-                    let row_info = if total_rows > visible_rows {
-                        format!(
-                            "Rows {}/{} - ",
-                            std::cmp::min(safe_scroll + visible_rows, total_rows),
-                            total_rows
-                        )
-                    } else {
-                        format!("{} rows - ", total_rows)
-                    };
-
-                    format!(
-                        "Query Result ({} Row {}/{}{})",
-                        row_info,
-                        std::cmp::min(self.selected_result_row + 1, total_rows),
-                        total_rows,
-                        h_scroll_info
-                    )
-                } else {
-                    format!("Query Result ({} rows)", total_rows)
-                };
-
-                let sql_result_widget = Table::new(rows, constraints.clone())
-                    .header(
-                        Row::new(header_cells)
-                            .style(
-                                Style::default()
-                                    .fg(Color::Cyan)
-                                    .add_modifier(Modifier::BOLD),
-                            )
-                            .bottom_margin(1),
-                    )
-                    .block(
-                        Block::default()
-                            .borders(Borders::ALL)
-                            .border_type(ratatui::widgets::BorderType::Double)
-                            .border_style(if let FocusedWidget::QueryResult = self.current_focus {
-                                Style::default().fg(Color::Yellow)
-                            } else {
-                                Style::default().fg(Color::White)
-                            })
-                            .title(title),
-                    )
-                    .column_spacing(1)
-                    .widths(&constraints)
-                    .style(Style::default().fg(Color::White));
-
-                f.render_widget(tables_widget, main_chunks[0]);
-
-                // Add scrollbar for tables list if needed
-                let total_tables = self.tables.len();
-                let visible_tables_height = (main_chunks[0].height as usize).saturating_sub(2);
-                if total_tables > visible_tables_height {
-                    let scrollbar_area = Rect {
-                        x: main_chunks[0].x + main_chunks[0].width - 1,
-                        y: main_chunks[0].y + 1,
-                        width: 1,
-                        height: main_chunks[0].height - 2,
-                    };
-
-                    let scrollbar_height = scrollbar_area.height as usize;
-                    if scrollbar_height > 0 && total_tables > 0 {
-                        let thumb_size = std::cmp::max(
-                            1,
-                            (scrollbar_height * visible_tables_height) / total_tables,
-                        );
-                        let scroll_progress = if total_tables > visible_tables_height {
-                            (self.tables_scroll as f64)
-                                / ((total_tables - visible_tables_height) as f64)
-                        } else {
-                            0.0
-                        };
-                        let thumb_position =
-                            (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
-
-                        // Draw scrollbar track
-                        for y in 0..scrollbar_height {
-                            let style = if y >= thumb_position && y < thumb_position + thumb_size {
-                                Style::default().bg(Color::Black).fg(Color::White)
-                            // Thumb
-                            } else {
-                                Style::default().bg(Color::White).fg(Color::Black)
-                                // Track
-                            };
-
-                            f.render_widget(
-                                ratatui::widgets::Paragraph::new("█").style(style),
-                                Rect {
-                                    x: scrollbar_area.x,
-                                    y: scrollbar_area.y + y as u16,
-                                    width: 1,
-                                    height: 1,
-                                },
-                            );
-                        }
-                    }
-                }
-
-                f.render_widget(sql_query_widget, right_chunks[0]);
-                f.render_widget(sql_result_widget, right_chunks[1]);
-
-                // Add scrollbar for query results
-                if total_rows > visible_rows {
-                    let scrollbar_area = Rect {
-                        x: right_chunks[1].x + right_chunks[1].width - 1,
-                        y: right_chunks[1].y + 1,
-                        width: 1,
-                        height: right_chunks[1].height - 2,
-                    };
-
-                    let scrollbar_height = scrollbar_area.height as usize;
-                    if scrollbar_height > 0 && total_rows > 0 {
-                        let thumb_size =
-                            std::cmp::max(1, (scrollbar_height * visible_rows) / total_rows);
-                        let scroll_progress = if total_rows > visible_rows {
-                            (safe_scroll as f64) / ((total_rows - visible_rows) as f64)
-                        } else {
-                            0.0
-                        };
-                        let thumb_position =
-                            (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
-
-                        // Draw scrollbar track
-                        for y in 0..scrollbar_height {
-                            let style = if y >= thumb_position && y < thumb_position + thumb_size {
-                                Style::default().bg(Color::Black).fg(Color::White)
-                            // Thumb
-                            } else {
-                                Style::default().bg(Color::White).fg(Color::Black)
-                                // Track
-                            };
-
-                            f.render_widget(
-                                ratatui::widgets::Paragraph::new("█").style(style),
-                                Rect {
-                                    x: scrollbar_area.x,
-                                    y: scrollbar_area.y + y as u16,
-                                    width: 1,
-                                    height: 1,
-                                },
-                            );
-                        }
-                    }
-                }
+        if let Some(error) = &self.sql_query_error {
+            let error_widget = Paragraph::new(format!("Error: {}", error))
+                .block(block)
+                .style(Style::default().fg(Color::Red))
+                .wrap(Wrap { trim: false });
+            f.render_widget(error_widget, area);
+        } else if self.sql_query_result.row_count() > 0 {
+            self.render_result_grid(f, area);
+        } else if let Some(query) = &self.running_query {
+            let status = if query.cancelling {
+                format!("{} Cancelling…", self.spinner())
             } else {
-                let result_message = self
-                    .sql_query_success_message
-                    .clone()
-                    .unwrap_or_else(|| "No results".to_string());
-                let result_widget = Paragraph::new(result_message).block(sql_result_block);
-
-                f.render_widget(tables_widget, main_chunks[0]);
-
-                // Add scrollbar for tables list if needed
-                let total_tables = self.tables.len();
-                let visible_tables_height = (main_chunks[0].height as usize).saturating_sub(2);
-                if total_tables > visible_tables_height {
-                    let scrollbar_area = Rect {
-                        x: main_chunks[0].x + main_chunks[0].width - 1,
-                        y: main_chunks[0].y + 1,
-                        width: 1,
-                        height: main_chunks[0].height - 2,
-                    };
-
-                    let scrollbar_height = scrollbar_area.height as usize;
-                    if scrollbar_height > 0 && total_tables > 0 {
-                        let thumb_size = std::cmp::max(
-                            1,
-                            (scrollbar_height * visible_tables_height) / total_tables,
-                        );
-                        let scroll_progress = if total_tables > visible_tables_height {
-                            (self.tables_scroll as f64)
-                                / ((total_tables - visible_tables_height) as f64)
-                        } else {
-                            0.0
-                        };
-                        let thumb_position =
-                            (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
-
-                        // Draw scrollbar track
-                        for y in 0..scrollbar_height {
-                            let style = if y >= thumb_position && y < thumb_position + thumb_size {
-                                Style::default().bg(Color::Black).fg(Color::White)
-                            // Thumb
-                            } else {
-                                Style::default().bg(Color::White).fg(Color::Black)
-                                // Track
-                            };
-
-                            f.render_widget(
-                                ratatui::widgets::Paragraph::new("█").style(style),
-                                Rect {
-                                    x: scrollbar_area.x,
-                                    y: scrollbar_area.y + y as u16,
-                                    width: 1,
-                                    height: 1,
-                                },
-                            );
-                        }
-                    }
-                }
-
-                f.render_widget(sql_query_widget, right_chunks[0]);
-                f.render_widget(result_widget, right_chunks[1]);
-            }
-
-            if let FocusedWidget::SqlEditor = self.current_focus {
-                let cursor_x = self.sql_editor_cursor_x as u16;
-                let cursor_y = self.sql_editor_cursor_y as u16;
-
-                let adjusted_cursor_x = right_chunks[0].x + cursor_x + 1;
-                let adjusted_cursor_y =
-                    right_chunks[0].y + cursor_y + 1 - (self.sql_editor_scroll as u16);
-
-                if adjusted_cursor_y >= right_chunks[0].y
-                    && adjusted_cursor_y < right_chunks[0].y + right_chunks[0].height - 1
-                    && adjusted_cursor_x < right_chunks[0].x + right_chunks[0].width - 1
-                {
-                    f.set_cursor_position((adjusted_cursor_x, adjusted_cursor_y));
-                }
-            }
-
-            let help_message = vec![Line::from(vec![
-                Span::styled(
-                    "Tab",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" - navigate, "),
-                Span::styled(
-                    "F5",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("/"),
-                Span::styled(
-                    "Ctrl+E",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" - execute, "),
-                Span::styled(
-                    "Ctrl+C",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" - copy row, "),
-                Span::styled(
-                    "Ctrl+A",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" - copy all, "),
-                Span::styled(
-                    "F12",
-                    Style::default()
-                        .fg(Color::Magenta)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" - debug, "),
-                Span::styled(
-                    "F1",
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" - databases, "),
-                Span::styled(
-                    "Esc",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" - quit"),
-            ])];
-
-            let help_paragraph = Paragraph::new(help_message)
-                .style(Style::default().fg(Color::White))
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: true });
-
-            f.render_widget(help_paragraph, chunks[1]);
-        })?;
-
-        Ok(())
+                format!(
+                    "{} Running… {}   Ctrl+C to cancel",
+                    self.spinner(),
+                    format_duration(query.started.elapsed())
+                )
+            };
+            let widget = Paragraph::new(status)
+                .block(block)
+                .style(Style::default().fg(Color::Yellow));
+            f.render_widget(widget, area);
+        } else {
+            let message = self
+                .sql_query_success_message
+                .as_deref()
+                .unwrap_or("No results");
+            f.render_widget(Paragraph::new(message).block(block), area);
+        }
     }
 
-    async fn render_table_schema(
-        &self,
-        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        table_schema: &TableSchema,
-    ) -> io::Result<()> {
-        terminal.draw(|f| {
-            let size = f.area();
+    fn render_result_grid(&self, f: &mut Frame, area: Rect) {
+        let result = &self.sql_query_result;
+        let focused = self.current_focus == FocusedWidget::QueryResult;
+        let total_rows = result.row_count();
+        let total_columns = result.columns().len();
 
-            let block = Block::default()
-                .title(table_schema.table_name.clone())
-                .borders(Borders::ALL);
+        let first_column = self
+            .sql_result_horizontal_scroll
+            .min(total_columns.saturating_sub(1));
+        let visible_columns: Vec<usize> = (first_column..total_columns)
+            .take(MAX_VISIBLE_COLUMNS)
+            .collect();
 
-            let column_list: Vec<ListItem> = table_schema
-                .columns
+        // Width from the header and a sample of rows, within 8..=40.
+        let mut widths = vec![Constraint::Length(6)];
+        for &col in &visible_columns {
+            let header = result.columns()[col].name.chars().count();
+            let content = (0..total_rows.min(50))
+                .filter_map(|row| result.cell(row, col))
+                .map(|cell| display_cell(cell).chars().count().min(50))
+                .max()
+                .unwrap_or(0);
+            let width = (header.max(content) + 2).clamp(8, 40);
+            widths.push(Constraint::Length(width as u16));
+        }
+
+        // Borders, the header and its margin.
+        let visible_rows = (area.height as usize).saturating_sub(4).max(1);
+        let scroll = self.sql_result_scroll.min(total_rows.saturating_sub(1));
+        let rows: Vec<Row> = (scroll..total_rows.min(scroll + visible_rows))
+            .map(|row| {
+                let mut cells = vec![(row + 1).to_string()];
+                cells.extend(
+                    visible_columns
+                        .iter()
+                        .map(|&col| result.cell(row, col).map(display_cell).unwrap_or_default()),
+                );
+                let style = if focused && row == self.selected_result_row {
+                    Style::default().bg(Color::Yellow).fg(Color::Black)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                Row::new(cells).style(style)
+            })
+            .collect();
+
+        let mut header = vec!["#".to_string()];
+        header.extend(
+            visible_columns
                 .iter()
-                .map(|col| {
-                    let col_info = format!(
-                        "{}: {} (Nullable: {}, Default: {:?})",
-                        col.name, col.data_type, col.is_nullable, col.default
-                    );
-                    ListItem::new(col_info).style(Style::default().fg(Color::White))
-                })
-                .collect();
+                .map(|&col| result.columns()[col].name.clone()),
+        );
 
-            let columns_widget = List::new(column_list).block(block);
+        let mut title = format!(
+            "Query Result ({total_rows} rows - Row {}/{total_rows}",
+            (self.selected_result_row + 1).min(total_rows)
+        );
+        if total_columns > MAX_VISIBLE_COLUMNS {
+            title.push_str(&format!(
+                " | Cols {}-{}/{total_columns}",
+                first_column + 1,
+                first_column + visible_columns.len()
+            ));
+        }
+        title.push(')');
+        if let Some(query) = &self.running_query {
+            title.push_str(&format!(
+                " {} {}",
+                self.spinner(),
+                format_duration(query.started.elapsed())
+            ));
+        } else if let Some(message) = &self.sql_query_success_message {
+            title.push_str(&format!(" {message}"));
+        }
 
-            f.render_widget(columns_widget, size);
-        })?;
+        let table = Table::new(rows, widths)
+            .header(
+                Row::new(header)
+                    .style(
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .bottom_margin(1),
+            )
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Double)
+                    .border_style(focus_style(focused))
+                    .title(title),
+            )
+            .column_spacing(1)
+            .style(Style::default().fg(Color::White));
 
-        Ok(())
+        f.render_widget(table, area);
+        render_scrollbar(f, area, total_rows, visible_rows, scroll);
     }
+}
+
+/// A cell as one line of the grid: control characters removed, long values
+/// cut short.
+fn display_cell(cell: Cell<'_>) -> String {
+    let text: String = cell
+        .to_string()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    let text = text.trim();
+    if text.chars().count() > MAX_CELL_CHARS {
+        let cut: String = text.chars().take(MAX_CELL_CHARS - 3).collect();
+        format!("{cut}...")
+    } else {
+        text.to_string()
+    }
+}
+
+fn hint(key: &str, color: Color) -> Span<'_> {
+    Span::styled(key, Style::default().fg(color).add_modifier(Modifier::BOLD))
+}
+
+fn item_style(selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .bg(Color::Yellow)
+            .fg(Color::Black)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::White)
+    }
+}
+
+fn focus_style(focused: bool) -> Style {
+    if focused {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default().fg(Color::White)
+    }
+}
+
+fn render_help(f: &mut Frame, area: Rect, spans: Vec<Span<'_>>) {
+    let help = Paragraph::new(Line::from(spans))
+        .style(Style::default().fg(Color::White))
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
+    f.render_widget(help, area);
+}
+
+fn render_error_popup(f: &mut Frame, area: Rect, message: &str) {
+    let block = Block::default()
+        .title("Error")
+        .borders(Borders::ALL)
+        .style(Style::default().fg(Color::Red))
+        .title_alignment(Alignment::Center);
+    let paragraph = Paragraph::new(message)
+        .block(block)
+        .style(Style::default().fg(Color::White))
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
+    f.render_widget(Clear, area);
+    f.render_widget(paragraph, area);
+}
+
+/// Draws a scrollbar on the right border of `area` when `total` items don't
+/// fit in `visible` lines.
+fn render_scrollbar(f: &mut Frame, area: Rect, total: usize, visible: usize, offset: usize) {
+    let height = area.height.saturating_sub(2) as usize;
+    if total <= visible || height == 0 || area.width == 0 {
+        return;
+    }
+    let thumb_size = (height * visible / total).max(1);
+    let progress = offset as f64 / (total - visible) as f64;
+    let thumb_start = (progress * (height - thumb_size) as f64) as usize;
+
+    for y in 0..height {
+        let style = if (thumb_start..thumb_start + thumb_size).contains(&y) {
+            Style::default().bg(Color::Black).fg(Color::White)
+        } else {
+            Style::default().bg(Color::White).fg(Color::Black)
+        };
+        f.render_widget(
+            Paragraph::new("█").style(style),
+            Rect {
+                x: area.x + area.width - 1,
+                y: area.y + 1 + y as u16,
+                width: 1,
+                height: 1,
+            },
+        );
+    }
+}
+
+/// Rows for a centred popup: the popup in `[1]`, help in `[2]`.
+fn popup_layout(area: Rect) -> std::rc::Rc<[Rect]> {
+    Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(30),
+            Constraint::Percentage(40),
+            Constraint::Percentage(20),
+            Constraint::Percentage(10),
+        ])
+        .split(area)
 }
 
 fn centered_rect(percent_x: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints(
-            [
-                Constraint::Percentage((100 - percent_x) / 2),
-                Constraint::Percentage(percent_x),
-                Constraint::Percentage((100 - percent_x) / 2),
-            ]
-            .as_ref(),
-        )
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
         .split(r);
 
     popup_layout[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use dfox_core::{
+        engine::EngineHandle,
+        result::{ColumnMeta, OwnedCell, RowStore},
+    };
+    use ratatui::{backend::TestBackend, Terminal};
+    use tokio::sync::mpsc;
+
+    use super::*;
+
+    fn draw(ui: &DatabaseClientUI) -> String {
+        let mut terminal = Terminal::new(TestBackend::new(140, 30)).expect("terminal");
+        terminal.draw(|f| ui.render(f)).expect("draw");
+        let buffer = terminal.backend().buffer();
+        buffer
+            .content
+            .chunks(buffer.area.width as usize)
+            .map(|line| line.iter().map(|cell| cell.symbol()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn table_view() -> DatabaseClientUI {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let mut ui = DatabaseClientUI::new(EngineHandle::new(tx));
+        ui.current_screen = ScreenState::TableView;
+        ui.tables = vec!["people".to_string()];
+        ui
+    }
+
+    #[test]
+    fn a_running_query_shows_progress_and_how_to_cancel() {
+        let mut ui = table_view();
+        ui.sql_editor_content = "SELECT pg_sleep(5)".to_string();
+        ui.run_query();
+
+        let screen = draw(&ui);
+        assert!(screen.contains("Running…"), "{screen}");
+        assert!(screen.contains("Ctrl+C to cancel"), "{screen}");
+        assert!(screen.contains("Ctrl+C - cancel"), "{screen}");
+    }
+
+    #[test]
+    fn results_show_in_the_grid() {
+        let mut ui = table_view();
+        let mut result = RowStore::new(vec![
+            ColumnMeta::new("id", "int4"),
+            ColumnMeta::new("name", "text"),
+        ]);
+        result.push(vec![OwnedCell::Int(7), OwnedCell::Null]);
+        result.push(vec![OwnedCell::Int(8), OwnedCell::Text("tab\there".into())]);
+        ui.sql_query_result = result;
+        ui.sql_query_success_message = Some("2 row(s) in 3 ms".to_string());
+
+        let screen = draw(&ui);
+        assert!(
+            screen.contains("Query Result (2 rows - Row 1/2) 2 row(s) in 3 ms"),
+            "{screen}"
+        );
+        assert!(screen.contains("NULL"), "{screen}");
+        assert!(screen.contains("tabhere"), "{screen}");
+        assert!(screen.contains("people"), "{screen}");
+    }
+
+    #[test]
+    fn long_values_are_cut_short() {
+        let long = "x".repeat(150);
+        let shown = display_cell(Cell::Text(&long));
+        assert_eq!(shown.chars().count(), MAX_CELL_CHARS);
+        assert!(shown.ends_with("..."));
+    }
 }

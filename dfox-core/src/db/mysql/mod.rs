@@ -1,10 +1,12 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use async_trait::async_trait;
 use sqlx::{
     mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlRow},
     pool::PoolConnection,
-    MySql, MySqlPool, Row, TypeInfo, ValueRef,
+    Executor, MySql, MySqlPool, Row, TypeInfo, ValueRef,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 use crate::{
     errors::DbError,
@@ -12,15 +14,23 @@ use crate::{
         connections::ConnectionParams,
         schema::{ColumnSchema, TableSchema},
     },
+    result::OwnedCell,
 };
 
-use super::{bytes_to_display, run_on_session, undecodable, DbClient, QueryOutput};
+use super::{
+    bytes_cell, replace_if_lost, replace_session, stream_raw, undecodable, Chunk, DbClient,
+    RunGuard, StreamSummary,
+};
 
 pub struct MySqlClient {
     /// Used for metadata, and to replace a dead session connection.
     pub pool: MySqlPool,
     /// Pinned connection for user SQL, so session state survives between runs.
     session: Mutex<PoolConnection<MySql>>,
+    /// Connection id of the session connection, for cancelling; 0 until the
+    /// first query on a connection looks it up.
+    connection_id: AtomicU64,
+    run_guard: RunGuard,
 }
 
 impl MySqlClient {
@@ -57,6 +67,8 @@ impl MySqlClient {
         Ok(Self {
             pool,
             session: Mutex::new(session),
+            connection_id: AtomicU64::new(0),
+            run_guard: RunGuard::default(),
         })
     }
 
@@ -72,35 +84,68 @@ impl MySqlClient {
 /// protocol, and text or raw bytes for strings in the binary protocol. Reading
 /// the bytes directly works for every column type, including unsigned
 /// integers, DECIMAL, BIT and columns with a binary collation.
-pub(crate) fn mysql_cell(row: &MySqlRow, index: usize) -> Option<String> {
+pub(crate) fn mysql_cell(row: &MySqlRow, index: usize) -> OwnedCell {
     let value = match row.try_get_raw(index) {
         Ok(value) => value,
         Err(err) => return undecodable("?", err),
     };
     if value.is_null() {
-        return None;
+        return OwnedCell::Null;
     }
     let type_name = value.type_info().name().to_string();
     match row.try_get_unchecked::<&[u8], _>(index) {
-        Ok(bytes) => Some(bytes_to_display(bytes)),
+        Ok(bytes) => bytes_cell(bytes),
         Err(err) => undecodable(&type_name, err),
     }
 }
 
 /// Text value of a metadata column that is never NULL.
 fn text(row: &MySqlRow, index: usize) -> String {
-    mysql_cell(row, index).unwrap_or_default()
+    mysql_cell(row, index).into_text().unwrap_or_default()
 }
 
 #[async_trait]
 impl DbClient for MySqlClient {
-    async fn execute(&self, query: &str) -> Result<(), DbError> {
-        run_on_session(&self.pool, &self.session, query, 0, mysql_cell).await?;
-        Ok(())
+    async fn stream(
+        &self,
+        query: &str,
+        row_limit: usize,
+        tx: mpsc::Sender<Chunk>,
+    ) -> Result<StreamSummary, DbError> {
+        let mut conn = self.session.lock().await;
+        if self.run_guard.start() && replace_session(&self.pool, &mut conn).await {
+            log::warn!("replaced the session connection after an interrupted query");
+            self.connection_id.store(0, Ordering::Relaxed);
+        }
+        if self.connection_id.load(Ordering::Relaxed) == 0 {
+            match sqlx::query_scalar::<_, u64>("SELECT CONNECTION_ID()")
+                .fetch_one(&mut **conn)
+                .await
+            {
+                Ok(id) => self.connection_id.store(id, Ordering::Relaxed),
+                Err(err) => log::warn!("could not read the session's connection id: {err}"),
+            }
+        }
+
+        let result = stream_raw(&mut **conn, query, row_limit, mysql_cell, &tx).await;
+        self.run_guard.finish();
+        if replace_if_lost(&self.pool, &mut conn, &result).await {
+            self.connection_id.store(0, Ordering::Relaxed);
+        }
+        result
     }
 
-    async fn run(&self, query: &str, row_limit: usize) -> Result<QueryOutput, DbError> {
-        run_on_session(&self.pool, &self.session, query, row_limit, mysql_cell).await
+    async fn cancel(&self) -> Result<bool, DbError> {
+        let id = self.connection_id.load(Ordering::Relaxed);
+        if id == 0 {
+            return Ok(false);
+        }
+        // KILL can't be a prepared statement. The id is a number the server
+        // gave us, so formatting it into the SQL is safe.
+        self.pool
+            .execute(format!("KILL QUERY {id}").as_str())
+            .await?;
+        Ok(true)
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, DbError> {
@@ -131,7 +176,7 @@ impl DbClient for MySqlClient {
                 name: text(row, 0),
                 data_type: text(row, 1),
                 is_nullable: text(row, 2) == "YES",
-                default: mysql_cell(row, 3),
+                default: mysql_cell(row, 3).into_text(),
             })
             .collect();
 

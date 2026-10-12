@@ -16,6 +16,9 @@ pub enum DbError {
     /// Connection error (e.g., issues with network or database connection).
     #[error("Connection error: {0}")]
     Connection(String),
+    /// The query was cancelled before it finished.
+    #[error("Query cancelled")]
+    Cancelled,
     /// General error with a custom message.
     #[error("Error: {0}")]
     General(String),

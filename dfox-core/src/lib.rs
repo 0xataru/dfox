@@ -5,8 +5,10 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub mod db;
+pub mod engine;
 pub mod errors;
 pub mod models;
+pub mod result;
 
 #[derive(Default)]
 pub struct DbManager {
