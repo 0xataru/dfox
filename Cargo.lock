@@ -558,7 +558,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -575,7 +575,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arboard",
  "async-trait",
