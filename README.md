@@ -1,11 +1,16 @@
 <p align="center">
-  <img src="examples/mini_logo.png" alt="Centered Image" width="300">
+  <img src="examples/mini_logo.png" alt="DFox logo" width="300">
 </p>
 
 # DFox - ⚡️ Blazing Fast Terminal Database Manager
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0) 
-![GitHub top language](https://img.shields.io/github/languages/top/ataru993/dfox)
+<p align="center">
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version" /></a>
+  <a href="https://github.com/0xataru/dfox/actions/workflows/ci.yml"><img src="https://github.com/0xataru/dfox/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/0xataru/dfox"><img src="https://api.scorecard.dev/projects/github.com/0xataru/dfox/badge" alt="OpenSSF Scorecard" /></a>
+  <a href="https://github.com/0xataru/dfox/releases/latest"><img src="https://img.shields.io/github/v/release/0xataru/dfox?label=release" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?logo=apache&logoColor=white" alt="License: Apache 2.0" /></a>
+</p>
 
 **DFox** is a Rust-based database management tool that provides a terminal user interface (TUI) for interacting with PostgreSQL and MySQL databases.
 It allows users to perform database operations easily and efficiently through a simple and intuitive interface.
@@ -120,32 +125,41 @@ DFox provides several keyboard shortcuts for efficient navigation and operation:
 
 ## Installation
 
-To build and run the project, ensure you have [Rust](https://www.rust-lang.org/) installed. Clone the repository and use Cargo to build the project:
+### Prebuilt binaries
+
+Download the archive for your platform from the
+[latest release](https://github.com/0xataru/dfox/releases/latest) (Linux x86_64,
+macOS Intel and Apple silicon, Windows x86_64), extract it and run `dfox-tui`.
+Each release includes a `SHA256SUMS` file to verify the download.
+
+### From source
+
+You need stable [Rust](https://www.rust-lang.org/tools/install):
 
 ```bash
-git clone https://github.com/markraiter/dfox.git
+git clone https://github.com/0xataru/dfox.git
 cd dfox
-cargo build
+cargo build --release
+./target/release/dfox-tui
 ```
 
 ## Usage
 
-After building the project, you can run the TUI application with the following command:
+Run the TUI from a source checkout with:
 
 ```bash
-cargo run --bin dfox-tui
+make run    # or: cargo run --bin dfox-tui
 ```
 
 ## Contributing
 
-Contributions are welcome! If you would like to contribute to DFox, please follow these steps:
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the
+development workflow, how pull requests are reviewed and how releases are made.
+Notable changes are listed in the [changelog](CHANGELOG.md).
 
-1. Fork the repository.
-2. Create your feature branch (git checkout -b feature/my-feature).
-3. Commit your changes (git commit -m 'Add some feature').
-4. Push to the branch (git push origin feature/my-feature).
-5. Open a pull request.
+Please report security issues privately, as described in [SECURITY.md](SECURITY.md).
+This project follows a [code of conduct](CODE_OF_CONDUCT.md).
 
- ## Acknowledgments
+## Acknowledgments
 
 Thanks to the [Ukrainian Rust Community](https://github.com/rust-lang-ua) for their incredible support and resources.
