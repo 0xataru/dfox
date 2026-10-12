@@ -1,7 +1,10 @@
 use db::{mysql::MySqlClient, postgres::PostgresClient, sqlite::SqliteClient, DbClient};
 use errors::DbError;
 use models::connections::{ConnectionConfig, ConnectionParams, DbType};
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::Mutex;
 
 pub mod db;
@@ -45,9 +48,35 @@ impl DbManager {
                 let path = params.database.as_deref().ok_or_else(|| {
                     DbError::Config("SQLite needs a database file path".to_string())
                 })?;
-                let options = sqlx::sqlite::SqliteConnectOptions::new().filename(path);
+                let options = sqlx::sqlite::SqliteConnectOptions::new()
+                    .filename(path)
+                    .read_only(params.read_only);
                 Box::new(SqliteClient::connect_with(options).await?)
             }
         })
+    }
+
+    /// How long it takes to reach the database, without logging in: a TCP
+    /// connect to a server, or opening a SQLite file's metadata. Needs no
+    /// password.
+    pub async fn ping(db_type: &DbType, params: &ConnectionParams) -> Result<Duration, DbError> {
+        const TIMEOUT: Duration = Duration::from_secs(3);
+        let started = Instant::now();
+        match db_type {
+            DbType::Sqlite => {
+                let path = params.database.as_deref().unwrap_or_default();
+                tokio::fs::metadata(path)
+                    .await
+                    .map_err(|err| DbError::Connection(format!("{path}: {err}")))?;
+            }
+            _ => {
+                let address = (params.host.as_str(), params.port);
+                tokio::time::timeout(TIMEOUT, tokio::net::TcpStream::connect(address))
+                    .await
+                    .map_err(|_| DbError::Connection("timed out".to_string()))?
+                    .map_err(|err| DbError::Connection(err.to_string()))?;
+            }
+        }
+        Ok(started.elapsed())
     }
 }

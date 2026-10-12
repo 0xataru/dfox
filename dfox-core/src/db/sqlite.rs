@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::{
     errors::DbError,
-    models::schema::{ColumnSchema, TableSchema},
+    models::schema::{ColumnSchema, DbObject, ObjectKind, TableSchema},
     result::OwnedCell,
 };
 
@@ -54,11 +54,11 @@ impl SqliteClient {
         self.pool.close().await;
     }
 
-    async fn metadata(&self, query: &str, bind: Option<&str>) -> Result<Vec<SqliteRow>, DbError> {
+    async fn metadata(&self, query: &str, binds: &[&str]) -> Result<Vec<SqliteRow>, DbError> {
         let mut conn = self.session.lock().await;
         let mut query = sqlx::query(query);
-        if let Some(value) = bind {
-            query = query.bind(value);
+        for value in binds {
+            query = query.bind(*value);
         }
         Ok(query.fetch_all(&mut **conn).await?)
     }
@@ -124,13 +124,47 @@ impl DbClient for SqliteClient {
             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
             ORDER BY name
         "#;
-        let rows = self.metadata(query, None).await?;
+        let rows = self.metadata(query, &[]).await?;
         Ok(rows.iter().map(|row| text(row, 0)).collect())
     }
 
-    async fn describe_table(&self, table_name: &str) -> Result<TableSchema, DbError> {
-        let query = r#"SELECT name, type, "notnull", dflt_value FROM pragma_table_info(?1)"#;
-        let rows = self.metadata(query, Some(table_name)).await?;
+    /// `main`, then any attached databases.
+    async fn list_schemas(&self) -> Result<Vec<String>, DbError> {
+        let rows = self
+            .metadata("SELECT name FROM pragma_database_list ORDER BY seq", &[])
+            .await?;
+        Ok(rows.iter().map(|row| text(row, 0)).collect())
+    }
+
+    async fn list_objects(&self, schema: &str) -> Result<Vec<DbObject>, DbError> {
+        let query = r#"
+            SELECT name, type
+            FROM pragma_table_list
+            WHERE schema = ?1 AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+        "#;
+        let rows = self.metadata(query, &[schema]).await?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let kind = match text(row, 1).as_str() {
+                    "table" | "virtual" => ObjectKind::Table,
+                    "view" => ObjectKind::View,
+                    // Shadow tables belong to virtual tables.
+                    _ => return None,
+                };
+                Some(DbObject {
+                    name: text(row, 0),
+                    kind,
+                    rows: None,
+                })
+            })
+            .collect())
+    }
+
+    async fn describe_table(&self, schema: &str, table: &str) -> Result<TableSchema, DbError> {
+        let query = r#"SELECT name, type, "notnull", dflt_value FROM pragma_table_info(?1, ?2)"#;
+        let rows = self.metadata(query, &[table, schema]).await?;
 
         let columns = rows
             .iter()
@@ -143,7 +177,8 @@ impl DbClient for SqliteClient {
             .collect();
 
         Ok(TableSchema {
-            table_name: table_name.to_string(),
+            schema: schema.to_string(),
+            table_name: table.to_string(),
             columns,
             indexes: Vec::new(),
         })

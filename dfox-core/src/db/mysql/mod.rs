@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use sqlx::{
-    mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlRow},
+    mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlRow, MySqlSslMode},
     pool::PoolConnection,
     Executor, MySql, MySqlPool, Row, TypeInfo, ValueRef,
 };
@@ -11,8 +11,8 @@ use tokio::sync::{mpsc, Mutex};
 use crate::{
     errors::DbError,
     models::{
-        connections::ConnectionParams,
-        schema::{ColumnSchema, TableSchema},
+        connections::{ConnectionParams, TlsMode},
+        schema::{ColumnSchema, DbObject, ObjectKind, TableSchema},
     },
     result::OwnedCell,
 };
@@ -46,16 +46,34 @@ impl MySqlClient {
             .host(&params.host)
             .port(params.port)
             .username(&params.username)
-            .password(&params.password);
+            .password(&params.password)
+            .ssl_mode(match params.tls {
+                TlsMode::Prefer => MySqlSslMode::Preferred,
+                TlsMode::Require => MySqlSslMode::Required,
+                TlsMode::Disable => MySqlSslMode::Disabled,
+            });
         if let Some(database) = &params.database {
             options = options.database(database);
         }
-        Self::connect_with(options).await
+        Self::open(options, params.read_only).await
     }
 
     pub async fn connect_with(options: MySqlConnectOptions) -> Result<Self, DbError> {
-        let pool = MySqlPoolOptions::new()
-            .max_connections(5)
+        Self::open(options, false).await
+    }
+
+    async fn open(options: MySqlConnectOptions, read_only: bool) -> Result<Self, DbError> {
+        let mut pool_options = MySqlPoolOptions::new().max_connections(5);
+        if read_only {
+            // Every pooled connection, including ones made later.
+            pool_options = pool_options.after_connect(|conn, _| {
+                Box::pin(async move {
+                    conn.execute("SET SESSION TRANSACTION READ ONLY").await?;
+                    Ok(())
+                })
+            });
+        }
+        let pool = pool_options
             .connect_with(options)
             .await
             .map_err(|e| DbError::Connection(e.to_string()))?;
@@ -158,15 +176,61 @@ impl DbClient for MySqlClient {
         Ok(rows.iter().map(|row| text(row, 0)).collect())
     }
 
-    async fn describe_table(&self, table_name: &str) -> Result<TableSchema, DbError> {
+    /// In MySQL a database is a schema, so the current one is the only one.
+    async fn list_schemas(&self) -> Result<Vec<String>, DbError> {
+        let row = sqlx::query("SELECT DATABASE()")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(mysql_cell(&row, 0).into_text().into_iter().collect())
+    }
+
+    async fn list_objects(&self, schema: &str) -> Result<Vec<DbObject>, DbError> {
+        let query = r#"
+            SELECT TABLE_NAME, TABLE_TYPE, TABLE_ROWS
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = ?
+            UNION ALL
+            SELECT ROUTINE_NAME, ROUTINE_TYPE, NULL
+            FROM information_schema.ROUTINES
+            WHERE ROUTINE_SCHEMA = ?
+            ORDER BY 1
+        "#;
+        let rows = sqlx::query(query)
+            .bind(schema)
+            .bind(schema)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .filter_map(|row| {
+                let kind = match text(row, 1).as_str() {
+                    "BASE TABLE" => ObjectKind::Table,
+                    "VIEW" | "SYSTEM VIEW" => ObjectKind::View,
+                    "FUNCTION" => ObjectKind::Function,
+                    "PROCEDURE" => ObjectKind::Procedure,
+                    _ => return None,
+                };
+                Some(DbObject {
+                    name: text(row, 0),
+                    kind,
+                    rows: mysql_cell(row, 2)
+                        .into_text()
+                        .and_then(|rows| rows.parse().ok()),
+                })
+            })
+            .collect())
+    }
+
+    async fn describe_table(&self, schema: &str, table: &str) -> Result<TableSchema, DbError> {
         let query = r#"
             SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
             FROM information_schema.COLUMNS
-            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
             ORDER BY ORDINAL_POSITION
         "#;
         let rows = sqlx::query(query)
-            .bind(table_name)
+            .bind(schema)
+            .bind(table)
             .fetch_all(&self.pool)
             .await?;
 
@@ -181,7 +245,8 @@ impl DbClient for MySqlClient {
             .collect();
 
         Ok(TableSchema {
-            table_name: table_name.to_string(),
+            schema: schema.to_string(),
+            table_name: table.to_string(),
             columns,
             indexes: Vec::new(),
         })

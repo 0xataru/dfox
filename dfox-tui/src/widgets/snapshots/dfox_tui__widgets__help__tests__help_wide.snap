@@ -13,20 +13,21 @@ expression: "render(&test, 120, 40, super::render)"
 
 
 
-
-
                      ╭ Keys ──────────────────────────────────────────────────────────────────────╮
                      │                                                                            │
-                     │ F5 Ctrl+E   Run the query            q Ctrl+Q    Quit                      │
-                     │ Ctrl+C      Copy row / cancel query  Enter       Select / new line         │
-                     │ Ctrl+A      Copy all rows            ↑           Up                        │
-                     │ Tab         Next panel               ↓           Down                      │
-                     │ Shift+Tab   Previous panel           ←           Left / previous column    │
-                     │ F1          Database list            →           Right / next column       │
-                     │ Ctrl+T      Next theme               PgUp        Page up                   │
-                     │ F12         Event log                PgDn        Page down                 │
-                     │ Space       Command menu             Home        First row / line start    │
-                     │ ? F2        Show keys                End         Last row / line end       │
-                     │ Esc         Back / close             Backspace   Delete a character        │
+                     │ F5 Ctrl+E   Run the query            Space       Command menu              │
+                     │ Ctrl+C      Copy row / cancel query  ? F2        Show keys                 │
+                     │ Ctrl+A      Copy all rows            Esc         Back / close              │
+                     │ Tab         Next panel               q Ctrl+Q    Quit                      │
+                     │ Shift+Tab   Previous panel           Enter       Select / new line         │
+                     │ /           Filter                   ↑           Up                        │
+                     │ R           Refresh                  ↓           Down                      │
+                     │ n           New connection           ←           Left / previous column    │
+                     │ e           Edit connection          →           Right / next column       │
+                     │ Delete d    Delete connection        PgUp        Page up                   │
+                     │ Ctrl+S      Save                     PgDn        Page down                 │
+                     │ F1          Connection list          Home        First row / line start    │
+                     │ Ctrl+T      Next theme               End         Last row / line end       │
+                     │ F12         Event log                Backspace   Delete a character        │
                      │                                                                            │
                      ╰───────────────────────────── any key to close ─────────────────────────────╯

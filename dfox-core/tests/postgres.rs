@@ -1,11 +1,15 @@
 mod common;
 
-use common::{only_row, rows, scalar, server_url, unique};
+use common::{only_row, params_from_url, rows, scalar, server_url, unique};
 use dfox_core::{
     db::{postgres::PostgresClient, DbClient},
-    models::connections::ConnectionParams,
+    errors::DbError,
+    models::{
+        connections::{ConnectionParams, DbType, TlsMode},
+        schema::ObjectKind,
+    },
+    DbManager,
 };
-use sqlx::postgres::PgConnectOptions;
 
 const URL: &str = "DFOX_TEST_POSTGRES_URL";
 
@@ -208,7 +212,7 @@ async fn metadata_and_describe_are_injection_safe() {
         .unwrap()
         .contains(&"postgres".to_string()));
 
-    let schema = db.describe_table(&table).await.unwrap();
+    let schema = db.describe_table("public", &table).await.unwrap();
     let columns: Vec<_> = schema
         .columns
         .iter()
@@ -225,7 +229,12 @@ async fn metadata_and_describe_are_injection_safe() {
     assert_eq!(schema.columns[1].default.as_deref(), Some("'x'::text"));
 
     let attack = format!("x'); DROP TABLE {table}; --");
-    assert!(db.describe_table(&attack).await.unwrap().columns.is_empty());
+    assert!(db
+        .describe_table("public", &attack)
+        .await
+        .unwrap()
+        .columns
+        .is_empty());
     assert!(db.list_tables().await.unwrap().contains(&table));
 
     db.execute(&format!("DROP TABLE {table}")).await.unwrap();
@@ -245,13 +254,10 @@ async fn passwords_with_url_characters_connect() {
         .await
         .unwrap();
 
-    let options: PgConnectOptions = url.parse().unwrap();
     let params = ConnectionParams {
-        host: options.get_host().to_string(),
-        port: options.get_port(),
         username: role.clone(),
         password: password.to_string(),
-        database: options.get_database().map(str::to_string),
+        ..params_from_url(&url)
     };
     let user = match PostgresClient::connect_params(&params).await {
         Ok(db) => {
@@ -264,4 +270,117 @@ async fn passwords_with_url_characters_connect() {
     admin.execute(&format!("DROP ROLE {role}")).await.unwrap();
 
     assert_eq!(user.unwrap().as_deref(), Some(role.as_str()));
+}
+
+#[tokio::test]
+async fn schemas_and_their_objects() {
+    let Some(db) = client().await else { return };
+    let schema = unique("dfox_it_schema");
+
+    db.execute(&format!(
+        "CREATE SCHEMA {schema};
+         CREATE TABLE {schema}.t (id int);
+         INSERT INTO {schema}.t VALUES (1), (2), (3);
+         ANALYZE {schema}.t;
+         CREATE VIEW {schema}.v AS SELECT 1 AS one;
+         CREATE MATERIALIZED VIEW {schema}.m AS SELECT 1 AS one;
+         CREATE FUNCTION {schema}.f() RETURNS int LANGUAGE sql AS 'SELECT 1';
+         CREATE PROCEDURE {schema}.p() LANGUAGE sql AS 'SELECT 1';"
+    ))
+    .await
+    .unwrap();
+
+    let schemas = db.list_schemas().await.unwrap();
+    assert_eq!(schemas[0], "public");
+    assert!(schemas.contains(&schema));
+    assert!(!schemas
+        .iter()
+        .any(|s| s.starts_with("pg_") || s == "information_schema"));
+
+    let objects: Vec<_> = db
+        .list_objects(&schema)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|o| (o.name, o.kind, o.rows))
+        .collect();
+    assert_eq!(
+        objects,
+        [
+            ("f".to_string(), ObjectKind::Function, None),
+            ("m".to_string(), ObjectKind::MaterializedView, None),
+            ("p".to_string(), ObjectKind::Procedure, None),
+            ("t".to_string(), ObjectKind::Table, Some(3)),
+            ("v".to_string(), ObjectKind::View, None),
+        ]
+    );
+
+    let described = db.describe_table(&schema, "t").await.unwrap();
+    assert_eq!(described.schema, schema);
+    assert_eq!(described.columns[0].name, "id");
+    assert!(db
+        .describe_table("public", "t")
+        .await
+        .unwrap()
+        .columns
+        .is_empty());
+
+    db.execute(&format!("DROP SCHEMA {schema} CASCADE"))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn read_only_connections_refuse_writes() {
+    let Some(url) = server_url(URL) else { return };
+    let params = ConnectionParams {
+        read_only: true,
+        ..params_from_url(&url)
+    };
+    let db = DbManager::connect(&DbType::Postgres, &params)
+        .await
+        .unwrap();
+
+    assert_eq!(scalar(&db.run("SELECT 1", 10).await.unwrap()), Some("1"));
+    let err = db
+        .execute("CREATE TABLE dfox_it_ro (i int)")
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("read-only"), "{err}");
+}
+
+#[tokio::test]
+async fn tls_can_be_required_or_turned_off() {
+    let Some(url) = server_url(URL) else { return };
+    // The test server has no TLS.
+    let required = ConnectionParams {
+        tls: TlsMode::Require,
+        ..params_from_url(&url)
+    };
+    assert!(matches!(
+        DbManager::connect(&DbType::Postgres, &required).await,
+        Err(DbError::Connection(_))
+    ));
+
+    let disabled = ConnectionParams {
+        tls: TlsMode::Disable,
+        ..params_from_url(&url)
+    };
+    let db = DbManager::connect(&DbType::Postgres, &disabled)
+        .await
+        .unwrap();
+    assert_eq!(scalar(&db.run("SELECT 1", 10).await.unwrap()), Some("1"));
+}
+
+#[tokio::test]
+async fn ping_reaches_the_server_without_logging_in() {
+    let Some(url) = server_url(URL) else { return };
+    let params = ConnectionParams {
+        password: "wrong".into(),
+        ..params_from_url(&url)
+    };
+    assert!(DbManager::ping(&DbType::Postgres, &params).await.is_ok());
+
+    let closed = ConnectionParams { port: 1, ..params };
+    assert!(DbManager::ping(&DbType::Postgres, &closed).await.is_err());
 }

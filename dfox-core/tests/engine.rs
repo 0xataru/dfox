@@ -2,13 +2,12 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{server_url, unique};
+use common::{params_from_url, server_url, unique};
 use dfox_core::{
     engine::{self, Command, EngineEvent, EngineHandle, QueryId, QueryStats},
     errors::DbError,
     models::connections::{ConnectionParams, DbType},
 };
-use sqlx::{mysql::MySqlConnectOptions, postgres::PgConnectOptions};
 use tokio::sync::mpsc;
 
 /// Drives the engine the way a UI would, with no UI.
@@ -146,43 +145,6 @@ impl Drop for TempDb {
     }
 }
 
-fn server_params(url: &str, db_type: &DbType) -> ConnectionParams {
-    match db_type {
-        DbType::Postgres => {
-            let options: PgConnectOptions = url.parse().expect("postgres url");
-            ConnectionParams {
-                host: options.get_host().to_string(),
-                port: options.get_port(),
-                username: options.get_username().to_string(),
-                password: url_password(url),
-                database: options.get_database().map(str::to_string),
-            }
-        }
-        _ => {
-            let options: MySqlConnectOptions = url.parse().expect("mysql url");
-            ConnectionParams {
-                host: options.get_host().to_string(),
-                port: options.get_port(),
-                username: options.get_username().to_string(),
-                password: url_password(url),
-                database: options.get_database().map(str::to_string),
-            }
-        }
-    }
-}
-
-/// The test URLs use plain passwords, so no percent-decoding is needed.
-fn url_password(url: &str) -> String {
-    let credentials = url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split('@').next());
-    credentials
-        .and_then(|c| c.split_once(':'))
-        .map(|(_, password)| password.to_string())
-        .unwrap_or_default()
-}
-
 #[tokio::test]
 async fn sqlite_rows_stream_in_chunks() {
     let db = TempDb::new();
@@ -237,18 +199,36 @@ async fn sqlite_metadata_and_errors() {
         .outcome
         .expect("create");
 
-    engine.engine.send(Command::ListTables);
+    engine.engine.send(Command::ListSchemas);
     match engine.next().await {
-        EngineEvent::Tables(tables) => assert_eq!(tables.expect("tables"), ["people"]),
-        other => panic!("expected Tables, got {other:?}"),
+        EngineEvent::Schemas(schemas) => assert_eq!(schemas.expect("schemas"), ["main"]),
+        other => panic!("expected Schemas, got {other:?}"),
+    }
+
+    engine.engine.send(Command::ListObjects {
+        schema: "main".to_string(),
+    });
+    match engine.next().await {
+        EngineEvent::Objects { schema, result } => {
+            assert_eq!(schema, "main");
+            let names: Vec<_> = result
+                .expect("objects")
+                .into_iter()
+                .map(|o| o.name)
+                .collect();
+            assert_eq!(names, ["people"]);
+        }
+        other => panic!("expected Objects, got {other:?}"),
     }
 
     engine.engine.send(Command::Describe {
+        schema: "main".to_string(),
         table: "people".to_string(),
     });
     match engine.next().await {
-        EngineEvent::Schema(schema) => {
-            let names: Vec<_> = schema
+        EngineEvent::Described { table, result, .. } => {
+            assert_eq!(table, "people");
+            let names: Vec<_> = result
                 .expect("schema")
                 .columns
                 .into_iter()
@@ -256,7 +236,7 @@ async fn sqlite_metadata_and_errors() {
                 .collect();
             assert_eq!(names, ["id", "name"]);
         }
-        other => panic!("expected Schema, got {other:?}"),
+        other => panic!("expected Described, got {other:?}"),
     }
 
     let bad = engine.query("SELECT * FROM no_such_table", 10).await;
@@ -287,8 +267,8 @@ async fn commands_without_a_connection_fail() {
     let finished = engine.query("SELECT 1", 10).await;
     assert!(matches!(finished.outcome, Err(DbError::Connection(_))));
 
-    engine.engine.send(Command::ListTables);
-    assert!(matches!(engine.next().await, EngineEvent::Tables(Err(_))));
+    engine.engine.send(Command::ListSchemas);
+    assert!(matches!(engine.next().await, EngineEvent::Schemas(Err(_))));
 }
 
 #[tokio::test]
@@ -310,8 +290,7 @@ async fn postgres_streams_and_cancels() {
     let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
         return;
     };
-    let mut engine =
-        Driver::connect(DbType::Postgres, server_params(&url, &DbType::Postgres)).await;
+    let mut engine = Driver::connect(DbType::Postgres, params_from_url(&url)).await;
 
     let finished = engine
         .query(
@@ -340,9 +319,43 @@ async fn mysql_cancels() {
     let Some(url) = server_url("DFOX_TEST_MYSQL_URL") else {
         return;
     };
-    let mut engine = Driver::connect(DbType::MySql, server_params(&url, &DbType::MySql)).await;
+    let mut engine = Driver::connect(DbType::MySql, params_from_url(&url)).await;
 
     let took = engine.cancel_after_start("SELECT SLEEP(30)").await;
     assert!(took < Duration::from_millis(300), "took {took:?}");
     assert_eq!(engine.scalar("SELECT 1").await.as_deref(), Some("1"));
+}
+
+#[tokio::test]
+async fn ping_needs_no_connection() {
+    let db = TempDb::new();
+    let mut engine = Driver::new();
+    engine.engine.send(Command::Ping {
+        id: 7,
+        db_type: DbType::Sqlite,
+        params: db.params(),
+    });
+    assert!(matches!(
+        engine.next().await,
+        EngineEvent::Pong {
+            id: 7,
+            result: Ok(_)
+        }
+    ));
+
+    engine.engine.send(Command::Ping {
+        id: 8,
+        db_type: DbType::Sqlite,
+        params: ConnectionParams {
+            database: Some("/no/such/file.db".into()),
+            ..Default::default()
+        },
+    });
+    assert!(matches!(
+        engine.next().await,
+        EngineEvent::Pong {
+            id: 8,
+            result: Err(DbError::Connection(_))
+        }
+    ));
 }

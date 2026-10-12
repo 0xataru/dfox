@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
 pub enum DbType {
     Postgres,
     MySql,
@@ -23,4 +24,22 @@ pub struct ConnectionParams {
     pub username: String,
     pub password: String,
     pub database: Option<String>,
+    #[serde(default)]
+    pub tls: TlsMode,
+    /// Refuse writes. The server enforces it: Postgres and MySQL start every
+    /// session read-only, and SQLite opens the file read-only.
+    #[serde(default)]
+    pub read_only: bool,
+}
+
+/// Whether the connection to a server is encrypted.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TlsMode {
+    /// Encrypt when the server supports it.
+    #[default]
+    Prefer,
+    /// Fail unless the connection is encrypted.
+    Require,
+    Disable,
 }

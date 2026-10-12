@@ -24,7 +24,7 @@ use crate::{
     errors::DbError,
     models::{
         connections::{ConnectionParams, DbType},
-        schema::TableSchema,
+        schema::{DbObject, TableSchema},
     },
     result::{ColumnMeta, OwnedCell},
     DbManager,
@@ -46,9 +46,20 @@ pub enum Command {
         params: ConnectionParams,
     },
     ListDatabases,
-    ListTables,
+    ListSchemas,
+    ListObjects {
+        schema: String,
+    },
     Describe {
+        schema: String,
         table: String,
+    },
+    /// Measures how long it takes to reach a database, without logging in
+    /// and without touching the current connection. See [`DbManager::ping`].
+    Ping {
+        id: u64,
+        db_type: DbType,
+        params: ConnectionParams,
     },
     /// Runs SQL on the session connection. Each result set keeps at most
     /// `row_limit` rows.
@@ -66,8 +77,20 @@ pub enum Command {
 pub enum EngineEvent {
     Connected(Result<(), DbError>),
     Databases(Result<Vec<String>, DbError>),
-    Tables(Result<Vec<String>, DbError>),
-    Schema(Result<TableSchema, DbError>),
+    Schemas(Result<Vec<String>, DbError>),
+    Objects {
+        schema: String,
+        result: Result<Vec<DbObject>, DbError>,
+    },
+    Described {
+        schema: String,
+        table: String,
+        result: Result<TableSchema, DbError>,
+    },
+    Pong {
+        id: u64,
+        result: Result<Duration, DbError>,
+    },
     /// A statement of query `id` returned rows. Its rows follow, and replace
     /// those of any earlier statement in the same query.
     Columns {
@@ -196,13 +219,41 @@ impl Engine {
             Command::ListDatabases => self.metadata(EngineEvent::Databases, |client| async move {
                 client.list_databases().await
             }),
-            Command::ListTables => self.metadata(EngineEvent::Tables, |client| async move {
-                client.list_tables().await
+            Command::ListSchemas => self.metadata(EngineEvent::Schemas, |client| async move {
+                client.list_schemas().await
             }),
-            Command::Describe { table } => self
-                .metadata(EngineEvent::Schema, |client| async move {
-                    client.describe_table(&table).await
-                }),
+            Command::ListObjects { schema } => {
+                let event_schema = schema.clone();
+                self.metadata(
+                    move |result| EngineEvent::Objects {
+                        schema: event_schema,
+                        result,
+                    },
+                    |client| async move { client.list_objects(&schema).await },
+                )
+            }
+            Command::Describe { schema, table } => {
+                let (event_schema, event_table) = (schema.clone(), table.clone());
+                self.metadata(
+                    move |result| EngineEvent::Described {
+                        schema: event_schema,
+                        table: event_table,
+                        result,
+                    },
+                    |client| async move { client.describe_table(&schema, &table).await },
+                )
+            }
+            Command::Ping {
+                id,
+                db_type,
+                params,
+            } => {
+                let events = self.events.clone();
+                tokio::spawn(async move {
+                    let result = DbManager::ping(&db_type, &params).await;
+                    let _ = events.send(EngineEvent::Pong { id, result }).await;
+                });
+            }
             Command::Run { id, sql, row_limit } => self.run_query(id, sql, row_limit),
             Command::Cancel { id } => self.cancel(id),
         }
@@ -233,7 +284,7 @@ impl Engine {
     /// Runs a metadata call in the background and sends its result as an event.
     fn metadata<T, F>(
         &self,
-        event: fn(Result<T, DbError>) -> EngineEvent,
+        event: impl FnOnce(Result<T, DbError>) -> EngineEvent + Send + 'static,
         call: impl FnOnce(Client) -> F + Send + 'static,
     ) where
         T: Send + 'static,

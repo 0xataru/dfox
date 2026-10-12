@@ -1,11 +1,14 @@
 mod common;
 
-use common::{only_row, rows, scalar, server_url, unique};
+use common::{only_row, params_from_url, rows, scalar, server_url, unique};
 use dfox_core::{
     db::{mysql::MySqlClient, DbClient},
-    models::connections::ConnectionParams,
+    models::{
+        connections::{ConnectionParams, DbType},
+        schema::ObjectKind,
+    },
+    DbManager,
 };
-use sqlx::mysql::MySqlConnectOptions;
 
 const URL: &str = "DFOX_TEST_MYSQL_URL";
 
@@ -198,7 +201,8 @@ async fn metadata_and_describe_are_injection_safe() {
         .unwrap()
         .contains(&"mysql".to_string()));
 
-    let schema = db.describe_table(&table).await.unwrap();
+    let database = db.list_schemas().await.unwrap().remove(0);
+    let schema = db.describe_table(&database, &table).await.unwrap();
     let columns: Vec<_> = schema
         .columns
         .iter()
@@ -215,7 +219,12 @@ async fn metadata_and_describe_are_injection_safe() {
     assert_eq!(schema.columns[1].default.as_deref(), Some("x"));
 
     let attack = format!("x'; DROP TABLE {table}; --");
-    assert!(db.describe_table(&attack).await.unwrap().columns.is_empty());
+    assert!(db
+        .describe_table(&database, &attack)
+        .await
+        .unwrap()
+        .columns
+        .is_empty());
     assert!(db.list_tables().await.unwrap().contains(&table));
 
     db.execute(&format!("DROP TABLE {table}")).await.unwrap();
@@ -235,13 +244,11 @@ async fn passwords_with_url_characters_connect() {
         .await
         .unwrap();
 
-    let options: MySqlConnectOptions = url.parse().unwrap();
     let params = ConnectionParams {
-        host: options.get_host().to_string(),
-        port: options.get_port(),
         username: user.clone(),
         password: password.to_string(),
         database: None,
+        ..params_from_url(&url)
     };
     let current = match MySqlClient::connect_params(&params).await {
         Ok(db) => {
@@ -257,4 +264,78 @@ async fn passwords_with_url_characters_connect() {
         .unwrap();
 
     assert_eq!(current.unwrap(), Some(format!("{user}@%")));
+}
+
+#[tokio::test]
+async fn the_database_is_the_only_schema() {
+    let Some(db) = client().await else { return };
+    let prefix = unique("dfox_it_obj");
+
+    db.execute(&format!(
+        "CREATE TABLE {prefix}_t (id INT);
+         CREATE VIEW {prefix}_v AS SELECT 1 AS one;
+         CREATE FUNCTION {prefix}_f() RETURNS INT DETERMINISTIC RETURN 1;
+         CREATE PROCEDURE {prefix}_p() SELECT 1;"
+    ))
+    .await
+    .unwrap();
+
+    let schemas = db.list_schemas().await.unwrap();
+    assert_eq!(schemas, ["dfox"]);
+    let objects: Vec<_> = db
+        .list_objects("dfox")
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|o| o.name.starts_with(&prefix))
+        .map(|o| (o.name.trim_start_matches(&prefix).to_string(), o.kind))
+        .collect();
+    assert_eq!(
+        objects,
+        [
+            ("_f".to_string(), ObjectKind::Function),
+            ("_p".to_string(), ObjectKind::Procedure),
+            ("_t".to_string(), ObjectKind::Table),
+            ("_v".to_string(), ObjectKind::View),
+        ]
+    );
+
+    db.execute(&format!(
+        "DROP TABLE {prefix}_t; DROP VIEW {prefix}_v;
+         DROP FUNCTION {prefix}_f; DROP PROCEDURE {prefix}_p;"
+    ))
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn read_only_connections_refuse_writes() {
+    let Some(url) = server_url(URL) else { return };
+    let admin = MySqlClient::connect(&url).await.unwrap();
+    let table = unique("dfox_it_ro");
+    admin
+        .execute(&format!("CREATE TABLE {table} (i INT)"))
+        .await
+        .unwrap();
+
+    let params = ConnectionParams {
+        read_only: true,
+        ..params_from_url(&url)
+    };
+    let db = DbManager::connect(&DbType::MySql, &params).await.unwrap();
+    let err = db
+        .execute(&format!("INSERT INTO {table} VALUES (1)"))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("READ ONLY"), "{err}");
+    assert_eq!(
+        scalar(
+            &db.run(&format!("SELECT COUNT(*) FROM {table}"), 10)
+                .await
+                .unwrap()
+        ),
+        Some("0")
+    );
+
+    admin.execute(&format!("DROP TABLE {table}")).await.unwrap();
 }

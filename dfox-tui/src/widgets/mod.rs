@@ -3,6 +3,7 @@
 pub mod confirm;
 pub mod help;
 pub mod progress;
+pub mod prompt;
 pub mod status_bar;
 pub mod throbber;
 pub mod toast;

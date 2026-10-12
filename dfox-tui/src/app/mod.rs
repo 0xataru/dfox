@@ -1,58 +1,57 @@
 //! The app: owns the screens, routes keys and engine events to them, and runs
 //! the event loop.
 
+mod commands;
+mod events;
+mod status;
+#[cfg(test)]
+mod tests;
+
 use std::{io, path::PathBuf, time::Duration};
 
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use dfox_core::{
-    engine::{Command as DbCommand, EngineEvent, EngineHandle},
-    models::connections::{ConnectionParams, DbType},
-    result::ResultSet,
-};
+use dfox_core::engine::{EngineEvent, EngineHandle};
 use futures_util::StreamExt;
 use ratatui::{
     layout::{Constraint, Layout},
-    text::Span,
     widgets::Paragraph,
     DefaultTerminal, Frame,
 };
 use tokio::{sync::mpsc, time::Instant};
-
-mod events;
 
 use crate::{
     action::Action,
     command::Command,
     component::{Component, Ctx, EventLog, RenderCtx},
     components::{
-        connect::ConnectScreen,
-        databases::DatabasesScreen,
-        db_type::DbTypeScreen,
-        results::format_duration,
-        workspace::{Panel, Workspace},
+        form::ConnectionForm,
+        manager::{EntryKey, Manager},
+        workspace::Workspace,
     },
     config::Config,
+    connections::{pgpass, secrets::Secrets, Connection, Store},
     icons::Icons,
     keymap::Keymap,
     theme::{self, ColorDepth, Theme},
     widgets::{
         confirm::Confirm,
-        help,
-        status_bar::StatusBar,
-        throbber::spinner,
+        help, prompt,
         toast::{Level, Toasts},
         which_key,
     },
 };
 
+pub use crate::components::manager::Detected;
+
 /// Redraw interval while something animates. Nothing redraws while idle.
 const FRAME: Duration = Duration::from_millis(80);
+/// How often the connection manager re-checks every connection.
+const PING_EVERY: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
-    DbType,
-    Connect,
-    Databases,
+    Manager,
+    Form,
     Workspace,
 }
 
@@ -61,13 +60,45 @@ enum Overlay {
     Help,
     Menu,
     Confirm(Confirm),
+    /// Typing the password for `connection`.
+    Password {
+        connection: Connection,
+        typed: String,
+    },
 }
 
-/// What a pending connect is for.
+/// A connection being made: to a server, or to another database on the
+/// server of the current session.
 #[derive(Debug, Clone, PartialEq)]
-enum Connecting {
-    Server(DbType, ConnectionParams),
-    Database(String),
+struct Connecting {
+    connection: Connection,
+    password: String,
+    /// Set when switching the session to this database.
+    switch_to: Option<String>,
+}
+
+/// The connection in use.
+#[derive(Debug, Clone, PartialEq)]
+struct Session {
+    connection: Connection,
+    /// Kept in memory to switch databases on the same server.
+    password: String,
+    database: String,
+}
+
+/// Everything the app starts with.
+pub struct Setup {
+    pub config: Config,
+    pub themes_dir: Option<PathBuf>,
+    pub depth: ColorDepth,
+    pub store: Store,
+    pub secrets: Box<dyn Secrets>,
+    pub pgpass: Vec<pgpass::Entry>,
+    pub detected: Vec<Detected>,
+    /// Connect to this right away (`dfox <url>`).
+    pub connect: Option<EntryKey>,
+    /// Shown as warnings once the UI is up.
+    pub problems: Vec<String>,
 }
 
 pub struct App {
@@ -78,15 +109,15 @@ pub struct App {
     depth: ColorDepth,
     themes_dir: Option<PathBuf>,
     icons: Icons,
+    store: Store,
+    secrets: Box<dyn Secrets>,
+    pgpass: Vec<pgpass::Entry>,
     pub screen: Screen,
-    db_type: DbTypeScreen,
-    pub connect: ConnectScreen,
-    pub databases: DatabasesScreen,
-    pub workspace: Workspace,
+    pub manager: Manager,
+    pub form: Option<ConnectionForm>,
+    pub workspace: Option<Workspace>,
     connecting: Option<Connecting>,
-    /// The server connected to, and the open database.
-    server: Option<(DbType, ConnectionParams)>,
-    database: Option<String>,
+    session: Option<Session>,
     toasts: Toasts,
     log: EventLog,
     overlay: Option<Overlay>,
@@ -95,13 +126,18 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(
-        engine: EngineHandle,
-        config: Config,
-        themes_dir: Option<PathBuf>,
-        depth: ColorDepth,
-        problems: Vec<String>,
-    ) -> Self {
+    pub fn new(engine: EngineHandle, setup: Setup) -> Self {
+        let Setup {
+            config,
+            themes_dir,
+            depth,
+            store,
+            secrets,
+            pgpass,
+            detected,
+            connect,
+            problems,
+        } = setup;
         let (keymap, key_problems) = Keymap::new(config.keymap, &config.keys);
         let mut problems: Vec<String> = problems.into_iter().chain(key_problems).collect();
         let theme =
@@ -111,6 +147,7 @@ impl App {
                     .map(|p| p.to_theme("dfox", depth))
                     .unwrap_or_default()
             });
+        let manager = Manager::new(store.connections.clone(), detected);
         let mut app = Self {
             engine,
             icons: Icons::new(config.icons),
@@ -119,14 +156,15 @@ impl App {
             theme,
             depth,
             themes_dir,
-            screen: Screen::DbType,
-            db_type: DbTypeScreen::default(),
-            connect: ConnectScreen::new(DbType::Postgres),
-            databases: DatabasesScreen::default(),
-            workspace: Workspace::default(),
+            store,
+            secrets,
+            pgpass,
+            screen: Screen::Manager,
+            manager,
+            form: None,
+            workspace: None,
             connecting: None,
-            server: None,
-            database: None,
+            session: None,
             toasts: Toasts::default(),
             log: EventLog::default(),
             overlay: None,
@@ -137,6 +175,10 @@ impl App {
         for problem in problems {
             app.log.push(format!("Warning: {problem}"));
             app.toasts.push(Level::Warning, problem, now);
+        }
+        app.show_manager();
+        if let Some(key) = connect {
+            app.apply_command(Command::Connect(key));
         }
         app
     }
@@ -151,6 +193,8 @@ impl App {
         let mut input = EventStream::new();
         let mut frames = tokio::time::interval(FRAME);
         frames.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut pings = tokio::time::interval_at(Instant::now() + PING_EVERY, PING_EVERY);
+        pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut dirty = true;
 
         while !self.should_quit {
@@ -179,27 +223,46 @@ impl App {
                     self.toasts.expire(Instant::now());
                     dirty = true;
                 }
+                _ = pings.tick(), if self.screen == Screen::Manager => {
+                    self.with_ctx(|app, ctx| app.manager.ping_all(ctx));
+                }
             }
         }
         Ok(())
+    }
+
+    /// Runs `f` with a handler context made from the app's own fields.
+    fn with_ctx<T>(&mut self, f: impl FnOnce(&mut AppParts, &mut Ctx) -> T) -> T {
+        let mut ctx = Ctx {
+            engine: &self.engine,
+            config: &self.config,
+            toasts: &mut self.toasts,
+            log: &mut self.log,
+            now: Instant::now(),
+        };
+        let mut parts = AppParts {
+            manager: &mut self.manager,
+            form: &mut self.form,
+            workspace: &mut self.workspace,
+        };
+        f(&mut parts, &mut ctx)
     }
 
     pub fn is_animating(&self) -> bool {
         !self.toasts.is_empty()
             || self.connecting.is_some()
             || match self.screen {
-                Screen::DbType => false,
-                Screen::Connect => self.connect.is_animating(),
-                Screen::Databases => self.databases.is_animating(),
-                Screen::Workspace => self.workspace.is_animating(),
+                Screen::Manager => self.manager.is_animating(),
+                Screen::Form => false,
+                Screen::Workspace => self.workspace.as_ref().is_some_and(|w| w.is_animating()),
             }
     }
 
     fn wants_text(&self) -> bool {
         match self.screen {
-            Screen::Connect => self.connect.wants_text(),
-            Screen::Workspace => self.workspace.wants_text(),
-            _ => false,
+            Screen::Manager => false,
+            Screen::Form => self.form.as_ref().is_some_and(|f| f.wants_text()),
+            Screen::Workspace => self.workspace.as_ref().is_some_and(|w| w.wants_text()),
         }
     }
 
@@ -235,80 +298,45 @@ impl App {
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {}
                 _ => self.overlay = Some(Overlay::Confirm(confirm)),
             },
+            Overlay::Password {
+                connection,
+                mut typed,
+            } => match key.code {
+                KeyCode::Enter => self.start_connect(connection, typed, None),
+                KeyCode::Esc => {}
+                KeyCode::Backspace => {
+                    typed.pop();
+                    self.overlay = Some(Overlay::Password { connection, typed });
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    typed.push(c);
+                    self.overlay = Some(Overlay::Password { connection, typed });
+                }
+                _ => self.overlay = Some(Overlay::Password { connection, typed }),
+            },
         }
     }
 
     pub fn dispatch(&mut self, action: Action) {
         match action {
             Action::Help => self.overlay = Some(Overlay::Help),
-            Action::Menu if !self.wants_text() => self.overlay = Some(Overlay::Menu),
+            Action::Menu if self.screen == Screen::Workspace && !self.wants_text() => {
+                self.overlay = Some(Overlay::Menu)
+            }
             Action::NextTheme => self.next_theme(),
-            Action::Quit if self.server.is_some() => self.apply_command(Command::ConfirmQuit),
+            Action::Quit if self.session.is_some() => self.apply_command(Command::ConfirmQuit),
             Action::Quit => self.should_quit = true,
             action => {
-                let mut ctx = Ctx {
-                    engine: &self.engine,
-                    config: &self.config,
-                    toasts: &mut self.toasts,
-                    log: &mut self.log,
-                    now: Instant::now(),
-                };
-                let command = match self.screen {
-                    Screen::DbType => self.db_type.handle(action, &mut ctx),
-                    Screen::Connect => self.connect.handle(action, &mut ctx),
-                    Screen::Databases => self.databases.handle(action, &mut ctx),
-                    Screen::Workspace => self.workspace.handle(action, &mut ctx),
-                };
+                let screen = self.screen;
+                let command = self.with_ctx(|app, ctx| match screen {
+                    Screen::Manager => app.manager.handle(action, ctx),
+                    Screen::Form => app.form.as_mut().and_then(|f| f.handle(action, ctx)),
+                    Screen::Workspace => app.workspace.as_mut().and_then(|w| w.handle(action, ctx)),
+                });
                 if let Some(command) = command {
                     self.apply_command(command);
                 }
             }
-        }
-    }
-
-    fn apply_command(&mut self, command: Command) {
-        match command {
-            Command::Quit => self.should_quit = true,
-            Command::ConfirmQuit => {
-                let message = if self.workspace.results.running.is_some() {
-                    "Quit dfox? A query is still running."
-                } else {
-                    "Quit dfox?"
-                };
-                self.overlay = Some(Overlay::Confirm(Confirm {
-                    title: "Quit".to_string(),
-                    message: message.to_string(),
-                    on_yes: Command::Quit,
-                }));
-            }
-            Command::ConnectForm(db_type) => {
-                if self.connect.db_type != db_type {
-                    self.connect = ConnectScreen::new(db_type);
-                }
-                self.screen = Screen::Connect;
-            }
-            Command::ConnectServer { db_type, params } => {
-                self.connect.connecting = true;
-                self.connecting = Some(Connecting::Server(db_type, params.clone()));
-                self.engine.send(DbCommand::Connect { db_type, params });
-            }
-            Command::OpenDatabase(name) => {
-                let Some((db_type, server)) = &self.server else {
-                    return;
-                };
-                let params = ConnectionParams {
-                    database: Some(name.clone()),
-                    ..server.clone()
-                };
-                self.databases.opening = Some(name.clone());
-                self.connecting = Some(Connecting::Database(name));
-                self.engine.send(DbCommand::Connect {
-                    db_type: *db_type,
-                    params,
-                });
-            }
-            Command::Databases => self.screen = Screen::Databases,
-            Command::DbTypes => self.screen = Screen::DbType,
         }
     }
 
@@ -345,10 +373,17 @@ impl App {
             Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
 
         match self.screen {
-            Screen::DbType => self.db_type.render(f, main, ctx),
-            Screen::Connect => self.connect.render(f, main, ctx),
-            Screen::Databases => self.databases.render(f, main, ctx),
-            Screen::Workspace => self.workspace.render(f, main, ctx),
+            Screen::Manager => self.manager.render(f, main, ctx),
+            Screen::Form => {
+                if let Some(form) = &self.form {
+                    form.render(f, main, ctx);
+                }
+            }
+            Screen::Workspace => {
+                if let Some(workspace) = &self.workspace {
+                    workspace.render(f, main, ctx);
+                }
+            }
         }
         self.status_bar(ctx).render(f, status, ctx);
 
@@ -356,87 +391,19 @@ impl App {
             Some(Overlay::Help) => help::render(f, main, ctx),
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
+            Some(Overlay::Password { connection, typed }) => {
+                prompt::render(f, main, &connection.name, typed.chars().count(), ctx)
+            }
             None => {}
         }
         self.toasts.render(f, main, ctx);
     }
-
-    fn status_bar(&self, ctx: &RenderCtx) -> StatusBar<'_> {
-        let theme = ctx.theme;
-        let mut location = vec![Span::styled("dfox", theme.key())];
-        if let Some((_, params)) = &self.server {
-            location.push(Span::styled(
-                format!("  {} {}", ctx.icons.database, describe(params)),
-                theme.dim(),
-            ));
-            if let (Screen::Workspace, Some(database)) = (self.screen, &self.database) {
-                location.push(Span::styled(
-                    format!("/{database}"),
-                    theme.base().bg(theme.surface),
-                ));
-            }
-        }
-
-        let activity = self
-            .workspace
-            .results
-            .running
-            .as_ref()
-            .filter(|_| self.screen == Screen::Workspace)
-            .map(|query| {
-                vec![
-                    spinner(ctx, theme.key()),
-                    Span::raw(format!(
-                        " {} · {} rows ",
-                        format_duration(ctx.now.saturating_duration_since(query.started)),
-                        self.workspace.results.store.row_count()
-                    )),
-                    Span::styled(
-                        format!(" {} ", ctx.keymap.hint(Action::CopyRow)),
-                        theme.key(),
-                    ),
-                    Span::styled("cancel ", theme.dim()),
-                ]
-            });
-
-        let hints: &[(Action, &str)] = match self.screen {
-            Screen::DbType => &[
-                (Action::Confirm, "select"),
-                (Action::Help, "keys"),
-                (Action::Quit, "quit"),
-            ],
-            Screen::Connect => &[(Action::Confirm, "next"), (Action::Back, "back")],
-            Screen::Databases => &[
-                (Action::Confirm, "open"),
-                (Action::Menu, "menu"),
-                (Action::Help, "keys"),
-            ],
-            Screen::Workspace => match self.workspace.focused() {
-                Panel::Editor => &[
-                    (Action::Execute, "run"),
-                    (Action::NextFocus, "focus"),
-                    (Action::Help, "keys"),
-                ],
-                _ => &[
-                    (Action::Execute, "run"),
-                    (Action::NextFocus, "focus"),
-                    (Action::Menu, "menu"),
-                    (Action::Help, "keys"),
-                ],
-            },
-        };
-        StatusBar {
-            location,
-            activity,
-            hints,
-        }
-    }
 }
 
-/// `user@host:port`.
-fn describe(params: &ConnectionParams) -> String {
-    format!("{}@{}:{}", params.username, params.host, params.port)
+/// The screens, borrowed apart from the rest of the app so handlers can get
+/// a [`Ctx`] at the same time.
+struct AppParts<'a> {
+    manager: &'a mut Manager,
+    form: &'a mut Option<ConnectionForm>,
+    workspace: &'a mut Option<Workspace>,
 }
-
-#[cfg(test)]
-mod tests;

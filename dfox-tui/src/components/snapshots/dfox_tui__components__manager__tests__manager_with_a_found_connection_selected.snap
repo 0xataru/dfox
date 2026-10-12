@@ -1,0 +1,20 @@
+---
+source: dfox-tui/src/components/manager_tests.rs
+expression: "render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))"
+---
+╭ Connections 3 ───────────────╮╭ DATABASE_URL ────────────────────────────────╮
+│ Found on this machine        ││ Driver    MySQL                              │
+│ ▌○ DATABASE_URL mysql        ││ Host      localhost:3306                     │
+│                              ││ Database  mysql (default)                    │
+│                              ││ User      root                               │
+│                              ││ TLS       prefer                             │
+│                              ││ Password  from DATABASE_URL                  │
+│                              ││ Found in  DATABASE_URL                       │
+│                              ││                                              │
+│                              ││ checking…                                    │
+│                              ││                                              │
+│                              ││                                              │
+│                              ││                                              │
+│                              ││                                              │
+│                              ││                                              │
+╰──────────────────────────────╯╰──────────────────────────────────────────────╯

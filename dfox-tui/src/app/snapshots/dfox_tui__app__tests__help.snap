@@ -1,0 +1,36 @@
+---
+source: dfox-tui/src/app/tests.rs
+expression: "test.snapshot(120, 32)"
+---
+╭ Connections 1 ───────────────────────────────╮╭ prod ▌red ───────────────────────────────────────────────────────────╮
+│ Saved                                        ││ Driver    PostgreSQL                                                 │
+│ ▌⠷ prod pg                                   ││ Host      db.example.com:5432                                        │
+│                                              ││ Database  shop                                                       │
+│                                              ││ User      app                                                        │
+│                                              ││ TLS       prefer                                                     │
+│                                              ││ Password  OS keychain                                                │
+│                    ╭ Keys ──────────────────────────────────────────────────────────────────────╮                    │
+│                    │                                                                            │                    │
+│                    │ F5 Ctrl+E   Run the query            Space       Command menu              │                    │
+│                    │ Ctrl+C      Copy row / cancel query  ? F2        Show keys                 │                    │
+│                    │ Ctrl+A      Copy all rows            Esc         Back / close              │                    │
+│                    │ Tab         Next panel               q Ctrl+Q    Quit                      │                    │
+│                    │ Shift+Tab   Previous panel           Enter       Select / new line         │                    │
+│                    │ /           Filter                   ↑           Up                        │                    │
+│                    │ R           Refresh                  ↓           Down                      │                    │
+│                    │ n           New connection           ←           Left / previous column    │                    │
+│                    │ e           Edit connection          →           Right / next column       │                    │
+│                    │ Delete d    Delete connection        PgUp        Page up                   │                    │
+│                    │ Ctrl+S      Save                     PgDn        Page down                 │                    │
+│                    │ F1          Connection list          Home        First row / line start    │                    │
+│                    │ Ctrl+T      Next theme               End         Last row / line end       │                    │
+│                    │ F12         Event log                Backspace   Delete a character        │                    │
+│                    │                                                                            │                    │
+│                    ╰───────────────────────────── any key to close ─────────────────────────────╯                    │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯
+ dfox                                                                              Enter connect  n new  e edit  ? keys

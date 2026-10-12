@@ -1,0 +1,14 @@
+---
+source: dfox-tui/src/app/tests.rs
+expression: "test.snapshot(80, 10)"
+---
+╭ Connections 1 ───────────────╮╭ prod ▌red ───────────────────────────────────╮
+│ Saved                        ││ Driver    PostgreSQL                         │
+│ ▌⠷ prod pg                   ││ Host      db.example.com:5432                │
+│                              ││ Database  shop                               │
+│                              ││ User      app                                │
+│                              ││ TLS       prefer                             │
+│                              ││ Password  OS keychain                        │
+│                              ││                                              │
+╰──────────────────────────────╯╰──────────────────────────────────────────────╯
+ dfox  ⠷ connecting to prod…               Enter connect  n new  e edit  ? keys

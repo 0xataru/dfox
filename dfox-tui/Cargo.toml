@@ -19,6 +19,11 @@ serde = { version = "1.0.209", features = ["derive"] }
 toml = "1.1.8"
 directories = "6.0.0"
 throbber-widgets-tui = "0.11.1"
+keyring = "4.2.0"
+tui-tree-widget = "0.24.1"
+nucleo-matcher = "0.3.1"
+url = "2.5.8"
+percent-encoding = "2.3.2"
 
 [dev-dependencies]
 insta = "1.49.0"

@@ -2,16 +2,16 @@
 source: dfox-tui/src/components/workspace.rs
 expression: "render(&test, 120, 40, |f, area, ctx| workspace.render(f, area, ctx))"
 ---
-╭ Tables 2 ──────────────────────╮╭ Query 1:24 ────────────────────────────────────────────────────────────────────────╮
-│  ▤ customers                   ││ SELECT * FROM customers                                                            │
-│  ▤ orders                      ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
+╭ Explorer ──────────────────────╮╭ Query 1:24 ────────────────────────────────────────────────────────────────────────╮
+│   ◆ postgres                   ││ SELECT * FROM customers                                                            │
+│ ▾ ◆ shop ●                     ││                                                                                    │
+│   ▾ Tables 3                   ││                                                                                    │
+│       ▤ customers ~1.2k        ││                                                                                    │
+│       ▤ order_items ~48.2k     ││                                                                                    │
+│       ▤ orders ~12.4k          ││                                                                                    │
+│   ▸ Views 1                    ││                                                                                    │
+│   ▸ Functions 1                ││                                                                                    │
+│   ▸ Procedures 1               ││                                                                                    │
 │                                ││                                                                                    │
 │                                ││                                                                                    │
 │                                ││                                                                                    │

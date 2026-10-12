@@ -5,12 +5,12 @@ expression: "render(&test, 50, 14, super::render)"
 
 
 
-
                       ╭ Menu ────────────────────╮
                       │ r  Run the query         │
                       │ c  Copy the row          │
                       │ a  Copy all rows         │
-                      │ d  Databases             │
+                      │ f  Filter tables         │
+                      │ m  Connections           │
                       │ t  Next theme            │
                       │ l  Event log             │
                       │ ?  Keys                  │
