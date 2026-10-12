@@ -36,7 +36,7 @@ git rev-parse -q --verify "refs/heads/$branch" >/dev/null && die "branch $branch
 git switch -q -c "$branch"
 "$root/scripts/bump.sh" "$version"
 
-git add Cargo.toml Cargo.lock CHANGELOG.md README.md
+git add Cargo.toml Cargo.lock CHANGELOG.md
 git commit -q -m "chore: release v$version"
 git push -q -u origin "$branch"
 

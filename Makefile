@@ -56,7 +56,7 @@ audit: ## Check dependencies for known vulnerabilities (needs cargo-audit)
 version: ## Print the current workspace version
 	@echo $(CURRENT)
 
-bump: ## Bump only (VERSION=X.Y.Z): Cargo.toml, Cargo.lock, CHANGELOG, README badge
+bump: ## Bump only (VERSION=X.Y.Z): Cargo.toml, Cargo.lock, CHANGELOG
 	@test -n "$(VERSION)" || { echo "Usage: make bump VERSION=0.2.0"; exit 1; }
 	@./scripts/bump.sh $(VERSION)
 

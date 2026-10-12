@@ -135,7 +135,7 @@ The version lives in one place, `[workspace.package]` in the root
    ```
 
    This runs `make check`, creates `release/v0.2.0`, bumps `Cargo.toml`,
-   `Cargo.lock`, `CHANGELOG.md` and the README badge, commits
+   `Cargo.lock` and `CHANGELOG.md`, commits
    `chore: release v0.2.0`, pushes it and opens the pull request with the
    changelog section as its description.
 
