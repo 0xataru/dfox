@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-12
+
 ### Fixed
 
 - Values are no longer shown as `NULL` when dfox can't map their type: every
