@@ -1,7 +1,9 @@
 name: Coverage
 
 # Measures line coverage with cargo-llvm-cov and uploads it to Codecov, which
-# serves the README badge and comments the change on pull requests.
+# serves the README badge and comments the change on pull requests. Runs with
+# the same database services as the integration job in ci.yml, so the client
+# code is measured too.
 on:
   push:
     branches: [main]
@@ -17,6 +19,28 @@ env:
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: dfox
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: dfox
+          MYSQL_DATABASE: dfox
+        ports: ["53306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pdfox"
+          --health-interval 2s --health-retries 60
+    env:
+      DFOX_IT_REQUIRED: "1"
+      DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
+      DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
