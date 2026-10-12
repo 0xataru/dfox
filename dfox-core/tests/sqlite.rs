@@ -177,5 +177,7 @@ async fn connects_to_a_file_by_path() {
     assert_eq!(db.list_tables().await.unwrap(), ["on_disk"]);
     drop(db);
 
-    std::fs::remove_file(&path).unwrap();
+    // Dropping the pool closes its connections in the background, so Windows
+    // may still hold the file open here.
+    let _ = std::fs::remove_file(&path);
 }
