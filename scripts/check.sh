@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Everything CI requires, in the same order: rustfmt, clippy with warnings as
-# errors, then the test suite. Run it before pushing.
+# errors, the guards in guards.sh, then the test suite. Run it before pushing.
 #
 #   ./scripts/check.sh
 
@@ -16,6 +16,9 @@ cargo fmt --all -- --check
 
 step "clippy"
 cargo clippy --workspace --all-targets --locked -- -D warnings
+
+step "guards"
+./scripts/guards.sh
 
 step "test"
 cargo test --workspace --locked

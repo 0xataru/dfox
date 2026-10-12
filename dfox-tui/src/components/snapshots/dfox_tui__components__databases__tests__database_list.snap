@@ -1,0 +1,25 @@
+---
+source: dfox-tui/src/components/databases.rs
+expression: "render(&test, 80, 24, |f, area, ctx| screen.render(f, area, ctx))"
+---
+
+
+
+            ╭ ◆ Databases 1/30 ────────────────────────────────────╮
+            │  ▸ db_01 ⠷                                           │
+            │    db_02                                             │
+            │    db_03                                             │
+            │    db_04                                             │
+            │    db_05                                             │
+            │    db_06                                             │
+            │    db_07                                             │
+            │    db_08                                             │
+            │    db_09                                             │
+            │    db_10                                             │
+            │    db_11                                             │
+            │    db_12                                             │
+            │    db_13                                             │
+            │    db_14                                             │
+            │    db_15                                             │
+            │    db_16                                             │
+            ╰──────────────────────────────────────────────────────╯

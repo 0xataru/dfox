@@ -30,6 +30,9 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: guards
+        run: ./scripts/guards.sh
+
   # Every platform the release workflow ships a binary for, so a release can
   # never be the first time a platform is built.
   test:

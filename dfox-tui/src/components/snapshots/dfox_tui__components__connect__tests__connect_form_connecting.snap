@@ -1,0 +1,28 @@
+---
+source: dfox-tui/src/components/connect.rs
+expression: "render(&test, 120, 40, |f, area, ctx| screen.render(f, area, ctx))"
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                ╭ ◆ MySQL  ⠷ connecting… ──────────────────────────────╮
+                                │                                                      │
+                                │  ▸ Username  root                                    │
+                                │    Password                                          │
+                                │    Host      localhost                               │
+                                │    Port      3306                                    │
+                                │                                                      │
+                                ╰──────────────────────────────────────────────────────╯

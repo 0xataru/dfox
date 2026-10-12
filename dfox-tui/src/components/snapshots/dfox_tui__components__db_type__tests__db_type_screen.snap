@@ -1,0 +1,19 @@
+---
+source: dfox-tui/src/components/db_type.rs
+expression: "render(&test, 80, 24, |f, area, ctx| screen.render(f, area, ctx))"
+---
+
+
+
+
+
+
+
+
+
+
+                    ╭ Connect to ──────────────────────────╮
+                    │    PostgreSQL                        │
+                    │  ▸ MySQL                             │
+                    │    SQLite                            │
+                    ╰──────────────────────────────────────╯
