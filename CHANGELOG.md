@@ -30,5 +30,14 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   terminal on exit
 - `dotenv` replaced with its maintained fork `dotenvy`, and dependencies updated
   to clear RustSec advisories
+- Terminal UI upgraded to ratatui 0.30 and crossterm 0.29, which also clears the
+  `lru` soundness advisories
 - The workspace shares one version, edition and licence through
   `[workspace.package]`, and uses Cargo resolver 2
+- `mockall` moved to `dfox-core`'s dev-dependencies, so it is no longer built
+  into the library or the binary
+
+### Removed
+
+- Unused dependencies: `log`, `env_logger` and `tempfile` from `dfox-core`, and
+  `serde_json` from `dfox-tui`
