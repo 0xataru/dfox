@@ -103,11 +103,14 @@ impl OwnedCell {
             OwnedCell::Undecodable(v) => Cell::Undecodable(v),
         }
     }
-}
 
-impl From<Option<String>> for OwnedCell {
-    fn from(value: Option<String>) -> Self {
-        value.map_or(OwnedCell::Null, |v| OwnedCell::Text(v.into()))
+    /// The value as it is displayed, or `None` for NULL.
+    pub fn into_text(self) -> Option<String> {
+        match self {
+            OwnedCell::Null => None,
+            OwnedCell::Text(v) => Some(v.into()),
+            other => Some(other.as_cell().to_string()),
+        }
     }
 }
 
@@ -281,11 +284,9 @@ mod tests {
     }
 
     #[test]
-    fn text_values_convert_from_query_output() {
-        assert_eq!(OwnedCell::from(None), OwnedCell::Null);
-        assert_eq!(
-            OwnedCell::from(Some("x".to_string())).as_cell(),
-            Cell::Text("x")
-        );
+    fn into_text_keeps_null_apart() {
+        assert_eq!(OwnedCell::Null.into_text(), None);
+        assert_eq!(OwnedCell::Text("".into()).into_text().as_deref(), Some(""));
+        assert_eq!(OwnedCell::Int(7).into_text().as_deref(), Some("7"));
     }
 }

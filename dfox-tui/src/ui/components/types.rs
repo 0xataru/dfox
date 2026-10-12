@@ -1,5 +1,8 @@
 pub const MAX_VISIBLE_COLUMNS: usize = 8;
 
+/// Rows kept from a query's result. Rows past this are read and dropped.
+pub const MAX_RESULT_ROWS: usize = 100_000;
+
 #[derive(Clone)]
 pub enum ScreenState {
     MessagePopup,

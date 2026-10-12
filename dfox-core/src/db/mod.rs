@@ -1,8 +1,14 @@
-use crate::{errors::DbError, models::schema::TableSchema};
+use std::time::Duration;
+
+use crate::{
+    errors::DbError,
+    models::schema::TableSchema,
+    result::{ColumnMeta, OwnedCell},
+};
 use async_trait::async_trait;
 use futures_util::TryStreamExt;
-use sqlx::{pool::PoolConnection, Column, Database, Either, Executor, Pool, Row};
-use tokio::sync::Mutex;
+use sqlx::{pool::PoolConnection, Column, Database, Either, Executor, Pool, Row, TypeInfo};
+use tokio::{sync::mpsc, time::Instant};
 
 pub mod mysql;
 pub mod postgres;
@@ -14,6 +20,12 @@ pub use postgres::PostgresClient;
 /// How many rows [`DbClient::run`] keeps by default. Rows past the limit are
 /// read from the server and dropped, so every statement still runs to the end.
 pub const DEFAULT_ROW_LIMIT: usize = 1000;
+
+/// A streamed chunk holds at most this many rows...
+const CHUNK_ROWS: usize = 1000;
+/// ...and is sent at most this long after its first row arrived, so the first
+/// rows show up quickly even when the rest are slow.
+const CHUNK_INTERVAL: Duration = Duration::from_millis(16);
 
 /// The outcome of running user SQL: the rows of the last statement that
 /// returned any, plus the total number of rows changed.
@@ -29,17 +41,89 @@ pub struct QueryOutput {
     pub truncated: bool,
 }
 
+/// Part of a streamed query's output, in the order the server sent it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Chunk {
+    /// A statement returned rows. Its rows follow, and replace those of any
+    /// earlier statement in the script.
+    Columns(Vec<ColumnMeta>),
+    Rows(Vec<Vec<OwnedCell>>),
+}
+
+/// What [`DbClient::stream`] reports once every statement has finished.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StreamSummary {
+    /// Rows changed by every statement in the script, summed.
+    pub rows_affected: u64,
+    /// True when rows of the last result set were dropped at the row limit.
+    pub truncated: bool,
+}
+
 #[async_trait]
 pub trait DbClient: Send + Sync {
     /// Runs one or more `;`-separated statements on this client's session
-    /// connection, so `BEGIN`, `SET` and temp tables carry over between calls.
-    async fn execute(&self, query: &str) -> Result<(), DbError>;
-    /// Like [`DbClient::execute`], but returns the rows of any statement kind
-    /// (`SELECT`, `WITH`, `SHOW`, `EXPLAIN`, `... RETURNING`, `PRAGMA`, ...).
-    async fn run(&self, query: &str, row_limit: usize) -> Result<QueryOutput, DbError>;
+    /// connection, so `BEGIN`, `SET` and temp tables carry over between calls,
+    /// and sends their rows to `tx` as they arrive. Statements of any kind can
+    /// return rows (`SELECT`, `WITH`, `SHOW`, `EXPLAIN`, `... RETURNING`,
+    /// `PRAGMA`, ...).
+    ///
+    /// Each result set keeps at most `row_limit` rows; the rest are read and
+    /// dropped. Stops early with [`DbError::Cancelled`] if `tx` is closed.
+    async fn stream(
+        &self,
+        query: &str,
+        row_limit: usize,
+        tx: mpsc::Sender<Chunk>,
+    ) -> Result<StreamSummary, DbError>;
+
+    /// Asks the server to stop the statement running on the session
+    /// connection. Returns `false` when this database has no way to do that,
+    /// and the caller should drop the running [`DbClient::stream`] instead.
+    async fn cancel(&self) -> Result<bool, DbError>;
+
+    /// Like [`DbClient::stream`], but collects the output.
+    async fn run(&self, query: &str, row_limit: usize) -> Result<QueryOutput, DbError> {
+        collect_output(|tx| self.stream(query, row_limit, tx)).await
+    }
+
+    /// Like [`DbClient::run`], for statements whose rows aren't needed.
+    async fn execute(&self, query: &str) -> Result<(), DbError> {
+        self.run(query, 0).await.map(drop)
+    }
+
     async fn list_databases(&self) -> Result<Vec<String>, DbError>;
     async fn list_tables(&self) -> Result<Vec<String>, DbError>;
     async fn describe_table(&self, table_name: &str) -> Result<TableSchema, DbError>;
+}
+
+async fn collect_output<F>(
+    produce: impl FnOnce(mpsc::Sender<Chunk>) -> F,
+) -> Result<QueryOutput, DbError>
+where
+    F: std::future::Future<Output = Result<StreamSummary, DbError>>,
+{
+    let (tx, mut rx) = mpsc::channel(4);
+    let collect = async {
+        let mut out = QueryOutput::default();
+        while let Some(chunk) = rx.recv().await {
+            match chunk {
+                Chunk::Columns(columns) => {
+                    out.columns = columns.into_iter().map(|c| c.name).collect();
+                    out.rows.clear();
+                }
+                Chunk::Rows(rows) => out.rows.extend(
+                    rows.into_iter()
+                        .map(|row| row.into_iter().map(OwnedCell::into_text).collect()),
+                ),
+            }
+        }
+        out
+    };
+    let (summary, mut out) = futures_util::future::join(produce(tx), collect).await;
+    let summary = summary?;
+    out.rows_affected = summary.rows_affected;
+    out.truncated = summary.truncated;
+    Ok(out)
 }
 
 /// `rows_affected` is an inherent method on each driver's result type.
@@ -65,83 +149,146 @@ impl RowsAffected for sqlx::sqlite::SqliteQueryResult {
     }
 }
 
-/// Runs raw SQL and collects the output.
+/// Runs raw SQL and sends its rows to `tx` in chunks.
 ///
 /// The SQL is passed as a plain `&str`, so sqlx uses the simple-query
 /// protocol: several statements are allowed, and Postgres and MySQL send every
-/// value in its text form, which `cell` turns into a display string without
-/// any type mapping that could fail.
-pub(crate) async fn run_raw<'c, DB, E>(
+/// value in its text form, which `cell` reads without any type mapping that
+/// could fail.
+pub(crate) async fn stream_raw<'c, DB, E>(
     executor: E,
     sql: &str,
     row_limit: usize,
-    cell: fn(&DB::Row, usize) -> Option<String>,
-) -> Result<QueryOutput, DbError>
+    cell: fn(&DB::Row, usize) -> OwnedCell,
+    tx: &mpsc::Sender<Chunk>,
+) -> Result<StreamSummary, DbError>
 where
     DB: Database,
     DB::QueryResult: RowsAffected,
     E: Executor<'c, Database = DB>,
 {
-    let mut out = QueryOutput::default();
+    let mut summary = StreamSummary::default();
     // A statement result ends one result set; the next row starts a new one.
     let mut new_result_set = true;
+    let mut kept = 0;
+    let mut batch = Vec::new();
+    let mut deadline = Instant::now();
     let mut stream = executor.fetch_many(sql);
 
-    while let Some(item) = stream.try_next().await? {
+    loop {
+        let next = if batch.is_empty() {
+            stream.try_next().await?
+        } else {
+            match tokio::time::timeout_at(deadline, stream.try_next()).await {
+                Ok(next) => next?,
+                Err(_) => {
+                    send(tx, Chunk::Rows(std::mem::take(&mut batch))).await?;
+                    continue;
+                }
+            }
+        };
+        let Some(item) = next else { break };
+
         match item {
             Either::Left(result) => {
-                out.rows_affected += result.rows_affected();
+                summary.rows_affected += result.rows_affected();
                 new_result_set = true;
             }
             Either::Right(row) => {
                 if new_result_set {
                     new_result_set = false;
-                    out.truncated = false;
-                    out.rows.clear();
-                    out.columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+                    if !batch.is_empty() {
+                        send(tx, Chunk::Rows(std::mem::take(&mut batch))).await?;
+                    }
+                    kept = 0;
+                    summary.truncated = false;
+                    let columns = row
+                        .columns()
+                        .iter()
+                        .map(|c| ColumnMeta::new(c.name(), c.type_info().name()))
+                        .collect();
+                    send(tx, Chunk::Columns(columns)).await?;
                 }
-                if out.rows.len() < row_limit {
-                    out.rows
-                        .push((0..row.len()).map(|i| cell(&row, i)).collect());
-                } else {
-                    out.truncated = true;
+                if kept == row_limit {
+                    summary.truncated = true;
+                    continue;
+                }
+                kept += 1;
+                if batch.is_empty() {
+                    deadline = Instant::now() + CHUNK_INTERVAL;
+                }
+                batch.push((0..row.len()).map(|i| cell(&row, i)).collect());
+                if batch.len() == CHUNK_ROWS {
+                    send(tx, Chunk::Rows(std::mem::take(&mut batch))).await?;
                 }
             }
         }
     }
 
-    Ok(out)
+    if !batch.is_empty() {
+        send(tx, Chunk::Rows(batch)).await?;
+    }
+    Ok(summary)
 }
 
-/// Runs raw SQL on the pinned session connection. If the connection turns out
-/// to be dead, it is swapped for a fresh one from the pool so the next run
-/// works; the error is still returned because session state was lost.
-pub(crate) async fn run_on_session<DB>(
-    pool: &Pool<DB>,
-    session: &Mutex<PoolConnection<DB>>,
-    sql: &str,
-    row_limit: usize,
-    cell: fn(&DB::Row, usize) -> Option<String>,
-) -> Result<QueryOutput, DbError>
-where
-    DB: Database,
-    DB::QueryResult: RowsAffected,
-    for<'c> &'c mut DB::Connection: Executor<'c, Database = DB>,
-{
-    let mut conn = session.lock().await;
-    let result = run_raw(&mut **conn, sql, row_limit, cell).await;
+async fn send(tx: &mpsc::Sender<Chunk>, chunk: Chunk) -> Result<(), DbError> {
+    tx.send(chunk).await.map_err(|_| DbError::Cancelled)
+}
 
-    if let Err(DbError::Sqlx(err)) = &result {
-        if is_connection_lost(err) {
-            log::warn!("session connection lost, reconnecting: {err}");
-            if let Ok(fresh) = pool.acquire().await {
-                let mut dead = std::mem::replace(&mut *conn, fresh);
-                dead.close_on_drop();
-            }
+/// After a failed run on the pinned session connection: if the connection
+/// itself is dead, swaps it for a fresh one from the pool so the next run
+/// works, and returns `true`. The error is still returned to the user, because
+/// session state was lost.
+pub(crate) async fn replace_if_lost<DB: Database>(
+    pool: &Pool<DB>,
+    conn: &mut PoolConnection<DB>,
+    result: &Result<StreamSummary, DbError>,
+) -> bool {
+    let Err(DbError::Sqlx(err)) = result else {
+        return false;
+    };
+    if !is_connection_lost(err) {
+        return false;
+    }
+    log::warn!("session connection lost, reconnecting: {err}");
+    replace_session(pool, conn).await
+}
+
+/// Swaps the session connection for a fresh one from the pool and closes the
+/// old one. Returns `false` if no new connection could be made.
+pub(crate) async fn replace_session<DB: Database>(
+    pool: &Pool<DB>,
+    conn: &mut PoolConnection<DB>,
+) -> bool {
+    match pool.acquire().await {
+        Ok(fresh) => {
+            let mut old = std::mem::replace(conn, fresh);
+            old.close_on_drop();
+            true
+        }
+        Err(err) => {
+            log::warn!("could not reconnect: {err}");
+            false
         }
     }
+}
 
-    result
+/// Notices a run that was dropped before it finished. Its statement may still
+/// be running on the server, and would hold up the next run on the same
+/// connection, so that connection should be replaced.
+#[derive(Debug, Default)]
+pub(crate) struct RunGuard(std::sync::atomic::AtomicBool);
+
+impl RunGuard {
+    /// Marks a run as started. Returns `true` if the previous run never
+    /// finished.
+    pub(crate) fn start(&self) -> bool {
+        self.0.swap(true, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(crate) fn finish(&self) {
+        self.0.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 fn is_connection_lost(err: &sqlx::Error) -> bool {
@@ -154,17 +301,18 @@ fn is_connection_lost(err: &sqlx::Error) -> bool {
     )
 }
 
-/// Shows bytes as text when they are printable UTF-8, otherwise as `0x` hex.
-pub(crate) fn bytes_to_display(bytes: &[u8]) -> String {
+/// Keeps bytes as text when they are printable UTF-8, otherwise as bytes,
+/// which are shown as `0x` hex.
+pub(crate) fn bytes_cell(bytes: &[u8]) -> OwnedCell {
     match std::str::from_utf8(bytes) {
         Ok(s)
             if !s
                 .chars()
                 .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r')) =>
         {
-            s.to_string()
+            OwnedCell::Text(s.into())
         }
-        _ => hex(bytes),
+        _ => OwnedCell::Bytes(bytes.into()),
     }
 }
 
@@ -179,9 +327,9 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 }
 
 /// Placeholder for a value that could not be read, so it is never shown as NULL.
-pub(crate) fn undecodable(type_name: &str, err: impl std::fmt::Display) -> Option<String> {
+pub(crate) fn undecodable(type_name: &str, err: impl std::fmt::Display) -> OwnedCell {
     log::warn!("could not decode {type_name} value: {err}");
-    Some(format!("⟨undecodable {type_name}⟩"))
+    OwnedCell::Undecodable(format!("undecodable {type_name}").into())
 }
 
 #[cfg(test)]
@@ -190,14 +338,21 @@ mod tests {
 
     #[test]
     fn printable_utf8_stays_text() {
-        assert_eq!(bytes_to_display(b"hello\tworld\n"), "hello\tworld\n");
-        assert_eq!(bytes_to_display("привет 🦊".as_bytes()), "привет 🦊");
+        assert_eq!(
+            bytes_cell(b"hello\tworld\n"),
+            OwnedCell::Text("hello\tworld\n".into())
+        );
+        assert_eq!(
+            bytes_cell("привет 🦊".as_bytes()),
+            OwnedCell::Text("привет 🦊".into())
+        );
     }
 
     #[test]
     fn binary_becomes_hex() {
-        assert_eq!(bytes_to_display(&[0xde, 0xad, 0xbe, 0xef]), "0xdeadbeef");
-        assert_eq!(bytes_to_display(&[0x00, 0x41]), "0x0041");
+        let shown = |bytes: &[u8]| bytes_cell(bytes).as_cell().to_string();
+        assert_eq!(shown(&[0xde, 0xad, 0xbe, 0xef]), "0xdeadbeef");
+        assert_eq!(shown(&[0x00, 0x41]), "0x0041");
         assert_eq!(hex(&[]), "0x");
     }
 }

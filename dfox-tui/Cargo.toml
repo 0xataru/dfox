@@ -7,15 +7,14 @@ repository.workspace = true
 
 [dependencies]
 ratatui = "0.30.2"
-crossterm = "0.29.0"
+crossterm = { version = "0.29.0", features = ["event-stream"] }
 dfox-core = {path = "../dfox-core/"}
 tokio = { version = "1.40.0", features = ["full"] }
-async-trait = "0.1.77"
+futures-util = { version = "0.3.31", default-features = false }
 arboard = "3.3.0"
 log = "0.4.21"
 env_logger = "0.11.3"
 dotenvy = "0.15.7"
-indexmap = "2.0.0"
 
 
 [lints]

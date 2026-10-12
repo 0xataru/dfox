@@ -4,14 +4,15 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow},
     Pool, Row, Sqlite, TypeInfo, ValueRef,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 
 use crate::{
     errors::DbError,
     models::schema::{ColumnSchema, TableSchema},
+    result::OwnedCell,
 };
 
-use super::{hex, run_on_session, undecodable, DbClient, QueryOutput};
+use super::{replace_if_lost, stream_raw, undecodable, Chunk, DbClient, StreamSummary};
 
 pub struct SqliteClient {
     /// Used to replace a dead session connection.
@@ -65,45 +66,50 @@ impl SqliteClient {
 
 /// SQLite types each value, not each column, so the value's own storage
 /// class decides how it is read.
-pub(crate) fn sqlite_cell(row: &SqliteRow, index: usize) -> Option<String> {
+pub(crate) fn sqlite_cell(row: &SqliteRow, index: usize) -> OwnedCell {
     let value = match row.try_get_raw(index) {
         Ok(value) => value,
         Err(err) => return undecodable("?", err),
     };
     if value.is_null() {
-        return None;
+        return OwnedCell::Null;
     }
     let type_name = value.type_info().name().to_string();
     let decoded = match type_name.as_str() {
-        "INTEGER" => row
-            .try_get_unchecked::<i64, _>(index)
-            .map(|v| v.to_string()),
-        // Debug formatting keeps the ".0" on whole numbers, like the sqlite3 shell.
-        "REAL" => row
-            .try_get_unchecked::<f64, _>(index)
-            .map(|v| format!("{v:?}")),
-        "BLOB" => row.try_get_unchecked::<&[u8], _>(index).map(hex),
-        _ => row.try_get_unchecked::<String, _>(index),
+        "INTEGER" => row.try_get_unchecked::<i64, _>(index).map(OwnedCell::Int),
+        "REAL" => row.try_get_unchecked::<f64, _>(index).map(OwnedCell::Float),
+        "BLOB" => row
+            .try_get_unchecked::<&[u8], _>(index)
+            .map(|v| OwnedCell::Bytes(v.into())),
+        _ => row
+            .try_get_unchecked::<&str, _>(index)
+            .map(|v| OwnedCell::Text(v.into())),
     };
-    match decoded {
-        Ok(text) => Some(text),
-        Err(err) => undecodable(&type_name, err),
-    }
+    decoded.unwrap_or_else(|err| undecodable(&type_name, err))
 }
 
 fn text(row: &SqliteRow, index: usize) -> String {
-    sqlite_cell(row, index).unwrap_or_default()
+    sqlite_cell(row, index).into_text().unwrap_or_default()
 }
 
 #[async_trait]
 impl DbClient for SqliteClient {
-    async fn execute(&self, query: &str) -> Result<(), DbError> {
-        run_on_session(&self.pool, &self.session, query, 0, sqlite_cell).await?;
-        Ok(())
+    async fn stream(
+        &self,
+        query: &str,
+        row_limit: usize,
+        tx: mpsc::Sender<Chunk>,
+    ) -> Result<StreamSummary, DbError> {
+        let mut conn = self.session.lock().await;
+        let result = stream_raw(&mut **conn, query, row_limit, sqlite_cell, &tx).await;
+        replace_if_lost(&self.pool, &mut conn, &result).await;
+        result
     }
 
-    async fn run(&self, query: &str, row_limit: usize) -> Result<QueryOutput, DbError> {
-        run_on_session(&self.pool, &self.session, query, row_limit, sqlite_cell).await
+    /// SQLite runs in this process, so there is no server to ask. Dropping the
+    /// stream stops the query at its next row.
+    async fn cancel(&self) -> Result<bool, DbError> {
+        Ok(false)
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, DbError> {
@@ -132,7 +138,7 @@ impl DbClient for SqliteClient {
                 name: text(row, 0),
                 data_type: text(row, 1),
                 is_nullable: text(row, 2) == "0",
-                default: sqlite_cell(row, 3),
+                default: sqlite_cell(row, 3).into_text(),
             })
             .collect();
 
