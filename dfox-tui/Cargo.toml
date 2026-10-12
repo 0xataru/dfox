@@ -17,3 +17,6 @@ env_logger = "0.11.3"
 dotenvy = "0.15.7"
 indexmap = "2.0.0"
 
+
+[lints]
+workspace = true

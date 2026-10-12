@@ -13,9 +13,6 @@ pub enum DbError {
     /// Configuration error (e.g., invalid database URL or missing parameters).
     #[error("Configuration error: {0}")]
     Config(String),
-    /// Transaction error (e.g., failed to commit or rollback a transaction).
-    #[error("Transaction error: {0}")]
-    Transaction(String),
     /// Connection error (e.g., issues with network or database connection).
     #[error("Connection error: {0}")]
     Connection(String),
