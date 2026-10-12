@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-12
+
 ### Added
 
 - A connection manager: saved connections in `connections.toml`, passwords in
