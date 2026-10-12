@@ -106,6 +106,14 @@ impl Connection {
 
     /// Driver connection details, with `password`.
     pub fn params(&self, password: &str) -> ConnectionParams {
+        ConnectionParams {
+            password: password.to_string(),
+            ..self.target()
+        }
+    }
+
+    /// Where the connection goes, without a password: for pings and labels.
+    pub fn target(&self) -> ConnectionParams {
         let host = match self.host.trim() {
             "" => "localhost",
             host => host,
@@ -119,7 +127,7 @@ impl Connection {
             host: host.to_string(),
             port: self.port.unwrap_or(Self::default_port(self.driver)),
             username: self.user.clone(),
-            password: password.to_string(),
+            password: String::new(),
             database: Some(database),
             tls: self.tls,
             read_only: self.read_only,
@@ -131,7 +139,7 @@ impl Connection {
         if self.driver == DbType::Sqlite {
             return self.database.clone().unwrap_or_default();
         }
-        let params = self.params("");
+        let params = self.target();
         let mut address = format!("{}:{}", params.host, params.port);
         if !self.user.is_empty() {
             address = format!("{}@{address}", self.user);
@@ -317,7 +325,7 @@ mod tests {
     #[test]
     fn params_fill_in_defaults() {
         let mysql = Connection::new("m", DbType::MySql);
-        let params = mysql.params("pw");
+        let params = mysql.target();
         assert_eq!(
             (
                 params.host.as_str(),

@@ -72,7 +72,7 @@ impl App {
         let database = match (&connecting.switch_to, connection.driver) {
             (Some(database), _) => database.clone(),
             (None, DbType::Sqlite) => "main".to_string(),
-            (None, _) => connection.params("").database.unwrap_or_default(),
+            (None, _) => connection.target().database.unwrap_or_default(),
         };
         // No username: the event log also goes to the debug log file.
         let switching = connecting.switch_to.is_some();

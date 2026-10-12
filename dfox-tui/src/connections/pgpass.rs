@@ -70,7 +70,7 @@ pub fn lookup<'a>(entries: &'a [Entry], connection: &Connection) -> Option<&'a s
     if connection.driver != DbType::Postgres {
         return None;
     }
-    let params = connection.params("");
+    let params = connection.target();
     let port = params.port.to_string();
     let database = params.database.unwrap_or_default();
     let matches = |pattern: &str, value: &str| pattern == "*" || pattern == value;

@@ -127,7 +127,7 @@ impl Manager {
             ctx.engine.send(DbCommand::Ping {
                 id: self.next_ping,
                 db_type: connection.driver,
-                params: connection.params(""),
+                params: connection.target(),
             });
         }
     }
@@ -283,7 +283,7 @@ impl Manager {
         if connection.driver == DbType::Sqlite {
             lines.push(field("File", connection.address()));
         } else {
-            let params = connection.params("");
+            let params = connection.target();
             lines.push(field("Host", format!("{}:{}", params.host, params.port)));
             lines.push(field(
                 "Database",
