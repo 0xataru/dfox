@@ -458,7 +458,7 @@ impl UIRenderer for DatabaseClientUI {
                 .enumerate()
                 .skip(self.tables_scroll)
                 .take(main_chunks[0].height as usize - 2)
-                .map(|(i, table)| {
+                .flat_map(|(i, table)| {
                     let style = if i == self.selected_table {
                         Style::default().bg(Color::Yellow).fg(Color::Black)
                     } else {
@@ -489,7 +489,6 @@ impl UIRenderer for DatabaseClientUI {
 
                     items
                 })
-                .flatten()
                 .collect();
 
             let tables_block = Block::default()

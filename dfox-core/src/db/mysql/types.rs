@@ -103,7 +103,7 @@ impl ColumnType {
         }
     }
 
-    pub fn to_json_value<'a>(&self, row: &'a MySqlRow, index: usize) -> Value {
+    pub fn to_json_value(&self, row: &MySqlRow, index: usize) -> Value {
         match self {
             ColumnType::DateTime | ColumnType::Timestamp => {
                 match row.try_get::<NaiveDateTime, _>(index) {

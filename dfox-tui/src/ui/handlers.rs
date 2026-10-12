@@ -544,11 +544,7 @@ impl UIHandler for DatabaseClientUI {
                     };
 
                     let max_visible_columns = MAX_VISIBLE_COLUMNS; // Should match the value in screens.rs
-                    let max_scroll = if total_columns > max_visible_columns {
-                        total_columns - max_visible_columns
-                    } else {
-                        0
-                    };
+                    let max_scroll = total_columns.saturating_sub(max_visible_columns);
 
                     if self.sql_result_horizontal_scroll < max_scroll {
                         self.sql_result_horizontal_scroll += 1;

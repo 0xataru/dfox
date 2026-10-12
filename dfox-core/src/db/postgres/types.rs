@@ -122,7 +122,7 @@ impl ColumnType {
         }
     }
 
-    pub fn to_json_value<'a>(&self, row: &'a PgRow, index: usize) -> Value {
+    pub fn to_json_value(&self, row: &PgRow, index: usize) -> Value {
         match self {
             ColumnType::Uuid => match row.try_get::<Uuid, _>(index) {
                 Ok(uuid) => Value::String(uuid.to_string()),
