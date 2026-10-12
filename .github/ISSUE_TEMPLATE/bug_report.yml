@@ -1,0 +1,49 @@
+name: Bug report
+description: Something does not work as the README says it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead. Screenshots of the TUI help.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The screens and keys involved, and the SQL query if there is one.
+      placeholder: |
+        1. Connect to PostgreSQL
+        2. Select a table and press F5 with `SELECT ...`
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: DFox version or commit
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: database
+    attributes:
+      label: Database and version
+      placeholder: PostgreSQL 17.2
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: OS and terminal
+      placeholder: macOS 26, iTerm2
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug log
+      description: Run with `RUST_LOG=debug` and paste the relevant part of `dfox-debug.log`. It can contain queries and data — remove anything sensitive.
+      render: text
