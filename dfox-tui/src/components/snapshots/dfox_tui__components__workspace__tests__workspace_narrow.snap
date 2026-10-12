@@ -2,7 +2,7 @@
 source: dfox-tui/src/components/workspace.rs
 expression: "render(&test, 80, 24, |f, area, ctx| workspace.render(f, area, ctx))"
 ---
-╭ Tables ⠷ ──────────╮╭ Query 1:1 ─────────────────────────────────────────────╮
+╭ Explorer ⠷ ────────╮╭ Query 1:1 ─────────────────────────────────────────────╮
 │                    ││                                                        │
 │                    ││                                                        │
 │                    ││                                                        │

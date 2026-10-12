@@ -9,7 +9,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use dfox_core::db::QueryOutput;
+use dfox_core::{db::QueryOutput, models::connections::ConnectionParams};
 
 /// Returns the server URL in `var`, or `None` when the test should be skipped.
 pub fn server_url(var: &str) -> Option<String> {
@@ -57,4 +57,23 @@ pub fn scalar(output: &QueryOutput) -> Option<&str> {
     let row = only_row(output);
     assert_eq!(row.len(), 1, "expected one column, got {row:?}");
     row[0]
+}
+
+/// Connection details from a test URL such as
+/// `postgres://user:password@host:port/db`. The test URLs use plain
+/// passwords, so no percent-decoding is needed.
+pub fn params_from_url(url: &str) -> ConnectionParams {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (credentials, location) = rest.rsplit_once('@').unwrap_or(("", rest));
+    let (username, password) = credentials.split_once(':').unwrap_or((credentials, ""));
+    let (address, database) = location.split_once('/').unwrap_or((location, ""));
+    let (host, port) = address.rsplit_once(':').unwrap_or((address, "0"));
+    ConnectionParams {
+        host: host.to_string(),
+        port: port.parse().expect("port"),
+        username: username.to_string(),
+        password: password.to_string(),
+        database: (!database.is_empty()).then(|| database.to_string()),
+        ..Default::default()
+    }
 }

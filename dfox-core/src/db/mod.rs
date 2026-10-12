@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     errors::DbError,
-    models::schema::TableSchema,
+    models::schema::{DbObject, TableSchema},
     result::{ColumnMeta, OwnedCell},
 };
 use async_trait::async_trait;
@@ -92,8 +92,14 @@ pub trait DbClient: Send + Sync {
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, DbError>;
+    /// Tables in the default schema: `public`, or the current database.
     async fn list_tables(&self) -> Result<Vec<String>, DbError>;
-    async fn describe_table(&self, table_name: &str) -> Result<TableSchema, DbError>;
+    /// Schemas of the current database, without system schemas. MySQL has
+    /// one, the database itself; SQLite has `main` and any attached databases.
+    async fn list_schemas(&self) -> Result<Vec<String>, DbError>;
+    /// Tables, views and routines in `schema`, sorted by name.
+    async fn list_objects(&self, schema: &str) -> Result<Vec<DbObject>, DbError>;
+    async fn describe_table(&self, schema: &str, table: &str) -> Result<TableSchema, DbError>;
 }
 
 async fn collect_output<F>(

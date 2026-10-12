@@ -18,9 +18,9 @@ It allows users to perform database operations easily and efficiently through a 
 
 ## Features
 
-- Connect to multiple database types: PostgreSQL, MySQL, (SQLite still in development).
+- PostgreSQL, MySQL and SQLite, with saved connections (passwords in the OS keychain).
 - User-friendly terminal interface for managing database connections and performing CRUD operations.
-- Dynamic rendering of database schemas and table data.
+- An explorer of databases, schemas, tables, views and routines, with fuzzy search.
 - Easily extendable for additional database types and features.
 - Built-in debug logging system for troubleshooting.
 
@@ -103,8 +103,19 @@ RUST_LOG=trace
 Press **?** (or **F2**) in the app for the full list, generated from your keymap.
 **Space** opens a command menu outside text fields.
 
+### Connections
+- **Enter** - Connect
+- **n** / **e** / **d** - New, edit (or save a found connection), delete
+- **R** - Check every connection again
+
+### Explorer
+- **Enter** / **→** - Open a database, schema or table (a table shows its columns)
+- **←** - Close, or go to the parent
+- **/** - Fuzzy-find a table, view or routine; **Enter** jumps to it
+- Opening another database switches the session to it
+
 ### General Navigation
-- **Tab** / **Shift+Tab** - Move between the tables, the query editor and the results
+- **Tab** / **Shift+Tab** - Move between the explorer, the query editor and the results
 - **↑/↓** - Move in lists and results
 - **←/→** - Scroll the result columns
 - **Page Up/Page Down** - Scroll a page
@@ -116,7 +127,7 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **Ctrl+A** - Copy all rows
 
 ### Interface Controls
-- **F1** - Back to the database list
+- **F1** - Back to the connections
 - **Ctrl+T** - Next theme
 - **F12** - Event log
 - **Esc**, **q** or **Ctrl+Q** - Quit (asks first while connected)
@@ -179,11 +190,32 @@ cargo build --release
 
 ## Usage
 
-Run the TUI from a source checkout with:
-
 ```bash
-make run    # or: cargo run --bin dfox-tui
+dfox                                        # the connection manager
+dfox postgres://user@localhost:5432/shop    # connect right away
+dfox mysql://root@127.0.0.1/app
+dfox ./data.sqlite                          # a SQLite file
 ```
+
+From a source checkout, `make run` (or `cargo run --bin dfox-tui`).
+
+### Connections
+
+Saved connections live in `connections.toml` in the config directory, and
+their passwords in the OS keychain (Keychain on macOS, Credential Manager on
+Windows, the Secret Service on Linux), never in the file. Without a saved
+password, dfox looks in `~/.pgpass` (or `$PGPASSFILE`) for Postgres, and
+otherwise asks.
+
+The manager also lists connections found on the machine: `DATABASE_URL`
+(from the environment or a `.env` file) and the entries of `~/.pgpass`. Press
+**e** on one to save it. Every connection is checked in the background, so a
+dot shows whether it is reachable and a sparkline shows its latency.
+
+A connection can be **read-only**: the server refuses writes (Postgres and
+MySQL start the session read-only, SQLite opens the file read-only). **TLS**
+can be `prefer` (the default), `require` or turned off, and a coloured **tag**
+marks it in the list and the status bar.
 
 ## Contributing
 

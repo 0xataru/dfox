@@ -1,23 +1,29 @@
 //! What a component asks the app to do in response to an action.
 
-use dfox_core::models::connections::{ConnectionParams, DbType};
+use crate::{components::manager::EntryKey, connections::Connection};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Quit,
     /// Asks before quitting.
     ConfirmQuit,
-    /// Shows the connection form for `DbType`.
-    ConnectForm(DbType),
-    /// Connects to a server, to list its databases.
-    ConnectServer {
-        db_type: DbType,
-        params: ConnectionParams,
+    Connect(EntryKey),
+    NewConnection,
+    EditConnection(String),
+    /// Opens the form to save a connection found on this machine.
+    SaveDetected(usize),
+    SaveConnection {
+        /// The saved connection being replaced, by name.
+        original: Option<String>,
+        connection: Connection,
+        /// A new password to keep in the keychain.
+        password: Option<String>,
     },
-    /// Connects to one of the server's databases.
-    OpenDatabase(String),
-    /// Back to the database list.
-    Databases,
-    /// Back to the database type list.
-    DbTypes,
+    ConfirmDelete(String),
+    DeleteConnection(String),
+    CloseForm,
+    /// Switches the session to another database on the same server.
+    UseDatabase(String),
+    /// Back to the connection manager.
+    Connections,
 }

@@ -1,0 +1,18 @@
+---
+source: dfox-tui/src/components/explorer/tests.rs
+expression: "snapshot(&explorer, 14)"
+---
+╭ Explorer ────────────────────────────╮
+│   ◆ postgres                         │
+│ ▾ ◆ shop ●                           │
+│   ▾ ◇ public 6                       │
+│     ▾ Tables 3                       │
+│         ▤ customers ~1.2k            │
+│         ▤ order_items ~48.2k         │
+│         ▤ orders ~12.4k              │
+│     ▸ Views 1                        │
+│     ▸ Functions 1                    │
+│     ▸ Procedures 1                   │
+│     ◇ audit                          │
+│                                      │
+╰──────────────────────────────────────╯

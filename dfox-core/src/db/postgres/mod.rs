@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use async_trait::async_trait;
 use sqlx::{
     pool::PoolConnection,
-    postgres::{PgConnectOptions, PgPoolOptions, PgRow, PgValueFormat},
+    postgres::{PgConnectOptions, PgPoolOptions, PgRow, PgSslMode, PgValueFormat},
     PgPool, Postgres, Row, TypeInfo, ValueRef,
 };
 use tokio::sync::{mpsc, Mutex};
@@ -11,8 +11,8 @@ use tokio::sync::{mpsc, Mutex};
 use crate::{
     errors::DbError,
     models::{
-        connections::ConnectionParams,
-        schema::{ColumnSchema, TableSchema},
+        connections::{ConnectionParams, TlsMode},
+        schema::{ColumnSchema, DbObject, ObjectKind, TableSchema},
     },
     result::OwnedCell,
 };
@@ -46,9 +46,17 @@ impl PostgresClient {
             .host(&params.host)
             .port(params.port)
             .username(&params.username)
-            .password(&params.password);
+            .password(&params.password)
+            .ssl_mode(match params.tls {
+                TlsMode::Prefer => PgSslMode::Prefer,
+                TlsMode::Require => PgSslMode::Require,
+                TlsMode::Disable => PgSslMode::Disable,
+            });
         if let Some(database) = &params.database {
             options = options.database(database);
+        }
+        if params.read_only {
+            options = options.options([("default_transaction_read_only", "on")]);
         }
         Self::connect_with(options).await
     }
@@ -95,6 +103,24 @@ pub(crate) fn pg_cell(row: &PgRow, index: usize) -> OwnedCell {
         PgValueFormat::Binary => value.as_bytes().map(bytes_cell),
     };
     decoded.unwrap_or_else(|err| undecodable(value.type_info().name(), err))
+}
+
+/// A row of the objects query, or `None` for a kind dfox doesn't show.
+fn pg_object(row: &PgRow) -> Result<Option<DbObject>, sqlx::Error> {
+    let kind = match row.try_get::<String, _>(1)?.as_str() {
+        "r" | "p" => ObjectKind::Table,
+        "v" => ObjectKind::View,
+        "m" => ObjectKind::MaterializedView,
+        "f" => ObjectKind::ForeignTable,
+        "F" => ObjectKind::Function,
+        "P" => ObjectKind::Procedure,
+        _ => return Ok(None),
+    };
+    Ok(Some(DbObject {
+        name: row.try_get(0)?,
+        kind,
+        rows: row.try_get(2)?,
+    }))
 }
 
 #[async_trait]
@@ -162,7 +188,50 @@ impl DbClient for PostgresClient {
         Ok(tables)
     }
 
-    async fn describe_table(&self, table_name: &str) -> Result<TableSchema, DbError> {
+    async fn list_schemas(&self) -> Result<Vec<String>, DbError> {
+        let query = r#"
+            SELECT nspname::text
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+              AND nspname NOT LIKE 'pg_temp_%'
+              AND nspname NOT LIKE 'pg_toast_temp_%'
+            ORDER BY nspname <> 'public', nspname
+        "#;
+        Ok(sqlx::query_scalar(query).fetch_all(&self.pool).await?)
+    }
+
+    async fn list_objects(&self, schema: &str) -> Result<Vec<DbObject>, DbError> {
+        // reltuples is -1 for a table that was never analysed.
+        let query = r#"
+            SELECT c.relname::text,
+                   c.relkind::text,
+                   CASE WHEN c.reltuples >= 0 THEN c.reltuples::int8 END
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1 AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+            UNION ALL
+            SELECT DISTINCT p.proname::text,
+                   CASE p.prokind WHEN 'p' THEN 'P' ELSE 'F' END,
+                   NULL::int8
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = $1 AND p.prokind IN ('f', 'p')
+            ORDER BY 1
+        "#;
+        let rows = sqlx::query(query)
+            .bind(schema)
+            .fetch_all(&self.pool)
+            .await?;
+        let mut objects = Vec::with_capacity(rows.len());
+        for row in &rows {
+            if let Some(object) = pg_object(row)? {
+                objects.push(object);
+            }
+        }
+        Ok(objects)
+    }
+
+    async fn describe_table(&self, schema: &str, table: &str) -> Result<TableSchema, DbError> {
         let query = r#"
             SELECT a.attname::text,
                    format_type(a.atttypid, a.atttypmod),
@@ -172,14 +241,15 @@ impl DbClient for PostgresClient {
             JOIN pg_class c ON c.oid = a.attrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
             LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-            WHERE n.nspname = 'public'
-              AND c.relname = $1
+            WHERE n.nspname = $1
+              AND c.relname = $2
               AND a.attnum > 0
               AND NOT a.attisdropped
             ORDER BY a.attnum
         "#;
         let rows = sqlx::query(query)
-            .bind(table_name)
+            .bind(schema)
+            .bind(table)
             .fetch_all(&self.pool)
             .await?;
 
@@ -196,7 +266,8 @@ impl DbClient for PostgresClient {
             .collect::<Result<_, sqlx::Error>>()?;
 
         Ok(TableSchema {
-            table_name: table_name.to_string(),
+            schema: schema.to_string(),
+            table_name: table.to_string(),
             columns,
             indexes: Vec::new(),
         })

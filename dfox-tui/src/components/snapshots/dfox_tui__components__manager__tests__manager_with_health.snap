@@ -1,0 +1,24 @@
+---
+source: dfox-tui/src/components/manager_tests.rs
+expression: "render(&test, 120, 20, |f, area, ctx| manager.render(f, area, ctx))"
+---
+╭ Connections 3 ───────────────────────────────╮╭ prod ▌red ───────────────────────────────────────────────────────────╮
+│ Saved                                        ││ Driver    PostgreSQL                                                 │
+│ ▌● prod pg ro                                ││ Host      db.example.com:5432                                        │
+│ ▌● local sqlite                              ││ Database  shop                                                       │
+│ Found on this machine                        ││ User      app                                                        │
+│ ▌⠷ DATABASE_URL mysql                        ││ TLS       require                                                    │
+│                                              ││ Password  OS keychain                                                │
+│                                              ││ Access    read-only                                                  │
+│                                              ││                                                                      │
+│                                              ││ ● reachable · 11 ms                                                  │
+│                                              ││    █                                                                 │
+│                                              ││    █                                                                 │
+│                                              ││ ▄█▁█▃                                                                │
+│                                              ││ █████                                                                │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+│                                              ││                                                                      │
+╰──────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────╯

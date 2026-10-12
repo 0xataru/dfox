@@ -1,0 +1,24 @@
+---
+source: dfox-tui/src/components/form.rs
+expression: "render(&test, 80, 24, |f, area, ctx| form.render(f, area, ctx))"
+---
+
+
+
+
+        ╭ New connection ──────────────────────────────────────────────╮
+        │                                                              │
+        │   Name       shop                                            │
+        │   Driver     ‹ PostgreSQL ›                                  │
+        │ ▸ Host       localhost                                       │
+        │   Port       5432                                            │
+        │   Database   postgres                                        │
+        │   User                                                       │
+        │   Password   asked when connecting                           │
+        │   TLS        ‹ prefer ›                                      │
+        │   Read-only  ‹ no ›                                          │
+        │   Tag        ‹ none ›                                        │
+        │                                                              │
+        │ Type to edit · ↑↓ move                                       │
+        │                                                              │
+        ╰──────────────────────────────────────────────────────────────╯

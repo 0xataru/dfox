@@ -1,29 +1,20 @@
 ---
 source: dfox-tui/src/app/tests.rs
-expression: "snapshot(&app, 120, 40)"
+expression: "test.snapshot(120, 32)"
 ---
-╭ Tables 2 ──────────────────────╮╭ Query ─────────────────────────────────────────────────────────────────────────────╮
-│  ▤ customers                   ││                                                                                    │
-│  ▤ orders                      ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
+╭ Explorer ──────────────────────╮╭ Query ─────────────────────────────────────────────────────────────────────────────╮
+│   ◆ postgres                   ││                                                                                    │
+│ ▾ ◆ shop ●                     ││                                                                                    │
+│   ▾ Tables 3                   ││                                                                                    │
+│       ▤ customers ~1.2k        ││                                                                                    │
+│       ▤ order_items ~48.2k     ││                                                                                    │
+│       ▤ orders ~12.4k          ││                                                                                    │
+│   ▸ Views 1                    ││                                                                                    │
+│   ▸ Functions 1                ││                                                                                    │
+│   ▸ Procedures 1               ││                                                                                    │
 │                                │╰────────────────────────────────────────────────────────────────────────────────────╯
 │                                │╭ Results ───────────────────────────────────────────────────────────────────────────╮
 │                                ││ Run a query to see results here                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
-│                                ││                                                                                    │
 │                                ││                                                                                    │
 │                                ││                                                                                    │
 │                                ││                                                                                    │
@@ -35,10 +26,11 @@ expression: "snapshot(&app, 120, 40)"
 │                                ││                                                         │ r  Run the query         │
 │                                ││                                                         │ c  Copy the row          │
 │                                ││                                                         │ a  Copy all rows         │
-│                                ││                                                         │ d  Databases             │
+│                                ││                                                         │ f  Filter tables         │
+│                                ││                                                         │ m  Connections           │
 │                                ││                                                         │ t  Next theme            │
 │                                ││                                                         │ l  Event log             │
 │                                ││                                                         │ ?  Keys                  │
 │                                ││                                                         │ q  Quit                  │
 ╰────────────────────────────────╯╰─────────────────────────────────────────────────────────╰──────────────────────────╯
- dfox  ◆ me@localhost:5432/shop                                                   F5 run  Tab focus  Space menu  ? keys
+ dfox  ▌◆ prod · shop                                                             F5 run  Tab focus  Space menu  ? keys

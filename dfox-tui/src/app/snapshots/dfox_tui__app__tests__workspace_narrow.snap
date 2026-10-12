@@ -1,0 +1,28 @@
+---
+source: dfox-tui/src/app/tests.rs
+expression: "test.snapshot(80, 24)"
+---
+╭ Explorer ──────────╮╭ Query 1:24 ────────────────────────────────────────────╮
+│   ◆ postgres       ││ SELECT * FROM customers                                │
+│ ▾ ◆ shop ●         ││                                                        │
+│   ▾ Tables 3       ││                                                        │
+│       ▤ customers  ││                                                        │
+│       ▤ order_item ││                                                        │
+│       ▤ orders ~12 ││                                                        │
+│   ▸ Views 1        │╰────────────────────────────────────────────────────────╯
+│   ▸ Functions 1    │╭ Results 1/2 ───────────────────────────────────────────╮
+│   ▸ Procedures 1   ││ #  id    name                                          │
+│                    ││                                                        │
+│                    ││ 1     1  Ada                                           │
+│                    ││ 2     2  NULL                                          │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+╰────────────────────╯╰────────────────────────────────────── 2 row(s) · 7 ms ─╯
+ dfox  ▌◆ prod · shop                                 F5 run  Tab focus  ? keys

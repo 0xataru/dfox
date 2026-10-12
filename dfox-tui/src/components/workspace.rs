@@ -1,4 +1,4 @@
-//! The main screen once a database is open: tables, the query editor and
+//! The main screen once a database is open: the explorer, the query editor and
 //! results. Tab moves focus between them.
 
 use ratatui::{
@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use super::{editor::EditorPanel, results::ResultsPanel, tables::TablesPanel};
+use super::{editor::EditorPanel, explorer::Explorer, results::ResultsPanel};
 use crate::{
     action::Action,
     command::Command,
@@ -16,35 +16,34 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
-    Tables,
+    Explorer,
     Editor,
     Results,
 }
 
-const ORDER: &[Panel] = &[Panel::Tables, Panel::Editor, Panel::Results];
+const ORDER: &[Panel] = &[Panel::Explorer, Panel::Editor, Panel::Results];
 
 #[derive(Debug)]
 pub struct Workspace {
     focus: Focus<Panel>,
-    pub tables: TablesPanel,
+    pub explorer: Explorer,
     pub editor: EditorPanel,
     pub results: ResultsPanel,
 }
 
-impl Default for Workspace {
-    fn default() -> Self {
+impl Workspace {
+    /// A workspace on `database`, the one the session is connected to.
+    pub fn new(database: &str) -> Self {
         let mut workspace = Self {
             focus: Focus::new(ORDER),
-            tables: TablesPanel::default(),
+            explorer: Explorer::new(database),
             editor: EditorPanel::default(),
             results: ResultsPanel::default(),
         };
         workspace.set_focus(Panel::Editor);
         workspace
     }
-}
 
-impl Workspace {
     pub fn focused(&self) -> Panel {
         self.focus.get()
     }
@@ -55,7 +54,7 @@ impl Workspace {
     }
 
     fn sync_focus(&mut self) {
-        self.tables.focused = self.focus.is(Panel::Tables);
+        self.explorer.focused = self.focus.is(Panel::Explorer);
         self.editor.focused = self.focus.is(Panel::Editor);
         self.results.focused = self.focus.is(Panel::Results);
     }
@@ -91,14 +90,14 @@ impl Component for Workspace {
                 self.results.show_log(ctx.log.entries());
                 self.set_focus(Panel::Results);
             }
-            Action::Databases => {
+            Action::Connections => {
                 self.results.abandon(ctx);
-                return Some(Command::Databases);
+                return Some(Command::Connections);
             }
             Action::Back => return Some(Command::ConfirmQuit),
             action => {
                 return match self.focus.get() {
-                    Panel::Tables => self.tables.handle(action, ctx),
+                    Panel::Explorer => self.explorer.handle(action, ctx),
                     Panel::Editor => self.editor.handle(action, ctx),
                     Panel::Results => self.results.handle(action, ctx),
                 }
@@ -112,17 +111,21 @@ impl Component for Workspace {
             Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)]).areas(area);
         let [editor, results] =
             Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right);
-        self.tables.render(f, left, ctx);
+        self.explorer.render(f, left, ctx);
         self.editor.render(f, editor, ctx);
         self.results.render(f, results, ctx);
     }
 
     fn is_animating(&self) -> bool {
-        self.tables.is_animating() || self.results.is_animating()
+        self.explorer.is_animating() || self.results.is_animating()
     }
 
     fn wants_text(&self) -> bool {
-        self.focus.is(Panel::Editor)
+        match self.focus.get() {
+            Panel::Editor => true,
+            Panel::Explorer => self.explorer.wants_text(),
+            Panel::Results => false,
+        }
     }
 }
 
@@ -135,7 +138,7 @@ mod tests {
     #[test]
     fn tab_cycles_focus_and_text_goes_to_the_editor() {
         let mut harness = Harness::new();
-        let mut workspace = Workspace::default();
+        let mut workspace = Workspace::new("shop");
         assert!(workspace.wants_text());
 
         workspace.handle(Action::Input('x'), &mut harness.ctx());
@@ -146,13 +149,13 @@ mod tests {
         assert!(!workspace.wants_text());
         workspace.handle(Action::PrevFocus, &mut harness.ctx());
         workspace.handle(Action::PrevFocus, &mut harness.ctx());
-        assert_eq!(workspace.focused(), Panel::Tables);
+        assert_eq!(workspace.focused(), Panel::Explorer);
     }
 
     #[test]
     fn copy_cancels_a_running_query() {
         let mut harness = Harness::new();
-        let mut workspace = Workspace::default();
+        let mut workspace = Workspace::new("shop");
         workspace.editor.set_text("SELECT pg_sleep(5)");
         workspace.handle(Action::Execute, &mut harness.ctx());
         harness.sent();
@@ -164,7 +167,7 @@ mod tests {
     #[test]
     fn copy_asks_for_the_results_to_be_focused() {
         let mut harness = Harness::new();
-        let mut workspace = Workspace::default();
+        let mut workspace = Workspace::new("shop");
         workspace.handle(Action::CopyAll, &mut harness.ctx());
         assert_eq!(
             harness.toast_texts(),
@@ -175,12 +178,12 @@ mod tests {
     #[test]
     fn leaving_abandons_the_query() {
         let mut harness = Harness::new();
-        let mut workspace = Workspace::default();
+        let mut workspace = Workspace::new("shop");
         workspace.editor.set_text("SELECT 1");
         workspace.handle(Action::Execute, &mut harness.ctx());
 
-        let command = workspace.handle(Action::Databases, &mut harness.ctx());
-        assert_eq!(command, Some(Command::Databases));
+        let command = workspace.handle(Action::Connections, &mut harness.ctx());
+        assert_eq!(command, Some(Command::Connections));
         assert!(workspace.results.running.is_none());
         assert_eq!(
             workspace.handle(Action::Back, &mut harness.ctx()),
@@ -192,7 +195,7 @@ mod tests {
     fn the_event_log_shows_in_the_results() {
         let mut harness = Harness::new();
         harness.log.push("connected".into());
-        let mut workspace = Workspace::default();
+        let mut workspace = Workspace::new("shop");
         workspace.handle(Action::Debug, &mut harness.ctx());
         assert_eq!(workspace.results.store.columns()[1].name, "Event");
         assert_eq!(workspace.focused(), Panel::Results);
@@ -201,8 +204,18 @@ mod tests {
     #[test]
     fn workspace_wide() {
         let test = TestCtx::new();
-        let mut workspace = Workspace::default();
-        workspace.tables.tables = vec!["customers".into(), "orders".into()];
+        let mut workspace = Workspace::new("shop");
+        let mut harness = Harness::new();
+        workspace.explorer.on_databases(
+            Ok(vec!["postgres".into(), "shop".into()]),
+            &mut harness.ctx(),
+        );
+        workspace
+            .explorer
+            .on_schemas(Ok(vec!["public".into()]), &mut harness.ctx());
+        workspace
+            .explorer
+            .on_objects("public", Ok(crate::testing::sample_objects()));
         workspace.editor.set_text("SELECT * FROM customers");
         insta::assert_snapshot!(render(&test, 120, 40, |f, area, ctx| workspace
             .render(f, area, ctx)));
@@ -211,8 +224,8 @@ mod tests {
     #[test]
     fn workspace_narrow() {
         let test = TestCtx::new();
-        let mut workspace = Workspace::default();
-        workspace.tables.loading = true;
+        let mut workspace = Workspace::new("shop");
+        workspace.explorer.load(&mut Harness::new().ctx());
         insta::assert_snapshot!(
             render(&test, 80, 24, |f, area, ctx| workspace.render(f, area, ctx))
         );

@@ -217,6 +217,10 @@ impl Theme {
             .add_modifier(Modifier::BOLD)
     }
 
+    pub fn success(&self) -> Style {
+        Style::default().fg(self.success)
+    }
+
     pub fn warning(&self) -> Style {
         Style::default().fg(self.warning)
     }

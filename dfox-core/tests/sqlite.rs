@@ -3,7 +3,10 @@ mod common;
 use common::{only_row, rows, scalar, unique};
 use dfox_core::{
     db::{sqlite::SqliteClient, DbClient},
-    models::connections::{ConnectionParams, DbType},
+    models::{
+        connections::{ConnectionParams, DbType},
+        schema::ObjectKind,
+    },
     DbManager,
 };
 
@@ -140,7 +143,7 @@ async fn metadata_and_describe_are_injection_safe() {
     // Internal tables such as sqlite_sequence are hidden.
     assert_eq!(db.list_tables().await.unwrap(), ["people"]);
 
-    let schema = db.describe_table("people").await.unwrap();
+    let schema = db.describe_table("main", "people").await.unwrap();
     let columns: Vec<_> = schema
         .columns
         .iter()
@@ -157,7 +160,12 @@ async fn metadata_and_describe_are_injection_safe() {
     assert_eq!(schema.columns[1].default.as_deref(), Some("'x'"));
 
     let attack = "x'); DROP TABLE people; --";
-    assert!(db.describe_table(attack).await.unwrap().columns.is_empty());
+    assert!(db
+        .describe_table("main", attack)
+        .await
+        .unwrap()
+        .columns
+        .is_empty());
     assert_eq!(db.list_tables().await.unwrap(), ["people"]);
 }
 
@@ -179,5 +187,46 @@ async fn connects_to_a_file_by_path() {
 
     // Dropping the pool closes its connections in the background, so Windows
     // may still hold the file open here.
+    let _ = std::fs::remove_file(&path);
+}
+
+#[tokio::test]
+async fn main_is_the_schema_and_lists_tables_and_views() {
+    let db = client().await;
+    db.execute("CREATE TABLE t (i INTEGER); CREATE VIEW v AS SELECT 1")
+        .await
+        .unwrap();
+
+    assert_eq!(db.list_schemas().await.unwrap(), ["main"]);
+    let objects: Vec<_> = db
+        .list_objects("main")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|o| (o.name, o.kind, o.rows))
+        .collect();
+    assert_eq!(
+        objects,
+        [
+            ("t".to_string(), ObjectKind::Table, None),
+            ("v".to_string(), ObjectKind::View, None),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn read_only_files_refuse_writes() {
+    let path = std::env::temp_dir().join(format!("{}.db", unique("dfox_ro")));
+    std::fs::File::create(&path).unwrap();
+    let params = ConnectionParams {
+        database: Some(path.to_string_lossy().into_owned()),
+        read_only: true,
+        ..Default::default()
+    };
+
+    let db = DbManager::connect(&DbType::Sqlite, &params).await.unwrap();
+    let err = db.execute("CREATE TABLE t (i INTEGER)").await.unwrap_err();
+    assert!(err.to_string().contains("readonly"), "{err}");
+    drop(db);
     let _ = std::fs::remove_file(&path);
 }

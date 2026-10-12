@@ -9,6 +9,23 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- A connection manager: saved connections in `connections.toml`, passwords in
+  the OS keychain, never in the file. A background check shows whether each
+  connection is reachable, with a latency sparkline. Connections can be
+  read-only, require or turn off TLS, and carry a coloured tag
+- `DATABASE_URL` and `~/.pgpass` entries show up as connections to use or save,
+  and `.pgpass` supplies passwords for saved Postgres connections
+- `dfox <url>` connects right away; `dfox --help` and `--version`
+- SQLite works in the TUI: a connection is a file path
+- An explorer of databases, schemas, tables, views, materialized views,
+  functions and procedures, loaded as they are opened, with row-count
+  estimates and a table's columns under it. All schemas are shown, not only
+  `public`. Opening another database switches the session to it
+- `/` fuzzy-finds a table, view or routine in the explorer
+- `dfox-core`: `list_schemas`, `list_objects` and a schema-aware
+  `describe_table`; `ConnectionParams` gains `tls` and `read_only`;
+  `DbManager::ping`; engine commands `ListSchemas`, `ListObjects`, `Ping`
+
 - Themes: dfox, tokyo-night, catppuccin-mocha, catppuccin-latte, gruvbox, nord
   and high-contrast, plus your own in `themes/<name>.toml`. `Ctrl+T` switches
   theme. Colours fall back to 256 or 16 colours on terminals without true
@@ -26,6 +43,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Changed
 
+- The database type, connection and database list screens are replaced by
+  the connection manager and the explorer. `F1` goes back to the connections
+- `dfox-core`: `describe_table` takes a schema; `DbType` serializes in lower
+  case; the engine's `ListTables` and `Describe` events are replaced by
+  `ListObjects` and `Described`
 - The screens are rebuilt as components with rounded panels, and result values
   are coloured by kind, with numbers right-aligned
 - The SQL editor inserts and deletes at the cursor, and joins lines on

@@ -113,3 +113,21 @@ impl Harness {
         self.toasts.items().iter().map(|t| t.text.clone()).collect()
     }
 }
+
+/// Tables, views and routines for explorer tests and snapshots.
+pub fn sample_objects() -> Vec<dfox_core::models::schema::DbObject> {
+    use dfox_core::models::schema::{DbObject, ObjectKind};
+    let object = |name: &str, kind, rows| DbObject {
+        name: name.to_string(),
+        kind,
+        rows,
+    };
+    vec![
+        object("active_customers", ObjectKind::View, None),
+        object("customers", ObjectKind::Table, Some(1_250)),
+        object("order_items", ObjectKind::Table, Some(48_200)),
+        object("orders", ObjectKind::Table, Some(12_400)),
+        object("place_order", ObjectKind::Procedure, None),
+        object("total_spent", ObjectKind::Function, None),
+    ]
+}

@@ -1,0 +1,12 @@
+---
+source: dfox-tui/src/components/explorer/tests.rs
+expression: "snapshot(&explorer, 8)"
+---
+╭ Filter /ordr 3 ──────────────────────╮
+│ ▤ orders                             │
+│ ▤ order_items                        │
+│ ƒ place_order                        │
+│                                      │
+│                                      │
+│                                      │
+╰──────────────────────────────────────╯

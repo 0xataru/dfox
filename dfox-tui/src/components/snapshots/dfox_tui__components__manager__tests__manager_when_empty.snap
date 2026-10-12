@@ -1,0 +1,16 @@
+---
+source: dfox-tui/src/components/manager_tests.rs
+expression: "render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))"
+---
+
+
+
+
+          ╭ Connections ─────────────────────────────────────────────╮
+          │                 No saved connections yet.                │
+          │                                                          │
+          │       Press n to add one, or start dfox with a URL:      │
+          │             dfox postgres://user@localhost/db            │
+          │                                                          │
+          │                                                          │
+          ╰──────────────────────────────────────────────────────────╯

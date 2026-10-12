@@ -1,73 +1,99 @@
 //! Engine answers, applied to the screens.
 
-use dfox_core::engine::{Command as DbCommand, EngineEvent};
-use tokio::time::Instant;
+use dfox_core::{engine::EngineEvent, models::connections::DbType};
 
-use super::{App, Connecting, Screen};
-use crate::{
-    component::Ctx,
-    components::{databases::DatabasesScreen, workspace::Workspace},
-};
+use super::{App, Screen, Session};
+use crate::{components::workspace::Workspace, widgets::toast::Level};
 
 impl App {
     /// Updates the screens with an answer from the engine.
     pub fn apply(&mut self, event: EngineEvent) {
-        let mut ctx = Ctx {
-            engine: &self.engine,
-            config: &self.config,
-            toasts: &mut self.toasts,
-            log: &mut self.log,
-            now: Instant::now(),
-        };
         match event {
-            EngineEvent::Connected(result) => match (self.connecting.take(), result) {
-                (Some(Connecting::Server(db_type, params)), Ok(())) => {
-                    // No username: the event log also goes to the debug log file.
-                    ctx.log
-                        .push(format!("Connected to {}:{}", params.host, params.port));
-                    self.connect.connecting = false;
-                    self.server = Some((db_type, params));
-                    self.databases = DatabasesScreen::loading();
-                    self.screen = Screen::Databases;
-                    self.engine.send(DbCommand::ListDatabases);
-                }
-                (Some(Connecting::Database(name)), Ok(())) => {
-                    ctx.log.push(format!("Opened {name}"));
-                    self.databases.opening = None;
-                    self.database = Some(name);
-                    self.workspace = Workspace::default();
-                    self.workspace.tables.refresh(&mut ctx);
-                    self.screen = Screen::Workspace;
-                }
-                (Some(Connecting::Server(..)), Err(err)) => {
-                    ctx.log.push(format!("Connect failed: {err}"));
-                    self.connect.connecting = false;
-                    self.connect.error = Some(err.to_string());
-                }
-                (Some(Connecting::Database(_)), Err(err)) => {
-                    ctx.log.push(format!("Open failed: {err}"));
-                    self.databases.opening = None;
-                    self.databases.error = Some(err.to_string());
-                }
-                (None, _) => {}
-            },
-            EngineEvent::Databases(result) => match result {
-                Ok(databases) => self.databases.set_databases(databases),
-                Err(err) => {
-                    self.databases.loading = false;
-                    self.databases.error = Some(format!("Couldn't list databases: {err}"));
-                }
-            },
-            EngineEvent::Tables(result) => self.workspace.tables.on_tables(result, &mut ctx),
-            EngineEvent::Schema(result) => self.workspace.tables.on_schema(result, &mut ctx),
-            EngineEvent::Columns { id, columns } => self.workspace.results.on_columns(id, columns),
-            EngineEvent::Rows { id, rows } => self.workspace.results.on_rows(id, rows),
-            EngineEvent::QueryDone { id, outcome } => {
-                // The query may have created or dropped tables.
-                if self.workspace.results.on_done(id, outcome, &mut ctx) {
-                    self.workspace.tables.refresh(&mut ctx);
+            EngineEvent::Connected(result) => {
+                let Some(connecting) = self.connecting.take() else {
+                    return;
+                };
+                let name = connecting.connection.name.clone();
+                match result {
+                    Ok(()) => self.connected(connecting),
+                    Err(err) => self.with_ctx(|_, ctx| {
+                        ctx.toast(Level::Error, format!("Couldn't connect to {name}: {err}"))
+                    }),
                 }
             }
+            EngineEvent::Pong { id, result } => self.manager.on_pong(id, result),
+            EngineEvent::Databases(result) => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.explorer.on_databases(result, ctx);
+                }
+            }),
+            EngineEvent::Schemas(result) => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.explorer.on_schemas(result, ctx);
+                }
+            }),
+            EngineEvent::Objects { schema, result } => {
+                if let Some(w) = &mut self.workspace {
+                    w.explorer.on_objects(&schema, result);
+                }
+            }
+            EngineEvent::Described {
+                schema,
+                table,
+                result,
+            } => {
+                if let Some(w) = &mut self.workspace {
+                    w.explorer.on_described(&schema, &table, result);
+                }
+            }
+            EngineEvent::Columns { id, columns } => {
+                if let Some(w) = &mut self.workspace {
+                    w.results.on_columns(id, columns);
+                }
+            }
+            EngineEvent::Rows { id, rows } => {
+                if let Some(w) = &mut self.workspace {
+                    w.results.on_rows(id, rows);
+                }
+            }
+            EngineEvent::QueryDone { id, outcome } => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    // The query may have created or dropped tables.
+                    if w.results.on_done(id, outcome, ctx) {
+                        w.explorer.refresh_loaded(ctx);
+                    }
+                }
+            }),
         }
+    }
+
+    fn connected(&mut self, connecting: super::Connecting) {
+        let connection = connecting.connection;
+        let database = match (&connecting.switch_to, connection.driver) {
+            (Some(database), _) => database.clone(),
+            (None, DbType::Sqlite) => "main".to_string(),
+            (None, _) => connection.target().database.unwrap_or_default(),
+        };
+        // No username: the event log also goes to the debug log file.
+        let switching = connecting.switch_to.is_some();
+        self.log
+            .push(format!("Connected to {} ({database})", connection.name));
+        self.session = Some(Session {
+            connection,
+            password: connecting.password,
+            database: database.clone(),
+        });
+        if switching {
+            self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.explorer.set_active(&database, ctx);
+                }
+            });
+        } else {
+            let mut workspace = Workspace::new(&database);
+            self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
+            self.workspace = Some(workspace);
+        }
+        self.screen = Screen::Workspace;
     }
 }

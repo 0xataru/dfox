@@ -1,11 +1,10 @@
 //! Screens and the panels inside them.
 
-pub mod connect;
-pub mod databases;
-pub mod db_type;
 pub mod editor;
+pub mod explorer;
+pub mod form;
+pub mod manager;
 pub mod results;
-pub mod tables;
 pub mod workspace;
 
 use ratatui::{
