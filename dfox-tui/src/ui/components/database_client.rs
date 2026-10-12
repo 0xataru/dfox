@@ -1,19 +1,37 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io, sync::Arc};
 use indexmap::IndexMap;
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, Clear, ClearType},
+    event::{
+        self, 
+        DisableMouseCapture, 
+        EnableMouseCapture, 
+        Event, 
+        KeyCode,
+    }, 
+    execute, 
+    terminal::{
+        enable_raw_mode, 
+        Clear, 
+        ClearType, 
+        EnterAlternateScreen, 
+        LeaveAlternateScreen,
+    },
 };
+use ratatui::{prelude::CrosstermBackend, Terminal};
+
 use dfox_core::{models::schema::TableSchema, DbManager};
-use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io;
-
-use super::{UIHandler, UIRenderer};
-
-// Constants
-pub const MAX_VISIBLE_COLUMNS: usize = 8;
+use crate::ui::{UIHandler, UIRenderer};
+use crate::ui::utils::terminal_guard::TerminalGuard;
+use crate::ui::components::{
+    connection_input::{
+        ConnectionInput, 
+        InputField}, 
+        types::{
+            FocusedWidget, 
+            ScreenState,
+        },
+    };
 
 #[derive(Clone)]
 pub struct DatabaseClientUI {
@@ -46,68 +64,6 @@ pub struct DatabaseClientUI {
     pub sql_editor_cursor_x: usize,
     pub sql_editor_cursor_y: usize,
     pub debug_info: Vec<String>,
-}
-
-#[derive(Clone)]
-pub enum InputField {
-    Username,
-    Password,
-    Hostname,
-    Port,
-}
-
-#[derive(Clone)]
-pub struct ConnectionInput {
-    pub username: String,
-    pub password: String,
-    pub hostname: String,
-    pub port: String,
-    pub current_field: InputField,
-}
-
-impl ConnectionInput {
-    pub fn new() -> Self {
-        Self {
-            username: String::new(),
-            password: String::new(),
-            hostname: String::new(),
-            port: String::new(),
-            current_field: InputField::Username,
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum ScreenState {
-    MessagePopup,
-    DbTypeSelection,
-    ConnectionInput,
-    DatabaseSelection,
-    TableView,
-}
-
-#[derive(Clone, PartialEq)]
-pub enum FocusedWidget {
-    TablesList,
-    SqlEditor,
-    _QueryResult,
-}
-
-#[derive(Debug, Clone)]
-pub enum DatabaseType {
-    Postgres,
-    MySQL,
-    SQLite,
-}
-
-impl DatabaseType {
-    pub fn as_str(&self) -> &str {
-        match self {
-            DatabaseType::Postgres => "Postgres",
-            DatabaseType::MySQL => "MySQL",
-            DatabaseType::SQLite => "SQLite",
-        }
-    }
 }
 
 impl DatabaseClientUI {
@@ -154,12 +110,10 @@ impl DatabaseClientUI {
         
         self.debug_info.push(debug_msg.clone());
         
-        // Keep only last 100 debug messages to prevent memory issues
         if self.debug_info.len() > 100 {
             self.debug_info.remove(0);
         }
         
-        // Also log to file
         log::debug!("{}", info);
     }
 
@@ -243,30 +197,11 @@ impl DatabaseClientUI {
                             )
                             .await;
                         } else {
-                            UIHandler::handle_table_view_input(self, key.code, terminal).await;
+                            UIHandler::handle_table_view_input(self, key.code, key.modifiers, terminal).await;
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-struct TerminalGuard;
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        if let Err(e) = disable_raw_mode() {
-            log::error!("Error disabling raw mode: {}", e);
-        }
-        let mut stdout = io::stdout();
-        if let Err(e) = execute!(
-            stdout,
-            LeaveAlternateScreen,
-            DisableMouseCapture,
-            Clear(ClearType::All)
-        ) {
-            log::error!("Error cleaning up terminal: {}", e);
         }
     }
 }

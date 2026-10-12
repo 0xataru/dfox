@@ -8,15 +8,11 @@ mod ui;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load .env file if it exists
-    dotenv::dotenv().ok();
-    
-    // Set default log level to off if RUST_LOG is not set
+    dotenv::dotenv().ok();    
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "off");
     }
     
-    // Initialize logging to file
     env_logger::Builder::from_default_env()
         .target(env_logger::Target::Pipe(Box::new(std::fs::OpenOptions::new()
             .create(true)
