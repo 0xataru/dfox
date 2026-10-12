@@ -1,6 +1,6 @@
-# Coverage is reported, never enforced: the database clients need a live server
-# to test, so the number is low and a drop should start a conversation in the
-# PR comment rather than block the merge.
+# Coverage is reported, never enforced: a drop should start a conversation in
+# the PR comment rather than block the merge. Core and TUI are reported as
+# separate components, since the TUI has few tests until its redesign.
 coverage:
   status:
     project:
@@ -10,6 +10,17 @@ coverage:
       default:
         informational: true
 
+component_management:
+  individual_components:
+    - component_id: core
+      name: dfox-core
+      paths:
+        - dfox-core/**
+    - component_id: tui
+      name: dfox-tui
+      paths:
+        - dfox-tui/**
+
 comment:
-  layout: "diff, files"
+  layout: "diff, components, files"
   require_changes: true
