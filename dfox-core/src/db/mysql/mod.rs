@@ -29,7 +29,7 @@ pub struct MySqlClient {
     session: Mutex<PoolConnection<MySql>>,
     /// Connection id of the session connection, for cancelling; 0 until the
     /// first query on a connection looks it up.
-    session_id: AtomicU64,
+    connection_id: AtomicU64,
     run_guard: RunGuard,
 }
 
@@ -67,7 +67,7 @@ impl MySqlClient {
         Ok(Self {
             pool,
             session: Mutex::new(session),
-            session_id: AtomicU64::new(0),
+            connection_id: AtomicU64::new(0),
             run_guard: RunGuard::default(),
         })
     }
@@ -115,14 +115,14 @@ impl DbClient for MySqlClient {
         let mut conn = self.session.lock().await;
         if self.run_guard.start() && replace_session(&self.pool, &mut conn).await {
             log::warn!("replaced the session connection after an interrupted query");
-            self.session_id.store(0, Ordering::Relaxed);
+            self.connection_id.store(0, Ordering::Relaxed);
         }
-        if self.session_id.load(Ordering::Relaxed) == 0 {
+        if self.connection_id.load(Ordering::Relaxed) == 0 {
             match sqlx::query_scalar::<_, u64>("SELECT CONNECTION_ID()")
                 .fetch_one(&mut **conn)
                 .await
             {
-                Ok(id) => self.session_id.store(id, Ordering::Relaxed),
+                Ok(id) => self.connection_id.store(id, Ordering::Relaxed),
                 Err(err) => log::warn!("could not read the session's connection id: {err}"),
             }
         }
@@ -130,13 +130,13 @@ impl DbClient for MySqlClient {
         let result = stream_raw(&mut **conn, query, row_limit, mysql_cell, &tx).await;
         self.run_guard.finish();
         if replace_if_lost(&self.pool, &mut conn, &result).await {
-            self.session_id.store(0, Ordering::Relaxed);
+            self.connection_id.store(0, Ordering::Relaxed);
         }
         result
     }
 
     async fn cancel(&self) -> Result<bool, DbError> {
-        let id = self.session_id.load(Ordering::Relaxed);
+        let id = self.connection_id.load(Ordering::Relaxed);
         if id == 0 {
             return Ok(false);
         }
