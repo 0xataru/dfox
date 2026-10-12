@@ -1,6 +1,5 @@
 pub const MAX_VISIBLE_COLUMNS: usize = 8;
 
-
 #[derive(Clone)]
 pub enum ScreenState {
     MessagePopup,

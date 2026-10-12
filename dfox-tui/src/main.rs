@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::env;
+use std::sync::Arc;
 
 use dfox_core::DbManager;
 use ui::DatabaseClientUI;
@@ -8,16 +8,18 @@ mod ui;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenv::dotenv().ok();    
+    dotenv::dotenv().ok();
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "off");
     }
-    
+
     env_logger::Builder::from_default_env()
-        .target(env_logger::Target::Pipe(Box::new(std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("dfox-debug.log")?)))
+        .target(env_logger::Target::Pipe(Box::new(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("dfox-debug.log")?,
+        )))
         .init();
 
     log::info!("Starting dfox application");

@@ -1,8 +1,8 @@
-use serde_json::Value;
-use sqlx::{Row, mysql::MySqlRow};
-use chrono::{NaiveDate, NaiveTime, NaiveDateTime};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use serde_json::Value;
+use sqlx::{mysql::MySqlRow, Row};
 
 #[derive(Debug)]
 pub enum ColumnType {
@@ -15,7 +15,7 @@ pub enum ColumnType {
     Decimal,
     Float,
     Double,
-    
+
     // String types
     Char,
     Varchar,
@@ -23,14 +23,14 @@ pub enum ColumnType {
     Text,
     MediumText,
     LongText,
-    
+
     // Date and Time types
     Date,
     Time,
     Year,
     DateTime,
     Timestamp,
-    
+
     // Binary types
     Binary,
     Varbinary,
@@ -38,17 +38,17 @@ pub enum ColumnType {
     Blob,
     MediumBlob,
     LongBlob,
-    
+
     // JSON type
     Json,
-    
+
     // Boolean type
     Boolean,
-    
+
     // Enum and Set types
     Enum,
     Set,
-    
+
     // Unknown type
     Unknown,
 }
@@ -65,7 +65,7 @@ impl ColumnType {
             "DECIMAL" | "DEC" | "NUMERIC" => ColumnType::Decimal,
             "FLOAT" => ColumnType::Float,
             "DOUBLE" | "DOUBLE PRECISION" | "REAL" => ColumnType::Double,
-            
+
             // String types
             "CHAR" => ColumnType::Char,
             "VARCHAR" => ColumnType::Varchar,
@@ -73,14 +73,14 @@ impl ColumnType {
             "TEXT" => ColumnType::Text,
             "MEDIUMTEXT" => ColumnType::MediumText,
             "LONGTEXT" => ColumnType::LongText,
-            
+
             // Date and Time types
             "DATE" => ColumnType::Date,
             "TIME" => ColumnType::Time,
             "YEAR" => ColumnType::Year,
             "DATETIME" => ColumnType::DateTime,
             "TIMESTAMP" => ColumnType::Timestamp,
-            
+
             // Binary types
             "BINARY" => ColumnType::Binary,
             "VARBINARY" => ColumnType::Varbinary,
@@ -88,27 +88,29 @@ impl ColumnType {
             "BLOB" => ColumnType::Blob,
             "MEDIUMBLOB" => ColumnType::MediumBlob,
             "LONGBLOB" => ColumnType::LongBlob,
-            
+
             // JSON type
             "JSON" => ColumnType::Json,
-            
+
             // Boolean type
             "BOOLEAN" | "BOOL" => ColumnType::Boolean,
-            
+
             // Enum and Set types
             "ENUM" => ColumnType::Enum,
             "SET" => ColumnType::Set,
-            
+
             _ => ColumnType::Unknown,
         }
     }
 
     pub fn to_json_value<'a>(&self, row: &'a MySqlRow, index: usize) -> Value {
         match self {
-            ColumnType::DateTime | ColumnType::Timestamp => match row.try_get::<NaiveDateTime, _>(index) {
-                Ok(timestamp) => Value::String(timestamp.to_string()),
-                Err(_) => Value::Null,
-            },
+            ColumnType::DateTime | ColumnType::Timestamp => {
+                match row.try_get::<NaiveDateTime, _>(index) {
+                    Ok(timestamp) => Value::String(timestamp.to_string()),
+                    Err(_) => Value::Null,
+                }
+            }
             ColumnType::Date => match row.try_get::<NaiveDate, _>(index) {
                 Ok(date) => Value::String(date.to_string()),
                 Err(_) => Value::Null,
@@ -117,7 +119,10 @@ impl ColumnType {
                 Ok(time) => Value::String(time.to_string()),
                 Err(_) => Value::Null,
             },
-            ColumnType::TinyInt | ColumnType::SmallInt | ColumnType::MediumInt | ColumnType::Int => match row.try_get::<i32, _>(index) {
+            ColumnType::TinyInt
+            | ColumnType::SmallInt
+            | ColumnType::MediumInt
+            | ColumnType::Int => match row.try_get::<i32, _>(index) {
                 Ok(int_val) => Value::Number(int_val.into()),
                 Err(_) => Value::Null,
             },
@@ -130,7 +135,9 @@ impl ColumnType {
                 Err(_) => Value::Null,
             },
             ColumnType::Float | ColumnType::Double => match row.try_get::<f64, _>(index) {
-                Ok(val) => Value::Number(serde_json::Number::from_f64(val).unwrap_or(serde_json::Number::from(0))),
+                Ok(val) => Value::Number(
+                    serde_json::Number::from_f64(val).unwrap_or(serde_json::Number::from(0)),
+                ),
                 Err(_) => Value::Null,
             },
             ColumnType::Boolean => match row.try_get::<bool, _>(index) {
@@ -141,11 +148,21 @@ impl ColumnType {
                 Ok(val) => val,
                 Err(_) => Value::Null,
             },
-            ColumnType::Binary | ColumnType::Varbinary | ColumnType::TinyBlob | ColumnType::Blob | ColumnType::MediumBlob | ColumnType::LongBlob => match row.try_get::<Vec<u8>, _>(index) {
+            ColumnType::Binary
+            | ColumnType::Varbinary
+            | ColumnType::TinyBlob
+            | ColumnType::Blob
+            | ColumnType::MediumBlob
+            | ColumnType::LongBlob => match row.try_get::<Vec<u8>, _>(index) {
                 Ok(val) => Value::String(BASE64.encode(val)),
                 Err(_) => Value::Null,
             },
-            ColumnType::Char | ColumnType::Varchar | ColumnType::TinyText | ColumnType::Text | ColumnType::MediumText | ColumnType::LongText => match row.try_get::<String, _>(index) {
+            ColumnType::Char
+            | ColumnType::Varchar
+            | ColumnType::TinyText
+            | ColumnType::Text
+            | ColumnType::MediumText
+            | ColumnType::LongText => match row.try_get::<String, _>(index) {
                 Ok(text) => Value::String(text),
                 Err(_) => Value::Null,
             },
@@ -163,4 +180,4 @@ impl ColumnType {
             },
         }
     }
-} 
+}

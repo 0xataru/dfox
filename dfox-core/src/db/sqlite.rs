@@ -74,10 +74,13 @@ impl DbClient for SqliteClient {
         Ok(results)
     }
 
-    async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
+    async fn query_with_column_order(
+        &self,
+        query: &str,
+    ) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
         // TODO: Implement proper column order preservation for SQLite
         let rows = self.query(query).await?;
-        
+
         if rows.is_empty() {
             return Ok((Vec::new(), Vec::new()));
         }

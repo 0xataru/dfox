@@ -7,7 +7,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{io, time::Duration};
 use tokio::time::timeout;
 
-use crate::db::{DatabaseUI, postgres::PostgresDatabaseUI, mysql::MySqlDatabaseUI};
+use crate::db::{mysql::MySqlDatabaseUI, postgres::PostgresDatabaseUI, DatabaseUI};
 
 use super::components::types::{DatabaseType, FocusedWidget, MAX_VISIBLE_COLUMNS};
 use super::{DatabaseClientUI, UIRenderer};
@@ -293,7 +293,8 @@ impl UIRenderer for DatabaseClientUI {
                             self.needs_db_refresh = false;
                         }
                         Ok(Err(e)) => {
-                            self.databases = vec!["Error fetching databases: {}".to_string(), e.to_string()];
+                            self.databases =
+                                vec!["Error fetching databases: {}".to_string(), e.to_string()];
                         }
                         Err(_) => {
                             self.databases = vec!["Timeout while fetching databases".to_string()];
@@ -309,7 +310,7 @@ impl UIRenderer for DatabaseClientUI {
             .iter()
             .enumerate()
             .skip(self.databases_scroll)
-            .take(20) 
+            .take(20)
             .map(|(i, db)| {
                 if i == self.selected_database {
                     ListItem::new(db.clone()).style(
@@ -342,7 +343,11 @@ impl UIRenderer for DatabaseClientUI {
             let horizontal_layout = centered_rect(50, chunks[1]);
 
             let block = Block::default()
-                .title(format!("Select Database ({}/{})", self.selected_database + 1, self.databases.len()))
+                .title(format!(
+                    "Select Database ({}/{})",
+                    self.selected_database + 1,
+                    self.databases.len()
+                ))
                 .borders(Borders::ALL)
                 .title_alignment(Alignment::Center);
 
@@ -447,11 +452,12 @@ impl UIRenderer for DatabaseClientUI {
                 .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(main_chunks[1]);
 
-            let visible_tables: Vec<ListItem> = self.tables
+            let visible_tables: Vec<ListItem> = self
+                .tables
                 .iter()
                 .enumerate()
                 .skip(self.tables_scroll)
-                .take(main_chunks[0].height as usize - 2) 
+                .take(main_chunks[0].height as usize - 2)
                 .map(|(i, table)| {
                     let style = if i == self.selected_table {
                         Style::default().bg(Color::Yellow).fg(Color::Black)
@@ -488,7 +494,11 @@ impl UIRenderer for DatabaseClientUI {
 
             let tables_block = Block::default()
                 .borders(Borders::ALL)
-                .title(format!("Tables ({}/{})", self.selected_table + 1, self.tables.len()))
+                .title(format!(
+                    "Tables ({}/{})",
+                    self.selected_table + 1,
+                    self.tables.len()
+                ))
                 .border_style(if let FocusedWidget::TablesList = self.current_focus {
                     Style::default().fg(Color::Yellow)
                 } else {
@@ -539,24 +549,24 @@ impl UIRenderer for DatabaseClientUI {
                 } else {
                     Vec::new()
                 };
-                
+
                 // Apply horizontal scroll to headers
                 let max_visible_columns = MAX_VISIBLE_COLUMNS; // Limit visible columns to prevent overcrowding
                 let total_columns = headers.len();
-                
-                let visible_headers: Vec<String> = if self.sql_result_horizontal_scroll > 0 && headers.len() > self.sql_result_horizontal_scroll {
-                    headers.iter()
+
+                let visible_headers: Vec<String> = if self.sql_result_horizontal_scroll > 0
+                    && headers.len() > self.sql_result_horizontal_scroll
+                {
+                    headers
+                        .iter()
                         .skip(self.sql_result_horizontal_scroll)
                         .take(max_visible_columns)
                         .cloned()
                         .collect()
                 } else {
-                    headers.iter()
-                        .take(max_visible_columns)
-                        .cloned()
-                        .collect()
+                    headers.iter().take(max_visible_columns).cloned().collect()
                 };
-                
+
                 // Calculate column widths for visible headers only with minimum widths
                 let mut column_widths = vec![6u16]; // Row number column (wider for better readability)
                 for header in &visible_headers {
@@ -566,31 +576,29 @@ impl UIRenderer for DatabaseClientUI {
                         .iter()
                         .take(std::cmp::min(50, self.sql_query_result.len())) // Sample fewer rows for performance
                         .map(|row| {
-                            row.get(header)
-                                .map_or(4, |v| std::cmp::min(v.len(), 50)) as u16 // Limit sample width to 50 chars
+                            row.get(header).map_or(4, |v| std::cmp::min(v.len(), 50)) as u16
+                            // Limit sample width to 50 chars
                         })
                         .max()
                         .unwrap_or(header_width) as u16;
-                    
+
                     // Use reasonable width limits to prevent extreme stretching
                     let optimal_width = std::cmp::max(header_width + 2, max_content_width + 2);
                     let final_width = std::cmp::min(optimal_width, 40); // Max 40 chars per column
                     column_widths.push(std::cmp::max(final_width, 8)); // Min 8 chars per column
                 }
-                
+
                 let visible_rows = (right_chunks[1].height as usize).saturating_sub(3); // Account for borders and headers
                 let total_rows = self.sql_query_result.len();
-                
+
                 // Ensure scroll position is within bounds
-                let safe_scroll = std::cmp::min(self.sql_result_scroll, total_rows.saturating_sub(1));
-                
+                let safe_scroll =
+                    std::cmp::min(self.sql_result_scroll, total_rows.saturating_sub(1));
+
                 // Limit the number of rows to prevent performance issues
                 let max_displayable_rows = std::cmp::min(visible_rows, 1000); // Max 1000 rows at once
-                let end_index = std::cmp::min(
-                    safe_scroll + max_displayable_rows,
-                    total_rows
-                );
-                
+                let end_index = std::cmp::min(safe_scroll + max_displayable_rows, total_rows);
+
                 let rows: Vec<Row> = if total_rows > 0 && end_index > safe_scroll {
                     self.sql_query_result
                         .iter()
@@ -600,49 +608,48 @@ impl UIRenderer for DatabaseClientUI {
                         .map(|(idx, result)| {
                             let row_num = safe_scroll + idx + 1;
                             let mut cells = vec![format!("{}", row_num)];
-                            
+
                             // Apply horizontal scroll to data columns
                             for header in &visible_headers {
-                                let value = result
-                                    .get(header)
-                                    .map_or("NULL".to_string(), |v| {
-                                        // More aggressive data cleaning but preserve full length
-                                        let cleaned = v
-                                            .chars()
-                                            .filter(|c| {
-                                                // Keep all printable characters, including Unicode (Cyrillic, emojis, etc.)
-                                                !c.is_control() || *c == '\t' || *c == '\n'
-                                            })
-                                            .collect::<String>()
-                                            .trim()
-                                            .to_string();
-                                        
-                                        // Smart truncation for display - keep reasonable cell sizes
-                                        if cleaned.len() > 100 {
-                                            let mut chars: Vec<char> = cleaned.chars().collect();
-                                            if chars.len() >= 97 {
-                                                chars.truncate(97);
-                                                let truncated: String = chars.into_iter().collect();
-                                                format!("{}...", truncated)
-                                            } else {
-                                                cleaned
-                                            }
-                                        } else if cleaned.is_empty() {
-                                            "NULL".to_string()
+                                let value = result.get(header).map_or("NULL".to_string(), |v| {
+                                    // More aggressive data cleaning but preserve full length
+                                    let cleaned = v
+                                        .chars()
+                                        .filter(|c| {
+                                            // Keep all printable characters, including Unicode (Cyrillic, emojis, etc.)
+                                            !c.is_control() || *c == '\t' || *c == '\n'
+                                        })
+                                        .collect::<String>()
+                                        .trim()
+                                        .to_string();
+
+                                    // Smart truncation for display - keep reasonable cell sizes
+                                    if cleaned.len() > 100 {
+                                        let mut chars: Vec<char> = cleaned.chars().collect();
+                                        if chars.len() >= 97 {
+                                            chars.truncate(97);
+                                            let truncated: String = chars.into_iter().collect();
+                                            format!("{}...", truncated)
                                         } else {
                                             cleaned
                                         }
-                                    });
+                                    } else if cleaned.is_empty() {
+                                        "NULL".to_string()
+                                    } else {
+                                        cleaned
+                                    }
+                                });
                                 cells.push(value);
                             }
-                            
+
                             let row = Row::new(cells);
-                            
+
                             // Highlight selected row (with bounds checking)
-                            if total_rows > 0 && 
-                               self.selected_result_row < total_rows &&
-                               safe_scroll + idx == self.selected_result_row && 
-                               matches!(self.current_focus, FocusedWidget::QueryResult) {
+                            if total_rows > 0
+                                && self.selected_result_row < total_rows
+                                && safe_scroll + idx == self.selected_result_row
+                                && matches!(self.current_focus, FocusedWidget::QueryResult)
+                            {
                                 row.style(Style::default().bg(Color::Yellow).fg(Color::Black))
                             } else {
                                 row.style(Style::default().fg(Color::White))
@@ -654,32 +661,38 @@ impl UIRenderer for DatabaseClientUI {
                 };
 
                 // Create constraints based on calculated widths - no compression needed with horizontal scroll
-                let constraints: Vec<Constraint> = column_widths.into_iter().map(Constraint::Length).collect();
+                let constraints: Vec<Constraint> =
+                    column_widths.into_iter().map(Constraint::Length).collect();
 
                 let mut header_cells = vec!["#".to_string()];
                 header_cells.extend(visible_headers.clone());
 
                 // Create title with scroll indicators
-                let title = if total_rows > visible_rows || self.sql_result_horizontal_scroll > 0 || total_columns > max_visible_columns {
+                let title = if total_rows > visible_rows
+                    || self.sql_result_horizontal_scroll > 0
+                    || total_columns > max_visible_columns
+                {
                     let h_scroll_info = if total_columns > max_visible_columns {
                         let start_col = self.sql_result_horizontal_scroll + 1;
                         let end_col = std::cmp::min(
-                            self.sql_result_horizontal_scroll + visible_headers.len(), 
-                            total_columns
+                            self.sql_result_horizontal_scroll + visible_headers.len(),
+                            total_columns,
                         );
                         format!(" | Cols {}-{}/{}", start_col, end_col, total_columns)
                     } else {
                         String::new()
                     };
-                    
+
                     let row_info = if total_rows > visible_rows {
-                        format!("Rows {}/{} - ", 
+                        format!(
+                            "Rows {}/{} - ",
                             std::cmp::min(safe_scroll + visible_rows, total_rows),
-                            total_rows)
+                            total_rows
+                        )
                     } else {
                         format!("{} rows - ", total_rows)
                     };
-                    
+
                     format!(
                         "Query Result ({} Row {}/{}{})",
                         row_info,
@@ -694,8 +707,12 @@ impl UIRenderer for DatabaseClientUI {
                 let sql_result_widget = Table::new(rows, constraints.clone())
                     .header(
                         Row::new(header_cells)
-                            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-                            .bottom_margin(1)
+                            .style(
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD),
+                            )
+                            .bottom_margin(1),
                     )
                     .block(
                         Block::default()
@@ -706,14 +723,14 @@ impl UIRenderer for DatabaseClientUI {
                             } else {
                                 Style::default().fg(Color::White)
                             })
-                            .title(title)
+                            .title(title),
                     )
                     .column_spacing(1)
                     .widths(&constraints)
                     .style(Style::default().fg(Color::White));
 
                 f.render_widget(tables_widget, main_chunks[0]);
-                
+
                 // Add scrollbar for tables list if needed
                 let total_tables = self.tables.len();
                 let visible_tables_height = (main_chunks[0].height as usize).saturating_sub(2);
@@ -724,25 +741,32 @@ impl UIRenderer for DatabaseClientUI {
                         width: 1,
                         height: main_chunks[0].height - 2,
                     };
-                    
+
                     let scrollbar_height = scrollbar_area.height as usize;
                     if scrollbar_height > 0 && total_tables > 0 {
-                        let thumb_size = std::cmp::max(1, (scrollbar_height * visible_tables_height) / total_tables);
+                        let thumb_size = std::cmp::max(
+                            1,
+                            (scrollbar_height * visible_tables_height) / total_tables,
+                        );
                         let scroll_progress = if total_tables > visible_tables_height {
-                            (self.tables_scroll as f64) / ((total_tables - visible_tables_height) as f64)
+                            (self.tables_scroll as f64)
+                                / ((total_tables - visible_tables_height) as f64)
                         } else {
                             0.0
                         };
-                        let thumb_position = (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
-                        
+                        let thumb_position =
+                            (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
+
                         // Draw scrollbar track
                         for y in 0..scrollbar_height {
                             let style = if y >= thumb_position && y < thumb_position + thumb_size {
-                                Style::default().bg(Color::Black).fg(Color::White) // Thumb
+                                Style::default().bg(Color::Black).fg(Color::White)
+                            // Thumb
                             } else {
-                                Style::default().bg(Color::White).fg(Color::Black) // Track
+                                Style::default().bg(Color::White).fg(Color::Black)
+                                // Track
                             };
-                            
+
                             f.render_widget(
                                 ratatui::widgets::Paragraph::new("█").style(style),
                                 Rect {
@@ -750,15 +774,15 @@ impl UIRenderer for DatabaseClientUI {
                                     y: scrollbar_area.y + y as u16,
                                     width: 1,
                                     height: 1,
-                                }
+                                },
                             );
                         }
                     }
                 }
-                
+
                 f.render_widget(sql_query_widget, right_chunks[0]);
                 f.render_widget(sql_result_widget, right_chunks[1]);
-                
+
                 // Add scrollbar for query results
                 if total_rows > visible_rows {
                     let scrollbar_area = Rect {
@@ -767,25 +791,29 @@ impl UIRenderer for DatabaseClientUI {
                         width: 1,
                         height: right_chunks[1].height - 2,
                     };
-                    
+
                     let scrollbar_height = scrollbar_area.height as usize;
                     if scrollbar_height > 0 && total_rows > 0 {
-                        let thumb_size = std::cmp::max(1, (scrollbar_height * visible_rows) / total_rows);
+                        let thumb_size =
+                            std::cmp::max(1, (scrollbar_height * visible_rows) / total_rows);
                         let scroll_progress = if total_rows > visible_rows {
                             (safe_scroll as f64) / ((total_rows - visible_rows) as f64)
                         } else {
                             0.0
                         };
-                        let thumb_position = (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
-                        
+                        let thumb_position =
+                            (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
+
                         // Draw scrollbar track
                         for y in 0..scrollbar_height {
                             let style = if y >= thumb_position && y < thumb_position + thumb_size {
-                                Style::default().bg(Color::Black).fg(Color::White) // Thumb
+                                Style::default().bg(Color::Black).fg(Color::White)
+                            // Thumb
                             } else {
-                                Style::default().bg(Color::White).fg(Color::Black) // Track
+                                Style::default().bg(Color::White).fg(Color::Black)
+                                // Track
                             };
-                            
+
                             f.render_widget(
                                 ratatui::widgets::Paragraph::new("█").style(style),
                                 Rect {
@@ -793,7 +821,7 @@ impl UIRenderer for DatabaseClientUI {
                                     y: scrollbar_area.y + y as u16,
                                     width: 1,
                                     height: 1,
-                                }
+                                },
                             );
                         }
                     }
@@ -806,7 +834,7 @@ impl UIRenderer for DatabaseClientUI {
                 let result_widget = Paragraph::new(result_message).block(sql_result_block);
 
                 f.render_widget(tables_widget, main_chunks[0]);
-                
+
                 // Add scrollbar for tables list if needed
                 let total_tables = self.tables.len();
                 let visible_tables_height = (main_chunks[0].height as usize).saturating_sub(2);
@@ -817,25 +845,32 @@ impl UIRenderer for DatabaseClientUI {
                         width: 1,
                         height: main_chunks[0].height - 2,
                     };
-                    
+
                     let scrollbar_height = scrollbar_area.height as usize;
                     if scrollbar_height > 0 && total_tables > 0 {
-                        let thumb_size = std::cmp::max(1, (scrollbar_height * visible_tables_height) / total_tables);
+                        let thumb_size = std::cmp::max(
+                            1,
+                            (scrollbar_height * visible_tables_height) / total_tables,
+                        );
                         let scroll_progress = if total_tables > visible_tables_height {
-                            (self.tables_scroll as f64) / ((total_tables - visible_tables_height) as f64)
+                            (self.tables_scroll as f64)
+                                / ((total_tables - visible_tables_height) as f64)
                         } else {
                             0.0
                         };
-                        let thumb_position = (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
-                        
+                        let thumb_position =
+                            (scroll_progress * (scrollbar_height - thumb_size) as f64) as usize;
+
                         // Draw scrollbar track
                         for y in 0..scrollbar_height {
                             let style = if y >= thumb_position && y < thumb_position + thumb_size {
-                                Style::default().bg(Color::Black).fg(Color::White) // Thumb
+                                Style::default().bg(Color::Black).fg(Color::White)
+                            // Thumb
                             } else {
-                                Style::default().bg(Color::White).fg(Color::Black) // Track
+                                Style::default().bg(Color::White).fg(Color::Black)
+                                // Track
                             };
-                            
+
                             f.render_widget(
                                 ratatui::widgets::Paragraph::new("█").style(style),
                                 Rect {
@@ -843,12 +878,12 @@ impl UIRenderer for DatabaseClientUI {
                                     y: scrollbar_area.y + y as u16,
                                     width: 1,
                                     height: 1,
-                                }
+                                },
                             );
                         }
                     }
                 }
-                
+
                 f.render_widget(sql_query_widget, right_chunks[0]);
                 f.render_widget(result_widget, right_chunks[1]);
             }
@@ -858,11 +893,13 @@ impl UIRenderer for DatabaseClientUI {
                 let cursor_y = self.sql_editor_cursor_y as u16;
 
                 let adjusted_cursor_x = right_chunks[0].x + cursor_x + 1;
-                let adjusted_cursor_y = right_chunks[0].y + cursor_y + 1 - (self.sql_editor_scroll as u16);
+                let adjusted_cursor_y =
+                    right_chunks[0].y + cursor_y + 1 - (self.sql_editor_scroll as u16);
 
-                if adjusted_cursor_y >= right_chunks[0].y && 
-                   adjusted_cursor_y < right_chunks[0].y + right_chunks[0].height - 1 &&
-                   adjusted_cursor_x < right_chunks[0].x + right_chunks[0].width - 1 {
+                if adjusted_cursor_y >= right_chunks[0].y
+                    && adjusted_cursor_y < right_chunks[0].y + right_chunks[0].height - 1
+                    && adjusted_cursor_x < right_chunks[0].x + right_chunks[0].width - 1
+                {
                     f.set_cursor_position((adjusted_cursor_x, adjusted_cursor_y));
                 }
             }
@@ -919,9 +956,7 @@ impl UIRenderer for DatabaseClientUI {
                 Span::raw(" - databases, "),
                 Span::styled(
                     "Esc",
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(" - quit"),
             ])];

@@ -3,7 +3,7 @@ pub use types::ColumnType;
 
 use async_trait::async_trait;
 use serde_json::Value;
-use sqlx::{mysql::MySqlPoolOptions, MySqlPool, Row, Column, TypeInfo};
+use sqlx::{mysql::MySqlPoolOptions, Column, MySqlPool, Row, TypeInfo};
 
 use crate::{
     errors::DbError,
@@ -66,10 +66,13 @@ impl DbClient for MySqlClient {
         Ok(results)
     }
 
-    async fn query_with_column_order(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
+    async fn query_with_column_order(
+        &self,
+        query: &str,
+    ) -> Result<(Vec<String>, Vec<Vec<String>>), DbError> {
         // TODO: Implement proper column order preservation for MySQL
         let rows = self.query(query).await?;
-        
+
         if rows.is_empty() {
             return Ok((Vec::new(), Vec::new()));
         }
@@ -198,4 +201,4 @@ impl<'a> Transaction for MySqlTransaction<'a> {
             .await
             .map_err(|e| DbError::Transaction(e.to_string()))
     }
-} 
+}

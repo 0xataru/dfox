@@ -4,26 +4,18 @@ use std::{
 };
 
 use crossterm::{
-    event::{KeyCode, KeyModifiers, DisableMouseCapture},
+    event::{DisableMouseCapture, KeyCode, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, LeaveAlternateScreen, Clear, ClearType},
+    terminal::{disable_raw_mode, Clear, ClearType, LeaveAlternateScreen},
 };
 use ratatui::{prelude::CrosstermBackend, Terminal};
 
+use crate::{
+    db::{mysql::MySqlDatabaseUI, postgres::PostgresDatabaseUI, DatabaseUI},
+    ui::components::types::{FocusedWidget, ScreenState, MAX_VISIBLE_COLUMNS},
+};
 use dfox_core::errors::DbError;
 use dfox_core::models::schema::TableSchema;
-use crate::{
-    db::{
-        mysql::MySqlDatabaseUI, 
-        postgres::PostgresDatabaseUI, 
-        DatabaseUI,
-    }, 
-    ui::components::types::{
-        MAX_VISIBLE_COLUMNS, 
-        FocusedWidget, 
-        ScreenState,
-    },
-};
 
 use super::{DatabaseClientUI, UIHandler, UIRenderer};
 
@@ -142,8 +134,16 @@ impl UIHandler for DatabaseClientUI {
                         }
                         KeyCode::Enter => {
                             let result = match self.selected_db_type {
-                                0 => PostgresDatabaseUI::new(self.clone()).connect_to_default_db().await,
-                                1 => MySqlDatabaseUI::new(self.clone()).connect_to_default_db().await,
+                                0 => {
+                                    PostgresDatabaseUI::new(self.clone())
+                                        .connect_to_default_db()
+                                        .await
+                                }
+                                1 => {
+                                    MySqlDatabaseUI::new(self.clone())
+                                        .connect_to_default_db()
+                                        .await
+                                }
                                 _ => Ok(()),
                             };
                             if result.is_ok() {
@@ -171,7 +171,7 @@ impl UIHandler for DatabaseClientUI {
             KeyCode::Down => {
                 if !self.databases.is_empty() && self.selected_database < self.databases.len() - 1 {
                     self.selected_database += 1;
-                    let visible_height = 20; 
+                    let visible_height = 20;
                     if self.selected_database >= self.databases_scroll + visible_height {
                         self.databases_scroll = self.selected_database - visible_height + 1;
                     }
@@ -181,8 +181,16 @@ impl UIHandler for DatabaseClientUI {
                 let cloned = self.databases.clone();
                 if let Some(db_name) = cloned.get(self.selected_database) {
                     let result = match self.selected_db_type {
-                        0 => PostgresDatabaseUI::new(self.clone()).connect_to_selected_db(db_name).await,
-                        1 => MySqlDatabaseUI::new(self.clone()).connect_to_selected_db(db_name).await,
+                        0 => {
+                            PostgresDatabaseUI::new(self.clone())
+                                .connect_to_selected_db(db_name)
+                                .await
+                        }
+                        1 => {
+                            MySqlDatabaseUI::new(self.clone())
+                                .connect_to_selected_db(db_name)
+                                .await
+                        }
                         _ => Ok(()),
                     };
                     if let Err(err) = result {
@@ -217,8 +225,11 @@ impl UIHandler for DatabaseClientUI {
         // Handle clipboard operations first for any focus widget
         match (key, modifiers) {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                self.add_debug_info(format!("Ctrl+C pressed, current focus: {:?}", self.current_focus));
-                
+                self.add_debug_info(format!(
+                    "Ctrl+C pressed, current focus: {:?}",
+                    self.current_focus
+                ));
+
                 if let FocusedWidget::QueryResult = self.current_focus {
                     if !self.sql_query_result.is_empty() {
                         // Get headers from IndexMap which preserves insertion order
@@ -229,7 +240,7 @@ impl UIHandler for DatabaseClientUI {
                         };
 
                         let mut clipboard_content = String::new();
-                        
+
                         // Add headers
                         clipboard_content.push_str(&headers.join("\t"));
                         clipboard_content.push('\n');
@@ -240,7 +251,7 @@ impl UIHandler for DatabaseClientUI {
                             for header in &headers {
                                 row_values.push(
                                     row.get(header)
-                                        .map_or("NULL".to_string(), |v| v.to_string())
+                                        .map_or("NULL".to_string(), |v| v.to_string()),
                                 );
                             }
                             clipboard_content.push_str(&row_values.join("\t"));
@@ -248,41 +259,72 @@ impl UIHandler for DatabaseClientUI {
                         }
 
                         // Add debug info about what we're copying
-                        self.add_debug_info(format!("Attempting to copy {} chars to clipboard", clipboard_content.len()));
-                        self.add_debug_info(format!("Selected row: {}/{}", self.selected_result_row + 1, self.sql_query_result.len()));
-                        self.add_debug_info(format!("Content preview: {:?}", &clipboard_content[..std::cmp::min(50, clipboard_content.len())]));
-                        
+                        self.add_debug_info(format!(
+                            "Attempting to copy {} chars to clipboard",
+                            clipboard_content.len()
+                        ));
+                        self.add_debug_info(format!(
+                            "Selected row: {}/{}",
+                            self.selected_result_row + 1,
+                            self.sql_query_result.len()
+                        ));
+                        self.add_debug_info(format!(
+                            "Content preview: {:?}",
+                            &clipboard_content[..std::cmp::min(50, clipboard_content.len())]
+                        ));
+
                         match Clipboard::new() {
                             Ok(mut clipboard) => {
                                 // First try to clear any existing content
                                 let _ = clipboard.set_text("");
-                                
+
                                 match clipboard.set_text(clipboard_content.clone()) {
                                     Ok(()) => {
-                                        self.add_debug_info("Successfully copied to clipboard!".to_string());
-                                        
+                                        self.add_debug_info(
+                                            "Successfully copied to clipboard!".to_string(),
+                                        );
+
                                         // Verify the copy worked by reading it back
                                         match clipboard.get_text() {
                                             Ok(read_back) => {
                                                 if read_back == clipboard_content {
-                                                    self.add_debug_info("✓ Clipboard verification successful".to_string());
-                                                    self.sql_query_success_message = Some(format!("Copied row {} to clipboard", self.selected_result_row + 1));
+                                                    self.add_debug_info(
+                                                        "✓ Clipboard verification successful"
+                                                            .to_string(),
+                                                    );
+                                                    self.sql_query_success_message = Some(format!(
+                                                        "Copied row {} to clipboard",
+                                                        self.selected_result_row + 1
+                                                    ));
                                                 } else {
                                                     self.add_debug_info(format!("✗ Clipboard verification failed. Expected {} chars, got {} chars", clipboard_content.len(), read_back.len()));
-                                                    self.sql_query_error = Some("Clipboard copy verification failed".to_string());
+                                                    self.sql_query_error = Some(
+                                                        "Clipboard copy verification failed"
+                                                            .to_string(),
+                                                    );
                                                 }
                                             }
                                             Err(e) => {
-                                                self.add_debug_info(format!("Could not verify clipboard: {}", e));
-                                                self.sql_query_success_message = Some(format!("Copied row {} to clipboard (unverified)", self.selected_result_row + 1));
+                                                self.add_debug_info(format!(
+                                                    "Could not verify clipboard: {}",
+                                                    e
+                                                ));
+                                                self.sql_query_success_message = Some(format!(
+                                                    "Copied row {} to clipboard (unverified)",
+                                                    self.selected_result_row + 1
+                                                ));
                                             }
                                         }
                                     }
                                     Err(e) => {
-                                        self.add_debug_info(format!("Failed to set clipboard text: {}", e));
+                                        self.add_debug_info(format!(
+                                            "Failed to set clipboard text: {}",
+                                            e
+                                        ));
                                         log::error!("Error setting clipboard text: {}", e);
                                         // Show error message to user
-                                        self.sql_query_error = Some(format!("Clipboard error: {}", e));
+                                        self.sql_query_error =
+                                            Some(format!("Clipboard error: {}", e));
                                     }
                                 }
                             }
@@ -290,7 +332,8 @@ impl UIHandler for DatabaseClientUI {
                                 self.add_debug_info(format!("Failed to create clipboard: {}", e));
                                 log::error!("Error creating clipboard: {}", e);
                                 // Show error message to user
-                                self.sql_query_error = Some(format!("Cannot access clipboard: {}", e));
+                                self.sql_query_error =
+                                    Some(format!("Cannot access clipboard: {}", e));
                             }
                         }
                     } else {
@@ -298,14 +341,21 @@ impl UIHandler for DatabaseClientUI {
                         self.sql_query_error = Some("No query results to copy".to_string());
                     }
                 } else {
-                    self.add_debug_info(format!("Wrong focus for copying. Current focus: {:?}", self.current_focus));
-                    self.sql_query_error = Some("Switch focus to query results (Tab) before copying".to_string());
+                    self.add_debug_info(format!(
+                        "Wrong focus for copying. Current focus: {:?}",
+                        self.current_focus
+                    ));
+                    self.sql_query_error =
+                        Some("Switch focus to query results (Tab) before copying".to_string());
                 }
                 return;
             }
             (KeyCode::Char('a'), KeyModifiers::CONTROL) => {
-                self.add_debug_info(format!("Ctrl+A pressed, current focus: {:?}", self.current_focus));
-                
+                self.add_debug_info(format!(
+                    "Ctrl+A pressed, current focus: {:?}",
+                    self.current_focus
+                ));
+
                 if let FocusedWidget::QueryResult = self.current_focus {
                     if !self.sql_query_result.is_empty() {
                         // Get headers from IndexMap which preserves insertion order
@@ -316,7 +366,7 @@ impl UIHandler for DatabaseClientUI {
                         };
 
                         let mut clipboard_content = String::new();
-                        
+
                         // Add headers
                         clipboard_content.push_str(&headers.join("\t"));
                         clipboard_content.push('\n');
@@ -327,7 +377,7 @@ impl UIHandler for DatabaseClientUI {
                             for header in &headers {
                                 row_values.push(
                                     row.get(header)
-                                        .map_or("NULL".to_string(), |v| v.to_string())
+                                        .map_or("NULL".to_string(), |v| v.to_string()),
                                 );
                             }
                             clipboard_content.push_str(&row_values.join("\t"));
@@ -335,41 +385,69 @@ impl UIHandler for DatabaseClientUI {
                         }
 
                         // Add debug info about what we're copying
-                        self.add_debug_info(format!("Attempting to copy {} chars ({} rows) to clipboard", 
-                            clipboard_content.len(), self.sql_query_result.len()));
-                        self.add_debug_info(format!("Content preview: {:?}", &clipboard_content[..std::cmp::min(100, clipboard_content.len())]));
-                        
+                        self.add_debug_info(format!(
+                            "Attempting to copy {} chars ({} rows) to clipboard",
+                            clipboard_content.len(),
+                            self.sql_query_result.len()
+                        ));
+                        self.add_debug_info(format!(
+                            "Content preview: {:?}",
+                            &clipboard_content[..std::cmp::min(100, clipboard_content.len())]
+                        ));
+
                         match Clipboard::new() {
                             Ok(mut clipboard) => {
                                 // First try to clear any existing content
                                 let _ = clipboard.set_text("");
-                                
+
                                 match clipboard.set_text(clipboard_content.clone()) {
                                     Ok(()) => {
-                                        self.add_debug_info("Successfully copied all results to clipboard!".to_string());
-                                        
+                                        self.add_debug_info(
+                                            "Successfully copied all results to clipboard!"
+                                                .to_string(),
+                                        );
+
                                         // Verify the copy worked by reading it back
                                         match clipboard.get_text() {
                                             Ok(read_back) => {
                                                 if read_back == clipboard_content {
-                                                    self.add_debug_info("✓ Clipboard verification successful".to_string());
-                                                    self.sql_query_success_message = Some(format!("Copied {} rows to clipboard", self.sql_query_result.len()));
+                                                    self.add_debug_info(
+                                                        "✓ Clipboard verification successful"
+                                                            .to_string(),
+                                                    );
+                                                    self.sql_query_success_message = Some(format!(
+                                                        "Copied {} rows to clipboard",
+                                                        self.sql_query_result.len()
+                                                    ));
                                                 } else {
                                                     self.add_debug_info(format!("✗ Clipboard verification failed. Expected {} chars, got {} chars", clipboard_content.len(), read_back.len()));
-                                                    self.sql_query_error = Some("Clipboard copy verification failed".to_string());
+                                                    self.sql_query_error = Some(
+                                                        "Clipboard copy verification failed"
+                                                            .to_string(),
+                                                    );
                                                 }
                                             }
                                             Err(e) => {
-                                                self.add_debug_info(format!("Could not verify clipboard: {}", e));
-                                                self.sql_query_success_message = Some(format!("Copied {} rows to clipboard (unverified)", self.sql_query_result.len()));
+                                                self.add_debug_info(format!(
+                                                    "Could not verify clipboard: {}",
+                                                    e
+                                                ));
+                                                self.sql_query_success_message = Some(format!(
+                                                    "Copied {} rows to clipboard (unverified)",
+                                                    self.sql_query_result.len()
+                                                ));
                                             }
                                         }
                                     }
                                     Err(e) => {
-                                        self.add_debug_info(format!("Failed to set clipboard text: {}", e));
+                                        self.add_debug_info(format!(
+                                            "Failed to set clipboard text: {}",
+                                            e
+                                        ));
                                         log::error!("Error setting clipboard text: {}", e);
                                         // Show error message to user
-                                        self.sql_query_error = Some(format!("Clipboard error: {}", e));
+                                        self.sql_query_error =
+                                            Some(format!("Clipboard error: {}", e));
                                     }
                                 }
                             }
@@ -377,7 +455,8 @@ impl UIHandler for DatabaseClientUI {
                                 self.add_debug_info(format!("Failed to create clipboard: {}", e));
                                 log::error!("Error creating clipboard: {}", e);
                                 // Show error message to user
-                                self.sql_query_error = Some(format!("Cannot access clipboard: {}", e));
+                                self.sql_query_error =
+                                    Some(format!("Cannot access clipboard: {}", e));
                             }
                         }
                     } else {
@@ -385,14 +464,18 @@ impl UIHandler for DatabaseClientUI {
                         self.sql_query_error = Some("No query results to copy".to_string());
                     }
                 } else {
-                    self.add_debug_info(format!("Wrong focus for copying. Current focus: {:?}", self.current_focus));
-                    self.sql_query_error = Some("Switch focus to query results (Tab) before copying".to_string());
+                    self.add_debug_info(format!(
+                        "Wrong focus for copying. Current focus: {:?}",
+                        self.current_focus
+                    ));
+                    self.sql_query_error =
+                        Some("Switch focus to query results (Tab) before copying".to_string());
                 }
                 return;
             }
             _ => {}
         }
-        
+
         match key {
             KeyCode::F(1) => {
                 self.current_screen = ScreenState::DatabaseSelection;
@@ -421,20 +504,26 @@ impl UIHandler for DatabaseClientUI {
                 if let FocusedWidget::TablesList = self.current_focus {
                     self.move_selection_down();
                 } else if let FocusedWidget::QueryResult = self.current_focus {
-                    if !self.sql_query_result.is_empty() && self.selected_result_row < self.sql_query_result.len().saturating_sub(1) {
+                    if !self.sql_query_result.is_empty()
+                        && self.selected_result_row < self.sql_query_result.len().saturating_sub(1)
+                    {
                         self.selected_result_row += 1;
                         let visible_height = 20;
                         if self.selected_result_row >= self.sql_result_scroll + visible_height {
-                            self.sql_result_scroll = self.selected_result_row.saturating_sub(visible_height - 1);
+                            self.sql_result_scroll =
+                                self.selected_result_row.saturating_sub(visible_height - 1);
                         }
                     }
                     self.sync_cursor_position();
                 }
             }
             KeyCode::Left => {
-                if self.current_focus == FocusedWidget::QueryResult && !self.sql_query_result.is_empty() {
+                if self.current_focus == FocusedWidget::QueryResult
+                    && !self.sql_query_result.is_empty()
+                {
                     if self.sql_result_horizontal_scroll > 0 {
-                        self.sql_result_horizontal_scroll = self.sql_result_horizontal_scroll.saturating_sub(1);
+                        self.sql_result_horizontal_scroll =
+                            self.sql_result_horizontal_scroll.saturating_sub(1);
                     }
                 } else if self.current_focus == FocusedWidget::SqlEditor {
                     if self.sql_editor_cursor_x > 0 {
@@ -444,31 +533,38 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::Right => {
-                if self.current_focus == FocusedWidget::QueryResult && !self.sql_query_result.is_empty() {
+                if self.current_focus == FocusedWidget::QueryResult
+                    && !self.sql_query_result.is_empty()
+                {
                     // Get the maximum number of columns and account for limited visible columns
                     let total_columns = if let Some(first_row) = self.sql_query_result.first() {
                         first_row.len()
                     } else {
                         0
                     };
-                    
+
                     let max_visible_columns = MAX_VISIBLE_COLUMNS; // Should match the value in screens.rs
                     let max_scroll = if total_columns > max_visible_columns {
                         total_columns - max_visible_columns
                     } else {
                         0
                     };
-                    
+
                     if self.sql_result_horizontal_scroll < max_scroll {
                         self.sql_result_horizontal_scroll += 1;
-                        self.add_debug_info(format!("Horizontal scroll right to: {} (max: {})", 
-                            self.sql_result_horizontal_scroll, max_scroll));
+                        self.add_debug_info(format!(
+                            "Horizontal scroll right to: {} (max: {})",
+                            self.sql_result_horizontal_scroll, max_scroll
+                        ));
                     } else {
-                        self.add_debug_info(format!("Already at rightmost position: {} columns, {} visible", 
-                            total_columns, max_visible_columns));
+                        self.add_debug_info(format!(
+                            "Already at rightmost position: {} columns, {} visible",
+                            total_columns, max_visible_columns
+                        ));
                     }
                 } else if self.current_focus == FocusedWidget::SqlEditor {
-                    let current_line = self.sql_editor_content
+                    let current_line = self
+                        .sql_editor_content
                         .lines()
                         .nth(self.sql_editor_cursor_y)
                         .unwrap_or("");
@@ -479,7 +575,9 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::PageUp => {
-                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult)
+                    && !self.sql_query_result.is_empty()
+                {
                     let page_size = 10;
                     if self.selected_result_row >= page_size {
                         self.selected_result_row -= page_size;
@@ -491,7 +589,9 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::PageDown => {
-                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult)
+                    && !self.sql_query_result.is_empty()
+                {
                     let page_size = 10;
                     let max_row = self.sql_query_result.len().saturating_sub(1);
                     if self.selected_result_row + page_size <= max_row {
@@ -501,13 +601,16 @@ impl UIHandler for DatabaseClientUI {
                     }
                     let visible_height = 20;
                     if self.selected_result_row >= self.sql_result_scroll + visible_height {
-                        self.sql_result_scroll = self.selected_result_row.saturating_sub(visible_height - 1);
+                        self.sql_result_scroll =
+                            self.selected_result_row.saturating_sub(visible_height - 1);
                     }
                     self.sync_cursor_position();
                 }
             }
             KeyCode::Home => {
-                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult)
+                    && !self.sql_query_result.is_empty()
+                {
                     self.selected_result_row = 0;
                     self.sql_result_scroll = 0;
                     self.sql_result_horizontal_scroll = 0;
@@ -515,10 +618,13 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             KeyCode::End => {
-                if matches!(self.current_focus, FocusedWidget::QueryResult) && !self.sql_query_result.is_empty() {
+                if matches!(self.current_focus, FocusedWidget::QueryResult)
+                    && !self.sql_query_result.is_empty()
+                {
                     self.selected_result_row = self.sql_query_result.len().saturating_sub(1);
                     let visible_height = 20;
-                    self.sql_result_scroll = self.selected_result_row.saturating_sub(visible_height - 1);
+                    self.sql_result_scroll =
+                        self.selected_result_row.saturating_sub(visible_height - 1);
                     self.sync_cursor_position();
                 }
             }
@@ -536,28 +642,39 @@ impl UIHandler for DatabaseClientUI {
                             self.expanded_table = None;
                         } else {
                             let result = match self.selected_db_type {
-                                0 => PostgresDatabaseUI::new(self.clone()).describe_table(&selected_table).await,
-                                1 => MySqlDatabaseUI::new(self.clone()).describe_table(&selected_table).await,
-                                _ => Err(DbError::Connection("Unsupported database type".to_string())),
+                                0 => {
+                                    PostgresDatabaseUI::new(self.clone())
+                                        .describe_table(&selected_table)
+                                        .await
+                                }
+                                1 => {
+                                    MySqlDatabaseUI::new(self.clone())
+                                        .describe_table(&selected_table)
+                                        .await
+                                }
+                                _ => Err(DbError::Connection(
+                                    "Unsupported database type".to_string(),
+                                )),
                             };
 
                             match result {
                                 Ok(columns) => {
                                     let table_schema = TableSchema {
                                         table_name: selected_table.clone(),
-                                        columns: columns.into_iter().map(|name| dfox_core::models::schema::ColumnSchema {
-                                            name,
-                                            data_type: String::new(),
-                                            is_nullable: true,
-                                            default: None,
-                                        }).collect(),
+                                        columns: columns
+                                            .into_iter()
+                                            .map(|name| dfox_core::models::schema::ColumnSchema {
+                                                name,
+                                                data_type: String::new(),
+                                                is_nullable: true,
+                                                default: None,
+                                            })
+                                            .collect(),
                                         indexes: Vec::new(),
                                     };
                                     let table_schema_clone = table_schema.clone();
-                                    self.table_schemas.insert(
-                                        selected_table.clone(),
-                                        table_schema_clone,
-                                    );
+                                    self.table_schemas
+                                        .insert(selected_table.clone(), table_schema_clone);
                                     self.expanded_table = Some(self.selected_table);
 
                                     if let Err(err) = UIRenderer::render_table_schema(
@@ -616,13 +733,21 @@ impl UIHandler for DatabaseClientUI {
                 if !self.sql_editor_content.is_empty() {
                     self.sql_query_error = None;
                     let sql_content = self.sql_editor_content.clone();
-                    
+
                     let result = match self.selected_db_type {
-                        0 => PostgresDatabaseUI::new(self.clone()).execute_sql_query(&sql_content).await,
-                        1 => MySqlDatabaseUI::new(self.clone()).execute_sql_query(&sql_content).await,
+                        0 => {
+                            PostgresDatabaseUI::new(self.clone())
+                                .execute_sql_query(&sql_content)
+                                .await
+                        }
+                        1 => {
+                            MySqlDatabaseUI::new(self.clone())
+                                .execute_sql_query(&sql_content)
+                                .await
+                        }
                         _ => Err(DbError::Connection("Unsupported database type".to_string())),
                     };
-                    
+
                     match result {
                         Ok((result, success_message)) => {
                             if !result.is_empty() {
@@ -634,25 +759,31 @@ impl UIHandler for DatabaseClientUI {
                                     } else {
                                         first_row
                                     };
-                                    self.add_debug_info(format!("First row sample: {:?}", debug_slice));
-                                    
+                                    self.add_debug_info(format!(
+                                        "First row sample: {:?}",
+                                        debug_slice
+                                    ));
+
                                     let headers: Vec<String> = first_row
                                         .split('\t')
                                         .map(|s| s.trim().to_string())
                                         .filter(|s| !s.is_empty())
                                         .collect();
-                                    
+
                                     // Debug: print headers
                                     self.add_debug_info(format!("Headers found: {:?}", headers));
-                                    
+
                                     // Debug: check if first result preserves order
                                     if !result.is_empty() && result.len() > 1 {
                                         let first_data_row = &result[1];
-                                        let first_values: Vec<&str> = first_data_row.split('\t').collect();
-                                        self.add_debug_info(format!("First data values (first 5): {:?}", 
-                                            first_values.iter().take(5).collect::<Vec<_>>()));
+                                        let first_values: Vec<&str> =
+                                            first_data_row.split('\t').collect();
+                                        self.add_debug_info(format!(
+                                            "First data values (first 5): {:?}",
+                                            first_values.iter().take(5).collect::<Vec<_>>()
+                                        ));
                                     }
-                                    
+
                                     // Debug: show sample of raw data
                                     if result.len() > 1 {
                                         let sample_row = &result[1]; // First data row
@@ -662,22 +793,39 @@ impl UIHandler for DatabaseClientUI {
                                         } else {
                                             sample_row
                                         };
-                                        self.add_debug_info(format!("Sample data row: {:?}", sample_slice));
-                                        
+                                        self.add_debug_info(format!(
+                                            "Sample data row: {:?}",
+                                            sample_slice
+                                        ));
+
                                         // Debug: show character codes for first few characters
-                                        let char_codes: Vec<u32> = sample_row.chars().take(20).map(|c| c as u32).collect();
-                                        self.add_debug_info(format!("First 20 char codes: {:?}", char_codes));
+                                        let char_codes: Vec<u32> =
+                                            sample_row.chars().take(20).map(|c| c as u32).collect();
+                                        self.add_debug_info(format!(
+                                            "First 20 char codes: {:?}",
+                                            char_codes
+                                        ));
                                     }
-                                    
+
                                     // Limit the number of rows to prevent memory issues
                                     let max_rows = 1000; // Limit to 1k rows for better performance
-                                    let (limited_result, success_msg) = if result.len() > max_rows + 1 {
-                                        let limited = result.into_iter().take(max_rows + 1).collect::<Vec<_>>();
-                                        (limited, format!("Results limited to {} rows for performance", max_rows))
-                                    } else {
-                                        (result, success_message)
-                                    };
-                                    
+                                    let (limited_result, success_msg) =
+                                        if result.len() > max_rows + 1 {
+                                            let limited = result
+                                                .into_iter()
+                                                .take(max_rows + 1)
+                                                .collect::<Vec<_>>();
+                                            (
+                                                limited,
+                                                format!(
+                                                    "Results limited to {} rows for performance",
+                                                    max_rows
+                                                ),
+                                            )
+                                        } else {
+                                            (result, success_message)
+                                        };
+
                                     self.sql_query_result = limited_result
                                         .into_iter()
                                         .skip(1)
@@ -690,58 +838,83 @@ impl UIHandler for DatabaseClientUI {
                                                 for (i, header) in headers.iter().enumerate() {
                                                     if let Some(value) = values.get(i) {
                                                         // Try multiple cleaning strategies
-                                                        let cleaned_value = if value.chars().any(|c| (c as u32) < 32 && c != '\t' && c != '\n') {
-                                                            // Strategy 1: Remove only control characters (except tab/newline)
-                                                            value
-                                                                .chars()
-                                                                .filter(|c| (*c as u32) >= 32 || *c == '\t' || *c == '\n')
-                                                                .collect::<String>()
-                                                                .trim()
-                                                                .to_string()
-                                                        } else {
-                                                            // Strategy 2: Keep all printable characters including Unicode
-                                                            value
-                                                                .chars()
-                                                                .filter(|c| {
-                                                                    // Keep all printable characters, including Unicode (Cyrillic, emojis, etc.)
-                                                                    !c.is_control() || *c == '\t' || *c == '\n'
-                                                                })
-                                                                .collect::<String>()
-                                                                .trim()
-                                                                .to_string()
-                                                        };
-                                                        
+                                                        let cleaned_value =
+                                                            if value.chars().any(|c| {
+                                                                (c as u32) < 32
+                                                                    && c != '\t'
+                                                                    && c != '\n'
+                                                            }) {
+                                                                // Strategy 1: Remove only control characters (except tab/newline)
+                                                                value
+                                                                    .chars()
+                                                                    .filter(|c| {
+                                                                        (*c as u32) >= 32
+                                                                            || *c == '\t'
+                                                                            || *c == '\n'
+                                                                    })
+                                                                    .collect::<String>()
+                                                                    .trim()
+                                                                    .to_string()
+                                                            } else {
+                                                                // Strategy 2: Keep all printable characters including Unicode
+                                                                value
+                                                                    .chars()
+                                                                    .filter(|c| {
+                                                                        // Keep all printable characters, including Unicode (Cyrillic, emojis, etc.)
+                                                                        !c.is_control()
+                                                                            || *c == '\t'
+                                                                            || *c == '\n'
+                                                                    })
+                                                                    .collect::<String>()
+                                                                    .trim()
+                                                                    .to_string()
+                                                            };
+
                                                         // Replace empty values with NULL
-                                                        let final_value = if cleaned_value.is_empty() {
-                                                            "NULL".to_string()
-                                                        } else {
-                                                            cleaned_value
-                                                        };
-                                                        
+                                                        let final_value =
+                                                            if cleaned_value.is_empty() {
+                                                                "NULL".to_string()
+                                                            } else {
+                                                                cleaned_value
+                                                            };
+
                                                         // Insert in order - this preserves the SQL column order
                                                         map.insert(header.clone(), final_value);
                                                     }
                                                 }
                                                 Some(map)
                                             } else {
-                                                log::warn!("Row {} has {} values but {} headers expected", row_idx, values.len(), headers.len());
+                                                log::warn!(
+                                                    "Row {} has {} values but {} headers expected",
+                                                    row_idx,
+                                                    values.len(),
+                                                    headers.len()
+                                                );
                                                 None
                                             }
                                         })
                                         .collect();
-                                        
-                                    self.add_debug_info(format!("Processed {} rows successfully", self.sql_query_result.len()));
-                                    
+
+                                    self.add_debug_info(format!(
+                                        "Processed {} rows successfully",
+                                        self.sql_query_result.len()
+                                    ));
+
                                     // Debug: check order in first IndexMap
                                     if let Some(first_map) = self.sql_query_result.first() {
-                                        let map_keys: Vec<String> = first_map.keys().cloned().collect();
-                                        self.add_debug_info(format!("IndexMap keys order: {:?}", map_keys.iter().take(5).collect::<Vec<_>>()));
+                                        let map_keys: Vec<String> =
+                                            first_map.keys().cloned().collect();
+                                        self.add_debug_info(format!(
+                                            "IndexMap keys order: {:?}",
+                                            map_keys.iter().take(5).collect::<Vec<_>>()
+                                        ));
                                     }
-                                    
+
                                     self.sql_query_success_message = Some(success_msg);
                                 } else {
                                     self.sql_query_result = Vec::new();
-                                    self.sql_query_success_message = Some("Empty result set".to_string());
+                                    self.sql_query_success_message =
+                                        Some("Empty result set".to_string());
                                 }
                             } else {
                                 self.sql_query_result = Vec::new();
@@ -763,7 +936,7 @@ impl UIHandler for DatabaseClientUI {
                             self.sql_result_horizontal_scroll = 0;
                         }
                     }
-                    
+
                     // Don't clear the SQL content after execution
                     // self.sql_editor_content.clear(); // Commented out
                 }
@@ -771,21 +944,25 @@ impl UIHandler for DatabaseClientUI {
                 // Safely update tables without crashing
                 let _: Result<(), ()> = match self.selected_db_type {
                     0 => {
-                        if let Ok(db_ui) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            PostgresDatabaseUI::new(self.clone())
-                        })) {
+                        if let Ok(db_ui) =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                PostgresDatabaseUI::new(self.clone())
+                            }))
+                        {
                             let _ = db_ui.update_tables().await;
                         }
                         Ok(())
-                    },
+                    }
                     1 => {
-                        if let Ok(db_ui) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            MySqlDatabaseUI::new(self.clone())
-                        })) {
+                        if let Ok(db_ui) =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                MySqlDatabaseUI::new(self.clone())
+                            }))
+                        {
                             let _ = db_ui.update_tables().await;
                         }
                         Ok(())
-                    },
+                    }
                     _ => Ok(()),
                 };
             }
@@ -829,7 +1006,9 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             (KeyCode::Left, _) => {
-                if matches!(self.current_focus, FocusedWidget::SqlEditor) && self.sql_editor_cursor_x > 0 {
+                if matches!(self.current_focus, FocusedWidget::SqlEditor)
+                    && self.sql_editor_cursor_x > 0
+                {
                     self.sql_editor_cursor_x -= 1;
                 }
             }
@@ -844,11 +1023,14 @@ impl UIHandler for DatabaseClientUI {
                 }
             }
             (KeyCode::Up, _) => {
-                if matches!(self.current_focus, FocusedWidget::SqlEditor) && self.sql_editor_cursor_y > 0 {
+                if matches!(self.current_focus, FocusedWidget::SqlEditor)
+                    && self.sql_editor_cursor_y > 0
+                {
                     self.sql_editor_cursor_y -= 1;
                     let lines: Vec<&str> = self.sql_editor_content.split('\n').collect();
                     if let Some(line) = lines.get(self.sql_editor_cursor_y) {
-                        self.sql_editor_cursor_x = std::cmp::min(self.sql_editor_cursor_x, line.len());
+                        self.sql_editor_cursor_x =
+                            std::cmp::min(self.sql_editor_cursor_x, line.len());
                     }
                 }
             }
@@ -858,7 +1040,8 @@ impl UIHandler for DatabaseClientUI {
                     if self.sql_editor_cursor_y < lines.len().saturating_sub(1) {
                         self.sql_editor_cursor_y += 1;
                         if let Some(line) = lines.get(self.sql_editor_cursor_y) {
-                            self.sql_editor_cursor_x = std::cmp::min(self.sql_editor_cursor_x, line.len());
+                            self.sql_editor_cursor_x =
+                                std::cmp::min(self.sql_editor_cursor_x, line.len());
                         }
                     }
                 }
@@ -883,13 +1066,17 @@ impl UIHandler for DatabaseClientUI {
                         debug_row.insert("#".to_string(), (i + 1).to_string());
                         self.sql_query_result.push(debug_row);
                     }
-                    self.sql_query_success_message = Some(format!("Debug info ({} messages) - Press F12 again to clear", self.debug_info.len()));
+                    self.sql_query_success_message = Some(format!(
+                        "Debug info ({} messages) - Press F12 again to clear",
+                        self.debug_info.len()
+                    ));
                     self.selected_result_row = 0;
                     self.sql_result_scroll = 0;
                 } else {
                     // Clear debug display and restore normal result
                     self.sql_query_result.clear();
-                    self.sql_query_success_message = Some("No debug information available".to_string());
+                    self.sql_query_success_message =
+                        Some("No debug information available".to_string());
                 }
             }
             _ => {}
@@ -909,7 +1096,7 @@ impl DatabaseClientUI {
         };
     }
 
-    pub fn move_selection_up(&mut self) {   
+    pub fn move_selection_up(&mut self) {
         if self.selected_table > 0 {
             self.selected_table -= 1;
             if self.selected_table < self.tables_scroll {
@@ -921,7 +1108,7 @@ impl DatabaseClientUI {
     pub fn move_selection_down(&mut self) {
         if self.selected_table < self.tables.len().saturating_sub(1) {
             self.selected_table += 1;
-            let visible_height = 50; 
+            let visible_height = 50;
             if self.selected_table >= self.tables_scroll + visible_height {
                 self.tables_scroll = self.selected_table - visible_height + 1;
             }
@@ -930,12 +1117,12 @@ impl DatabaseClientUI {
 
     pub fn sync_cursor_position(&mut self) {
         let lines: Vec<&str> = self.sql_editor_content.split('\n').collect();
-        
+
         // Ensure cursor Y is within bounds
         if self.sql_editor_cursor_y >= lines.len() {
             self.sql_editor_cursor_y = lines.len().saturating_sub(1);
         }
-        
+
         // Ensure cursor X is within bounds for current line
         if let Some(current_line) = lines.get(self.sql_editor_cursor_y) {
             if self.sql_editor_cursor_x > current_line.len() {
@@ -946,20 +1133,22 @@ impl DatabaseClientUI {
             self.sql_editor_cursor_x = 0;
             self.sql_editor_cursor_y = 0;
         }
-        
+
         // Additional safety checks for result navigation
-        if self.selected_result_row >= self.sql_query_result.len() && !self.sql_query_result.is_empty() {
+        if self.selected_result_row >= self.sql_query_result.len()
+            && !self.sql_query_result.is_empty()
+        {
             self.selected_result_row = self.sql_query_result.len() - 1;
         }
-        
+
         if self.sql_result_scroll > self.selected_result_row {
             self.sql_result_scroll = self.selected_result_row;
         }
-        
+
         // Ensure scroll doesn't go beyond available data
         let max_scroll = self.sql_query_result.len().saturating_sub(1);
         if self.sql_result_scroll > max_scroll {
             self.sql_result_scroll = max_scroll;
         }
     }
-} 
+}
