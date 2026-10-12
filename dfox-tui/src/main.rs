@@ -8,7 +8,7 @@ mod ui;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     if env::var("RUST_LOG").is_err() {
         env::set_var("RUST_LOG", "off");
     }

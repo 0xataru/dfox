@@ -1,0 +1,12 @@
+# Advisories cargo audit (and `make audit`) deliberately ignores. Every entry needs
+# a reason, and should be removed as soon as a fixed version is available.
+
+[advisories]
+ignore = [
+    # rsa: Marvin attack, timing side channel on RSA *decryption* (no patched
+    # release yet). It is only pulled in by sqlx-mysql, which uses the server's
+    # public key to *encrypt* the password for caching_sha2_password over a
+    # non-TLS connection. A client never holds or uses an RSA private key, so the
+    # vulnerable path is never reached.
+    "RUSTSEC-2023-0071",
+]
