@@ -7,6 +7,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- `dfox-core`: `ResultSet` trait, `Cell` values and an appendable `RowStore`,
+  the interface the result grid will read from
+
 ## [0.1.2] - 2026-10-12
 
 ### Fixed
