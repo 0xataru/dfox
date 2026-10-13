@@ -52,19 +52,17 @@ impl App {
             .workspace
             .as_ref()
             .filter(|_| self.screen == Screen::Workspace)
-            .and_then(|w| w.results.running.as_ref().map(|q| (w, q)));
-        let activity = running.map(|(workspace, query)| {
+            .and_then(|w| w.running())
+            .and_then(|results| results.running.as_ref().map(|q| (results, q)));
+        let activity = running.map(|(results, query)| {
             vec![
                 spinner(ctx, theme.key()),
                 Span::raw(format!(
                     " {} · {} rows ",
                     format_duration(ctx.now.saturating_duration_since(query.started)),
-                    workspace.results.store.row_count()
+                    results.store.row_count()
                 )),
-                Span::styled(
-                    format!(" {} ", ctx.keymap.hint(Action::CopyRow)),
-                    theme.key(),
-                ),
+                Span::styled(format!(" {} ", ctx.keymap.hint(Action::Copy)), theme.key()),
                 Span::styled("cancel ", theme.dim()),
             ]
         });

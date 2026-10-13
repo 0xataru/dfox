@@ -1,0 +1,28 @@
+---
+source: dfox-tui/src/widgets/help.rs
+expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 1000, ctx))"
+---
+                 ╭ Keys ───────────────────────────────────────╮
+                 │                                             │
+                 │ q Ctrl+Q          Quit                      │
+                 │ Enter             Select / new line         │
+                 │ ↑                 Up                        │
+                 │ ↓                 Down                      │
+                 │ ←                 Left / previous column    │
+                 │ →                 Right / next column       │
+                 │ PgUp              Page up                   │
+                 │ PgDn              Page down                 │
+                 │ Home              First row / line start    │
+                 │ End               Last row / line end       │
+                 │ Backspace         Delete back               │
+                 │ Alt+Backspace     Delete a word             │
+                 │ Alt+B Alt+←       Previous word             │
+                 │ Alt+F Alt+→       Next word                 │
+                 │ Shift+←           Select left               │
+                 │ Shift+→           Select right              │
+                 │ Shift+↑           Select up                 │
+                 │ Shift+↓           Select down               │
+                 │ Shift+Home        Select to line start      │
+                 │ Shift+End         Select to line end        │
+                 │                                             │
+                 ╰───── ↑↓ scroll · any other key closes ──────╯

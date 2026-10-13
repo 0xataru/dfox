@@ -1,0 +1,11 @@
+---
+source: dfox-tui/src/components/editor/tests.rs
+expression: "render(&test, 50, 7, |f, area, ctx| e.render(f, area, ctx))"
+---
+╭ Query ─────────────────────────────────────────╮
+│ ▎1 SELECT id, name -- who                      │
+│ ▎2 FROM customers                              │
+│ ▎3 WHERE id > 10 AND name = 'x';               │
+│  4 select 2;                                   │
+│                                                │
+╰─────────────────────────────────── Ln 2, Col 5 ╯

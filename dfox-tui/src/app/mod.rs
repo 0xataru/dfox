@@ -9,7 +9,9 @@ mod tests;
 
 use std::{io, path::PathBuf, time::Duration};
 
-use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+};
 use dfox_core::engine::{EngineEvent, EngineHandle};
 use futures_util::StreamExt;
 use ratatui::{
@@ -21,6 +23,7 @@ use tokio::{sync::mpsc, time::Instant};
 
 use crate::{
     action::Action,
+    clipboard::Clipboard,
     command::Command,
     component::{Component, Ctx, EventLog, RenderCtx},
     components::{
@@ -30,6 +33,7 @@ use crate::{
     },
     config::Config,
     connections::{pgpass, secrets::Secrets, Connection, Store},
+    history::History,
     icons::Icons,
     keymap::Keymap,
     theme::{self, ColorDepth, Theme},
@@ -57,7 +61,8 @@ pub enum Screen {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Overlay {
-    Help,
+    /// The key list, scrolled down this many lines.
+    Help(usize),
     Menu,
     Confirm(Confirm),
     /// Typing the password for `connection`.
@@ -94,6 +99,8 @@ pub struct Setup {
     pub store: Store,
     pub secrets: Box<dyn Secrets>,
     pub pgpass: Vec<pgpass::Entry>,
+    pub history: History,
+    pub clipboard: Box<dyn Clipboard>,
     pub detected: Vec<Detected>,
     /// Connect to this right away (`dfox <url>`).
     pub connect: Option<EntryKey>,
@@ -120,6 +127,8 @@ pub struct App {
     session: Option<Session>,
     toasts: Toasts,
     log: EventLog,
+    clipboard: Box<dyn Clipboard>,
+    history: History,
     overlay: Option<Overlay>,
     pub should_quit: bool,
     frame: u64,
@@ -134,6 +143,8 @@ impl App {
             store,
             secrets,
             pgpass,
+            history,
+            clipboard,
             detected,
             connect,
             problems,
@@ -167,6 +178,8 @@ impl App {
             session: None,
             toasts: Toasts::default(),
             log: EventLog::default(),
+            clipboard,
+            history,
             overlay: None,
             should_quit: false,
             frame: 0,
@@ -209,6 +222,14 @@ impl App {
                         self.handle_key(key);
                         dirty = true;
                     }
+                    Some(Ok(Event::Mouse(mouse))) => {
+                        self.handle_mouse(mouse);
+                        dirty = true;
+                    }
+                    Some(Ok(Event::Paste(text))) => {
+                        self.paste(&text);
+                        dirty = true;
+                    }
                     Some(Ok(Event::Resize(..))) => dirty = true,
                     Some(Ok(_)) => {}
                     Some(Err(err)) => return Err(err),
@@ -238,6 +259,8 @@ impl App {
             config: &self.config,
             toasts: &mut self.toasts,
             log: &mut self.log,
+            clipboard: self.clipboard.as_mut(),
+            history: &mut self.history,
             now: Instant::now(),
         };
         let mut parts = AppParts {
@@ -281,9 +304,65 @@ impl App {
         }
     }
 
+    /// The workspace takes clicks and the wheel; other screens scroll with
+    /// the wheel.
+    pub fn handle_mouse(&mut self, event: MouseEvent) {
+        if self.overlay.is_some() {
+            return;
+        }
+        if self.screen == Screen::Workspace {
+            let command =
+                self.with_ctx(|app, ctx| app.workspace.as_mut().and_then(|w| w.mouse(event, ctx)));
+            if let Some(command) = command {
+                self.apply_command(command);
+            }
+            return;
+        }
+        match event.kind {
+            MouseEventKind::ScrollDown => self.dispatch(Action::Down),
+            MouseEventKind::ScrollUp => self.dispatch(Action::Up),
+            _ => {}
+        }
+    }
+
+    /// Pasted text: into the editor as it is, into other fields as typed
+    /// characters.
+    pub fn paste(&mut self, text: &str) {
+        let typed: Vec<char> = text.chars().filter(|c| !c.is_control()).collect();
+        match &mut self.overlay {
+            Some(Overlay::Password {
+                typed: password, ..
+            }) => {
+                password.extend(typed);
+                return;
+            }
+            Some(_) => return,
+            None => {}
+        }
+        if self.screen == Screen::Workspace
+            && self.workspace.as_mut().is_some_and(|w| w.paste(text))
+        {
+            return;
+        }
+        if self.wants_text() {
+            for c in typed {
+                self.dispatch(Action::Input(c));
+            }
+        }
+    }
+
     fn handle_overlay_key(&mut self, overlay: Overlay, key: KeyEvent) {
         match overlay {
-            Overlay::Help => {}
+            Overlay::Help(scroll) => {
+                let scroll = match key.code {
+                    KeyCode::Down | KeyCode::Char('j') => Some(scroll + 1),
+                    KeyCode::Up | KeyCode::Char('k') => Some(scroll.saturating_sub(1)),
+                    KeyCode::PageDown => Some(scroll + 10),
+                    KeyCode::PageUp => Some(scroll.saturating_sub(10)),
+                    _ => None,
+                };
+                self.overlay = scroll.map(Overlay::Help);
+            }
             Overlay::Menu => {
                 if let KeyCode::Char(c) = key.code {
                     if let Some(action) = which_key::action_for(c) {
@@ -319,7 +398,7 @@ impl App {
 
     pub fn dispatch(&mut self, action: Action) {
         match action {
-            Action::Help => self.overlay = Some(Overlay::Help),
+            Action::Help => self.overlay = Some(Overlay::Help(0)),
             Action::Menu if self.screen == Screen::Workspace && !self.wants_text() => {
                 self.overlay = Some(Overlay::Menu)
             }
@@ -388,7 +467,7 @@ impl App {
         self.status_bar(ctx).render(f, status, ctx);
 
         match &self.overlay {
-            Some(Overlay::Help) => help::render(f, main, ctx),
+            Some(Overlay::Help(scroll)) => help::render(f, main, *scroll, ctx),
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
             Some(Overlay::Password { connection, typed }) => {

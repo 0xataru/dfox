@@ -7,6 +7,8 @@ mod palettes;
 use std::path::Path;
 
 use dfox_core::result::Cell;
+
+use crate::sql::Kind;
 use ratatui::style::{Color, Modifier, Style};
 
 pub use color::{ColorDepth, Rgb};
@@ -242,6 +244,20 @@ impl Theme {
             Cell::Bytes(_) => style.fg(self.comment),
             Cell::Undecodable(_) => style.fg(self.danger),
             _ => style.fg(self.text),
+        }
+    }
+
+    /// A piece of SQL in the editor.
+    pub fn syntax(&self, kind: Kind) -> Style {
+        let style = Style::default();
+        match kind {
+            Kind::Keyword => style.fg(self.keyword).add_modifier(Modifier::BOLD),
+            Kind::Function => style.fg(self.accent_alt),
+            Kind::String => style.fg(self.string),
+            Kind::Number => style.fg(self.number),
+            Kind::Comment => style.fg(self.comment).add_modifier(Modifier::ITALIC),
+            Kind::Operator => style.fg(self.accent),
+            Kind::Plain => style.fg(self.text),
         }
     }
 

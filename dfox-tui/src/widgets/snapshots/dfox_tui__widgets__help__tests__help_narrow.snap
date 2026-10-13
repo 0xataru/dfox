@@ -1,25 +1,28 @@
 ---
 source: dfox-tui/src/widgets/help.rs
-expression: "render(&test, 80, 24, super::render)"
+expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx))"
 ---
-
-
-
- ╭ Keys ──────────────────────────────────────────────────────────────────────╮
- │                                                                            │
- │ F5 Ctrl+E   Run the query            Space       Command menu              │
- │ Ctrl+C      Copy row / cancel query  ? F2        Show keys                 │
- │ Ctrl+A      Copy all rows            Esc         Back / close              │
- │ Tab         Next panel               q Ctrl+Q    Quit                      │
- │ Shift+Tab   Previous panel           Enter       Select / new line         │
- │ /           Filter                   ↑           Up                        │
- │ R           Refresh                  ↓           Down                      │
- │ n           New connection           ←           Left / previous column    │
- │ e           Edit connection          →           Right / next column       │
- │ Delete d    Delete connection        PgUp        Page up                   │
- │ Ctrl+S      Save                     PgDn        Page down                 │
- │ F1          Connection list          Home        First row / line start    │
- │ Ctrl+T      Next theme               End         Last row / line end       │
- │ F12         Event log                Backspace   Delete a character        │
- │                                                                            │
- ╰───────────────────────────── any key to close ─────────────────────────────╯
+                 ╭ Keys ───────────────────────────────────────╮
+                 │                                             │
+                 │ F5 Ctrl+E         Run statement/selection   │
+                 │ Shift+F5          Run the whole script      │
+                 │ Ctrl+R            Query history             │
+                 │ Ctrl+N            New query tab             │
+                 │ Ctrl+W            Close query tab           │
+                 │ Alt+] Ctrl+PgDn   Next query tab            │
+                 │ Alt+[ Ctrl+PgUp   Previous query tab        │
+                 │ Ctrl+C            Copy / cancel query       │
+                 │ y                 Copy as CSV, JSON, …      │
+                 │ Ctrl+X            Cut                       │
+                 │ Ctrl+V            Paste                     │
+                 │ Ctrl+A            Select all                │
+                 │ V                 Select whole rows         │
+                 │ Ctrl+Z            Undo                      │
+                 │ Ctrl+Y            Redo                      │
+                 │ >                 Widen column              │
+                 │ <                 Narrow column             │
+                 │ Tab               Next panel                │
+                 │ Shift+Tab         Previous panel            │
+                 │ /                 Filter                    │
+                 │                                             │
+                 ╰───── ↑↓ scroll · any other key closes ──────╯

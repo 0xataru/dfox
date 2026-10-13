@@ -5,6 +5,7 @@ use crate::{
     connections::{pgpass, secrets::Memory, Tag},
     testing::{render, TestCtx},
 };
+use crossterm::event::MouseButton;
 use dfox_core::{
     engine::{Command as DbCommand, QueryStats},
     errors::DbError,
@@ -55,6 +56,8 @@ fn test_app(name: &str, password: Option<&str>, pgpass_text: &str) -> Test {
             store,
             secrets: Box::new(secrets),
             pgpass: pgpass::parse(pgpass_text),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
             detected: Vec::new(),
             connect: None,
             problems: Vec::new(),
@@ -134,6 +137,8 @@ fn the_manager_pings_every_connection_on_start() {
             store,
             secrets: Box::new(Memory::default()),
             pgpass: Vec::new(),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
             detected: Vec::new(),
             connect: None,
             problems: Vec::new(),
@@ -288,6 +293,8 @@ fn a_url_on_the_command_line_connects_right_away() {
             store: Store::default(),
             secrets: Box::new(Memory::default()),
             pgpass: Vec::new(),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
             detected: vec![Detected {
                 connection,
                 password,
@@ -418,6 +425,8 @@ fn setup_problems_show_as_toasts() {
             store: Store::default(),
             secrets: Box::new(Memory::default()),
             pgpass: Vec::new(),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
             detected: Vec::new(),
             connect: None,
             problems: vec!["connections.toml: oops".into()],
@@ -428,4 +437,94 @@ fn setup_problems_show_as_toasts() {
         texts,
         ["connections.toml: oops", "unknown theme \"missing\""]
     );
+}
+
+fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+#[test]
+fn pasted_text_goes_where_typing_would() {
+    let mut test = test_app("paste", None, "");
+    // The password prompt takes it, without line breaks.
+    test.key(KeyCode::Enter);
+    test.app.paste("se\ncret");
+    test.key(KeyCode::Enter);
+    assert_eq!(test.connected_with(), "secret");
+
+    // The form takes it as typed characters.
+    test.key(KeyCode::Char('n'));
+    test.app.paste("local");
+    let form = test.app.form.as_ref().expect("form");
+    assert!(format!("{form:?}").contains("local"));
+    test.key(KeyCode::Esc);
+
+    // Screens without text fields ignore it.
+    test.app.paste("x");
+    assert_eq!(test.app.screen, Screen::Manager);
+}
+
+#[test]
+fn pasting_into_the_editor_keeps_lines() {
+    let mut test = test_app("paste-editor", Some("pw"), "");
+    test.open_prod();
+    test.app.paste("select 1;\nselect 2;");
+    assert_eq!(
+        test.app
+            .workspace
+            .as_ref()
+            .expect("workspace")
+            .editor()
+            .text(),
+        "select 1;\nselect 2;"
+    );
+    // An open overlay takes nothing.
+    test.key(KeyCode::F(2));
+    test.app.paste("x");
+    assert!(test.app.overlay.is_some());
+}
+
+#[test]
+fn the_mouse_reaches_the_workspace() {
+    let mut test = test_app("mouse", Some("pw"), "");
+    test.open_prod();
+    test.snapshot(120, 32);
+    test.app
+        .handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 5, 3));
+    let workspace = test.app.workspace.as_ref().expect("workspace");
+    assert_eq!(
+        workspace.focused(),
+        crate::components::workspace::Panel::Explorer
+    );
+
+    // The wheel moves the manager's selection; overlays ignore the mouse.
+    test.key(KeyCode::F(1));
+    test.app
+        .handle_mouse(mouse(MouseEventKind::ScrollDown, 5, 5));
+    test.app.handle_mouse(mouse(MouseEventKind::ScrollUp, 5, 5));
+    test.app.handle_mouse(mouse(MouseEventKind::Moved, 5, 5));
+    test.key(KeyCode::Char('?'));
+    test.app
+        .handle_mouse(mouse(MouseEventKind::ScrollDown, 5, 5));
+    assert!(test.app.overlay.is_some());
+}
+
+#[test]
+fn help_scrolls_and_closes_on_other_keys() {
+    let mut test = test_app("help", None, "");
+    test.key(KeyCode::Char('?'));
+    test.key(KeyCode::Down);
+    test.key(KeyCode::PageDown);
+    test.key(KeyCode::Char('k'));
+    test.key(KeyCode::PageUp);
+    test.key(KeyCode::Char('j'));
+    test.key(KeyCode::Up);
+    assert_eq!(test.app.overlay, Some(Overlay::Help(0)));
+    test.key(KeyCode::Char('x'));
+    assert_eq!(test.app.overlay, None);
 }

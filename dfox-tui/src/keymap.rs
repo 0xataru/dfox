@@ -17,8 +17,10 @@ pub enum Preset {
     Vim,
 }
 
-/// A key with its modifiers. Shift is part of the character for letters, so
-/// it is dropped from character keys.
+/// A key with its modifiers. Shift is part of the character for plain
+/// character keys, so it is dropped from them; with Ctrl or Alt it is kept
+/// and the letter is lower-cased, so `ctrl+shift+z` matches however the
+/// terminal reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Key {
     pub code: KeyCode,
@@ -27,12 +29,22 @@ pub struct Key {
 
 impl Key {
     pub fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
-        let modifiers = match code {
-            KeyCode::Char(_) => modifiers - KeyModifiers::SHIFT,
-            KeyCode::BackTab => modifiers - KeyModifiers::SHIFT,
-            _ => modifiers,
-        };
-        Self { code, modifiers }
+        let chord = modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
+        match code {
+            KeyCode::Char(c) if chord && c.is_ascii_uppercase() => Self {
+                code: KeyCode::Char(c.to_ascii_lowercase()),
+                modifiers: modifiers | KeyModifiers::SHIFT,
+            },
+            KeyCode::Char(_) if !chord => Self {
+                code,
+                modifiers: modifiers - KeyModifiers::SHIFT,
+            },
+            KeyCode::BackTab => Self {
+                code,
+                modifiers: modifiers - KeyModifiers::SHIFT,
+            },
+            _ => Self { code, modifiers },
+        }
     }
 
     /// Parses `ctrl+e`, `f5`, `shift+tab`, `G`, `?`, `space`, `pagedown`, ….
@@ -78,12 +90,7 @@ impl Key {
                 if chars.next().is_some() {
                     return None;
                 }
-                // Ctrl combinations arrive lower-case.
-                if modifiers.contains(KeyModifiers::CONTROL) {
-                    KeyCode::Char(c.to_ascii_lowercase())
-                } else {
-                    KeyCode::Char(c)
-                }
+                KeyCode::Char(c)
             }
         };
         Some(Key::new(code, modifiers))
@@ -98,11 +105,12 @@ impl Key {
         if self.modifiers.contains(KeyModifiers::ALT) {
             label.push_str("Alt+");
         }
+        if self.modifiers.contains(KeyModifiers::SHIFT) {
+            label.push_str("Shift+");
+        }
         let key = match self.code {
             KeyCode::Char(' ') => "Space".to_string(),
-            KeyCode::Char(c) if self.modifiers.contains(KeyModifiers::CONTROL) => {
-                c.to_ascii_uppercase().to_string()
-            }
+            KeyCode::Char(c) if !self.modifiers.is_empty() => c.to_ascii_uppercase().to_string(),
             KeyCode::Char(c) => c.to_string(),
             KeyCode::F(n) => format!("F{n}"),
             KeyCode::BackTab => "Shift+Tab".to_string(),
@@ -167,7 +175,7 @@ impl Keymap {
             .copied()
     }
 
-    /// The keys bound to `action`, as labels, function keys and plain keys
+    /// The keys bound to `action`, as labels, keys with fewer modifiers
     /// first.
     pub fn keys_for(&self, action: Action) -> Vec<String> {
         let mut keys: Vec<&Key> = self
@@ -176,7 +184,7 @@ impl Keymap {
             .filter(|(_, bound)| **bound == action)
             .map(|(key, _)| key)
             .collect();
-        keys.sort_by_key(|key| (!key.modifiers.is_empty(), key.label()));
+        keys.sort_by_key(|key| (key.modifiers.bits().count_ones(), key.label()));
         keys.into_iter().map(Key::label).collect()
     }
 
@@ -211,9 +219,35 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["tab"], Action::NextFocus),
         bind(&["shift+tab"], Action::PrevFocus),
         bind(&["backspace"], Action::Backspace),
-        bind(&["f5", "ctrl+e"], Action::Execute),
-        bind(&["ctrl+c"], Action::CopyRow),
-        bind(&["ctrl+a"], Action::CopyAll),
+        bind(&["f5", "ctrl+e", "ctrl+enter"], Action::Execute),
+        bind(
+            &["shift+f5", "ctrl+shift+enter", "ctrl+shift+e"],
+            Action::ExecuteAll,
+        ),
+        bind(&["ctrl+r"], Action::History),
+        bind(&["ctrl+n"], Action::NewTab),
+        bind(&["ctrl+w"], Action::CloseTab),
+        bind(&["ctrl+pagedown", "alt+]"], Action::NextTab),
+        bind(&["ctrl+pageup", "alt+["], Action::PrevTab),
+        bind(&["ctrl+c"], Action::Copy),
+        bind(&["y"], Action::CopyAs),
+        bind(&["ctrl+x"], Action::Cut),
+        bind(&["ctrl+v"], Action::Paste),
+        bind(&["ctrl+a"], Action::SelectAll),
+        bind(&["V"], Action::SelectRow),
+        bind(&["ctrl+z"], Action::Undo),
+        bind(&["ctrl+y", "ctrl+shift+z"], Action::Redo),
+        bind(&[">"], Action::Wider),
+        bind(&["<"], Action::Narrower),
+        bind(&["ctrl+left", "alt+left", "alt+b"], Action::WordLeft),
+        bind(&["ctrl+right", "alt+right", "alt+f"], Action::WordRight),
+        bind(&["shift+left"], Action::SelectLeft),
+        bind(&["shift+right"], Action::SelectRight),
+        bind(&["shift+up"], Action::SelectUp),
+        bind(&["shift+down"], Action::SelectDown),
+        bind(&["shift+home"], Action::SelectHome),
+        bind(&["shift+end"], Action::SelectEnd),
+        bind(&["alt+backspace", "ctrl+backspace"], Action::DeleteWord),
         bind(&["f1"], Action::Connections),
         bind(&["n"], Action::New),
         bind(&["e"], Action::Edit),
@@ -260,6 +294,8 @@ mod tests {
             ("space", "Space"),
             ("pagedown", "PgDn"),
             ("ctrl++", "Ctrl++"),
+            ("ctrl+shift+z", "Ctrl+Shift+Z"),
+            ("ctrl+enter", "Ctrl+Enter"),
         ];
         for (text, label) in cases {
             let key = Key::parse(text).unwrap_or_else(|| panic!("{text} didn't parse"));
@@ -279,6 +315,23 @@ mod tests {
         assert_eq!(
             keymap.action(press(KeyCode::BackTab, KeyModifiers::SHIFT)),
             Some(Action::PrevFocus)
+        );
+    }
+
+    #[test]
+    fn shift_counts_in_chords_however_it_is_reported() {
+        let (keymap, _) = Keymap::new(Preset::Standard, &BTreeMap::new());
+        let ctrl_shift = KeyModifiers::CONTROL | KeyModifiers::SHIFT;
+        for code in [KeyCode::Char('z'), KeyCode::Char('Z')] {
+            assert_eq!(keymap.action(press(code, ctrl_shift)), Some(Action::Redo));
+        }
+        assert_eq!(
+            keymap.action(press(KeyCode::Char('z'), KeyModifiers::CONTROL)),
+            Some(Action::Undo)
+        );
+        assert_eq!(
+            keymap.action(press(KeyCode::Enter, ctrl_shift)),
+            Some(Action::ExecuteAll)
         );
     }
 
@@ -324,7 +377,10 @@ mod tests {
     #[test]
     fn plain_keys_are_listed_first() {
         let (keymap, _) = Keymap::new(Preset::Standard, &BTreeMap::new());
-        assert_eq!(keymap.keys_for(Action::Execute), ["F5", "Ctrl+E"]);
+        assert_eq!(
+            keymap.keys_for(Action::Execute),
+            ["F5", "Ctrl+E", "Ctrl+Enter"]
+        );
         assert_eq!(keymap.hint(Action::Help), "?");
     }
 }

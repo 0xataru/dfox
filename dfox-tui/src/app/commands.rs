@@ -20,7 +20,7 @@ impl App {
                 let running = self
                     .workspace
                     .as_ref()
-                    .is_some_and(|w| w.results.running.is_some());
+                    .is_some_and(|w| w.running().is_some());
                 let message = if running {
                     "Quit dfox? A query is still running."
                 } else {

@@ -25,6 +25,10 @@ pub struct Icons {
     pub warning: &'static str,
     pub error: &'static str,
     pub selected: &'static str,
+    /// A NULL in the result grid.
+    pub null: &'static str,
+    pub yes: &'static str,
+    pub no: &'static str,
 }
 
 impl Icons {
@@ -48,6 +52,9 @@ impl Icons {
                 warning: "\u{f071}",
                 error: "\u{f00d}",
                 selected: "\u{f054}",
+                null: "∅",
+                yes: "✓",
+                no: "✗",
             },
             IconStyle::Ascii => Self::ascii(),
         }
@@ -64,6 +71,9 @@ impl Icons {
             warning: "▲",
             error: "✖",
             selected: "▸",
+            null: "∅",
+            yes: "✓",
+            no: "✗",
         }
     }
 
@@ -78,6 +88,9 @@ impl Icons {
             warning: "!",
             error: "x",
             selected: ">",
+            null: "NULL",
+            yes: "true",
+            no: "false",
         }
     }
 }

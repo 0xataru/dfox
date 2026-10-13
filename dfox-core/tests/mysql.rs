@@ -18,7 +18,7 @@ async fn client() -> Option<MySqlClient> {
 }
 
 #[tokio::test]
-async fn every_type_renders_as_mysql_text() {
+async fn every_type_reads_as_mysql_prints_it() {
     let Some(db) = client().await else { return };
 
     db.execute(
@@ -57,7 +57,7 @@ async fn every_type_renders_as_mysql_text() {
             Some("9000000000000000000"),
             Some("255"),
             Some("18446744073709551615"),
-            Some("1"),
+            Some("true"),
             Some("1.50"),
             Some("1.25"),
             Some("2.5"),

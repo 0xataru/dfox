@@ -1,5 +1,5 @@
 ---
-source: dfox-tui/src/components/results_tests.rs
+source: dfox-tui/src/components/results/tests.rs
 expression: "render(&test, 60, 5, |f, area, ctx| results.render(f, area, ctx))"
 ---
 ╭ Results ─────────────────────────────────────────────────╮

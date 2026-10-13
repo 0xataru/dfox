@@ -322,6 +322,62 @@ pub(crate) fn bytes_cell(bytes: &[u8]) -> OwnedCell {
     }
 }
 
+/// A value the server sent as text, read as the kind its column type says:
+/// numbers, booleans and JSON. `None` for other types, and for text that
+/// doesn't parse, which is then kept as text so nothing is misread.
+pub(crate) fn typed_cell(type_name: &str, text: &str) -> Option<OwnedCell> {
+    let upper = type_name.to_ascii_uppercase();
+    let unsigned = upper.ends_with(" UNSIGNED");
+    let base = upper.trim_end_matches(" UNSIGNED");
+    let cell = match base {
+        // Postgres.
+        "INT2" | "INT4" | "INT8" => OwnedCell::Int(text.parse().ok()?),
+        "OID" => OwnedCell::UInt(text.parse().ok()?),
+        "FLOAT4" | "FLOAT8" => OwnedCell::Float(finite(text)?),
+        "BOOL" => match text {
+            "t" => OwnedCell::Bool(true),
+            "f" => OwnedCell::Bool(false),
+            _ => return None,
+        },
+        "BYTEA" => OwnedCell::Bytes(unhex(text.strip_prefix("\\x")?)?.into()),
+        // MySQL.
+        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" if unsigned => {
+            OwnedCell::UInt(text.parse().ok()?)
+        }
+        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
+            OwnedCell::Int(text.parse().ok()?)
+        }
+        "FLOAT" | "DOUBLE" => OwnedCell::Float(finite(text)?),
+        "BOOLEAN" => match text {
+            "1" => OwnedCell::Bool(true),
+            "0" => OwnedCell::Bool(false),
+            _ => return None,
+        },
+        // Both.
+        "NUMERIC" | "DECIMAL" => OwnedCell::Decimal(text.into()),
+        "JSON" | "JSONB" => OwnedCell::Json(text.into()),
+        _ => return None,
+    };
+    Some(cell)
+}
+
+/// A float that prints back the way the server sent it. `NaN`, infinities
+/// and exponents stay text.
+fn finite(text: &str) -> Option<f64> {
+    let value: f64 = text.parse().ok()?;
+    (value.is_finite() && !text.contains(['e', 'E'])).then_some(value)
+}
+
+fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
+        .collect()
+}
+
 pub(crate) fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut s = String::with_capacity(2 + bytes.len() * 2);
@@ -360,5 +416,51 @@ mod tests {
         assert_eq!(shown(&[0xde, 0xad, 0xbe, 0xef]), "0xdeadbeef");
         assert_eq!(shown(&[0x00, 0x41]), "0x0041");
         assert_eq!(hex(&[]), "0x");
+    }
+
+    #[test]
+    fn text_values_are_read_by_column_type() {
+        let cases = [
+            ("int4", "-42", Some(OwnedCell::Int(-42))),
+            (
+                "INT8",
+                "9223372036854775807",
+                Some(OwnedCell::Int(i64::MAX)),
+            ),
+            ("oid", "16384", Some(OwnedCell::UInt(16384))),
+            ("float8", "2.5", Some(OwnedCell::Float(2.5))),
+            ("float8", "NaN", None),
+            ("float4", "1e+20", None),
+            ("bool", "t", Some(OwnedCell::Bool(true))),
+            ("bool", "f", Some(OwnedCell::Bool(false))),
+            ("bool", "maybe", None),
+            (
+                "bytea",
+                "\\xdead",
+                Some(OwnedCell::Bytes(vec![0xde, 0xad].into())),
+            ),
+            ("bytea", "\\xabc", None),
+            ("bytea", "\\xzz", None),
+            ("numeric", "1.50", Some(OwnedCell::Decimal("1.50".into()))),
+            ("jsonb", "{}", Some(OwnedCell::Json("{}".into()))),
+            (
+                "BIGINT UNSIGNED",
+                "18446744073709551615",
+                Some(OwnedCell::UInt(u64::MAX)),
+            ),
+            ("INT", "7", Some(OwnedCell::Int(7))),
+            ("INT", "x", None),
+            ("DOUBLE", "0.1", Some(OwnedCell::Float(0.1))),
+            ("BOOLEAN", "1", Some(OwnedCell::Bool(true))),
+            ("BOOLEAN", "0", Some(OwnedCell::Bool(false))),
+            ("BOOLEAN", "2", None),
+            ("DECIMAL", "10.00", Some(OwnedCell::Decimal("10.00".into()))),
+            ("JSON", "[1]", Some(OwnedCell::Json("[1]".into()))),
+            ("text", "1", None),
+            ("YEAR", "2024", None),
+        ];
+        for (type_name, text, expected) in cases {
+            assert_eq!(typed_cell(type_name, text), expected, "{type_name} {text}");
+        }
     }
 }

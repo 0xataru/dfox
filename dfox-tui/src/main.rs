@@ -4,17 +4,22 @@ use app::{App, Detected, Setup};
 use components::manager::EntryKey;
 use config::Config;
 use connections::{pgpass, secrets::Keychain, Store};
+use history::History;
 use theme::ColorDepth;
 
 mod action;
 mod app;
+mod clipboard;
 mod command;
 mod component;
 mod components;
 mod config;
 mod connections;
+mod history;
 mod icons;
 mod keymap;
+mod sql;
+mod terminal;
 #[cfg(test)]
 mod testing;
 mod theme;
@@ -30,7 +35,8 @@ Usage: dfox [URL]
          mysql://root@127.0.0.1/app
          sqlite:///path/to/file.db  (or just the path)
 
-Saved connections and settings live in ~/.config/dfox/.
+Saved connections and settings live in ~/.config/dfox/, the query
+history in ~/.local/state/dfox/.
 ";
 
 #[tokio::main]
@@ -65,7 +71,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = Config::dir();
     let (config, config_problem) = Config::load(config_dir.as_deref());
     let (store, store_problem) = Store::load(config_dir.as_deref());
-    let mut problems: Vec<String> = config_problem.into_iter().chain(store_problem).collect();
+    let (history, history_problem) = History::load(History::dir().as_deref());
+    let mut problems: Vec<String> = config_problem
+        .into_iter()
+        .chain(store_problem)
+        .chain(history_problem)
+        .collect();
 
     let pgpass = pgpass::load();
     let mut detected = Vec::new();
@@ -106,6 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
     );
 
+    let mouse = config.mouse;
     let (engine, events) = dfox_core::engine::spawn();
     let mut app = App::new(
         engine,
@@ -116,6 +128,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             store,
             secrets: Box::new(Keychain),
             pgpass,
+            history,
+            clipboard: Box::new(clipboard::System::default()),
             detected,
             connect,
             problems,
@@ -123,9 +137,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Restores the terminal on panic too.
-    let mut terminal = ratatui::try_init()?;
+    let mut terminal = terminal::init(mouse)?;
     let result = app.run(&mut terminal, events).await;
-    ratatui::restore();
+    terminal::restore();
     result?;
 
     log::info!("dfox application finished");

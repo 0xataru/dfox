@@ -6,6 +6,7 @@ theme = "dfox"
 keymap = "standard"
 animations = true
 icons = "auto"
+mouse = true
 row_limit = 100000
 
 [keys]

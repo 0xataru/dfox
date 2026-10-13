@@ -1,0 +1,8 @@
+---
+source: dfox-tui/src/components/editor/tests.rs
+expression: "render(&test, 40, 4, |f, area, ctx| e.render_with(f, area, ctx, &tabs))"
+---
+╭ ⠷ Query 1 │ Query 2 ─────────────────╮
+│  1  does not fit in the panel' as x  │
+│                                      │
+╰──────────────────────── Ln 1, Col 62 ╯

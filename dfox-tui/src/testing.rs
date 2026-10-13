@@ -77,6 +77,8 @@ pub struct Harness {
     pub config: crate::config::Config,
     pub toasts: crate::widgets::toast::Toasts,
     pub log: crate::component::EventLog,
+    pub clipboard: crate::clipboard::Memory,
+    pub history: crate::history::History,
     pub now: Instant,
 }
 
@@ -89,6 +91,8 @@ impl Harness {
             config: crate::config::Config::default(),
             toasts: Default::default(),
             log: Default::default(),
+            clipboard: Default::default(),
+            history: Default::default(),
             now: Instant::now(),
         }
     }
@@ -99,6 +103,8 @@ impl Harness {
             config: &self.config,
             toasts: &mut self.toasts,
             log: &mut self.log,
+            clipboard: &mut self.clipboard,
+            history: &mut self.history,
             now: self.now,
         }
     }

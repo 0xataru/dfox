@@ -1,0 +1,9 @@
+---
+source: dfox-tui/src/components/results/grid_tests.rs
+expression: "draw(&grid, &result, 40, 6)"
+---
+# │ column_6  column_7  column_8  colum…
+──┼─────────────────────────────────────
+1 │ r0c6      r0c7      r0c8      r0c9
+2 │ r1c6      r1c7      r1c8      r1c9
+3 │ r2c6      r2c7      r2c8      r2c9
