@@ -23,7 +23,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   second
 - Effects draw at 60 frames a second, and at 20 when drawing is slow, such
   as over SSH
-- `vhs` tapes in `examples/tapes/` and `make demo` to record the README GIFs
+- `vhs` tapes in `examples/tapes/` and `make demo` to record the README GIFs.
+  The README shows three of them in place of the screenshots of the old UI
+
+### Changed
+
+- SQLite: 0 and 1 in a column declared `BOOLEAN` read as booleans
 
 ## [0.1.4] - 2026-10-13
 

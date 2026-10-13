@@ -65,7 +65,8 @@ impl SqliteClient {
 }
 
 /// SQLite types each value, not each column, so the value's own storage
-/// class decides how it is read.
+/// class decides how it is read. The one exception: 0 and 1 in a column
+/// declared `BOOLEAN` read as booleans.
 pub(crate) fn sqlite_cell(row: &SqliteRow, index: usize) -> OwnedCell {
     let value = match row.try_get_raw(index) {
         Ok(value) => value,
@@ -76,7 +77,13 @@ pub(crate) fn sqlite_cell(row: &SqliteRow, index: usize) -> OwnedCell {
     }
     let type_name = value.type_info().name().to_string();
     let decoded = match type_name.as_str() {
-        "INTEGER" => row.try_get_unchecked::<i64, _>(index).map(OwnedCell::Int),
+        "INTEGER" => row.try_get_unchecked::<i64, _>(index).map(|v| {
+            let declared = sqlx::Column::type_info(row.column(index)).name();
+            match v {
+                0 | 1 if declared.eq_ignore_ascii_case("BOOLEAN") => OwnedCell::Bool(v == 1),
+                v => OwnedCell::Int(v),
+            }
+        }),
         "REAL" => row.try_get_unchecked::<f64, _>(index).map(OwnedCell::Float),
         "BLOB" => row
             .try_get_unchecked::<&[u8], _>(index)

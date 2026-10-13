@@ -3,8 +3,9 @@
 Output examples/demo/editor.gif
 Source examples/tapes/common.tape
 
+# Each tape starts with an empty history.
 Hide
-Type "clear" Enter
+Type "rm -f target/demo/state/history.jsonl && clear" Enter
 Show
 
 Type "./target/release/dfox-tui --reduced-motion" Enter
@@ -39,6 +40,8 @@ Ctrl+E
 Sleep 2s
 Type "n"
 Sleep 800ms
+# Quit off camera, so the GIF ends on dfox, not the shell.
+Hide
 Ctrl+Q
 Type "y"
 Sleep 500ms

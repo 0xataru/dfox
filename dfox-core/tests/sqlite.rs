@@ -39,6 +39,32 @@ async fn values_render_by_their_storage_class() {
 }
 
 #[tokio::test]
+async fn boolean_columns_read_as_booleans() {
+    let db = client().await;
+
+    let out = db
+        .run(
+            "CREATE TABLE flags (b BOOLEAN, n INTEGER);
+             INSERT INTO flags VALUES (1, 1), (0, 0), (2, 2), (NULL, NULL);
+             SELECT b, n FROM flags ORDER BY rowid",
+            10,
+        )
+        .await
+        .unwrap();
+
+    // Only 0 and 1 in a BOOLEAN column; anything else stays as stored.
+    assert_eq!(
+        rows(&out),
+        [
+            [Some("true"), Some("1")],
+            [Some("false"), Some("0")],
+            [Some("2"), Some("2")],
+            [None, None],
+        ]
+    );
+}
+
+#[tokio::test]
 async fn mixed_type_columns_decode_per_value() {
     let db = client().await;
 
