@@ -32,6 +32,7 @@ serde_json = "1"
 unicode-width = "0.2.2"
 tachyonfx = "0.25.2"
 tui-big-text = "0.8.10"
+mimalloc = "0.1.52"
 
 [features]
 # Each database is a driver crate; build with fewer for a smaller binary, for

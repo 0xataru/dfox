@@ -2,32 +2,20 @@ use std::{env, sync::Arc};
 
 use dfox_core::driver::{Driver, Drivers};
 
-use app::{App, Detected, Setup};
-use components::manager::EntryKey;
-use config::Config;
-use connections::{pgpass, secrets::Keychain, Store};
-use history::History;
-use theme::ColorDepth;
+use dfox_tui::{
+    app::{App, Detected, Setup},
+    clipboard,
+    components::manager::EntryKey,
+    config::Config,
+    connections::{self, pgpass, secrets::Keychain, Store},
+    history::History,
+    terminal,
+    theme::ColorDepth,
+};
 
-mod action;
-mod app;
-mod catalog;
-mod clipboard;
-mod command;
-mod component;
-mod components;
-mod config;
-mod connections;
-mod history;
-mod icons;
-mod keymap;
-mod motion;
-mod sql;
-mod terminal;
-#[cfg(test)]
-mod testing;
-mod theme;
-mod widgets;
+/// A faster allocator than the system's for the app's many small strings.
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 const USAGE: &str = "\
 dfox — a terminal database client

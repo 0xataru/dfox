@@ -100,6 +100,60 @@ jobs:
           cargo test --locked --tests
           -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-testkit
 
+  # Benchmarks of main and of the change, on the same runner one after the
+  # other, so they compare fairly. Fails when a benchmark is more than 10%
+  # slower even at the low end of its confidence interval.
+  bench:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: dfox
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: dfox
+          MYSQL_DATABASE: dfox
+        ports: ["53306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pdfox"
+          --health-interval 2s --health-retries 60
+    env:
+      DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
+      DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: benchmark main
+        run: |
+          git checkout --quiet "${{ github.event.pull_request.base.sha }}"
+          if [ -d crates/dfox-bench ]; then
+            cargo bench --locked -p dfox-bench --benches -- --save-baseline main
+          else
+            echo "main has no benchmarks yet"
+          fi
+          git checkout --quiet "${{ github.sha }}"
+
+      - name: benchmark the change
+        run: cargo bench --locked -p dfox-bench --benches -- --baseline-lenient main
+
+      - name: compare
+        run: ./scripts/bench-compare.sh
+
   # Known vulnerabilities in dependencies. Not required for merging: an advisory
   # can appear overnight on code that has not changed.
   audit:
