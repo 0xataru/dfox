@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-13
+
 ### Added
 
 - Autocomplete in the editor: tables after `FROM`/`JOIN`/`INTO`/`UPDATE`,
