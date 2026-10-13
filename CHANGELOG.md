@@ -7,6 +7,44 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- The SQL editor highlights SQL for the connected database, and has undo and
+  redo, selection with Shift, word moves, copy, cut and paste (including
+  bracketed paste from the terminal) and indentation kept on Enter
+- `F5` / `Ctrl+Enter` runs the statement under the cursor, or the selection;
+  `Shift+F5` / `Ctrl+Shift+Enter` runs the whole script. A bar in the margin
+  marks the statement that would run
+- Query tabs (`Ctrl+N`, `Ctrl+W`, `Ctrl+PgDn`/`Ctrl+PgUp`), each with its own
+  results
+- Query history in `history.jsonl` in the state directory, searchable with
+  `Ctrl+R`
+- The result grid has a cell cursor, range and row selection, and columns
+  sized from their values and resizable with `>` and `<`. NULL shows as `∅`,
+  booleans as `✓`/`✗`, numbers are right-aligned and long ones grouped in
+  thousands. Only the cells on screen are drawn, so a million rows scroll as
+  fast as ten
+- `Ctrl+C` copies the cell or the selection; `y` copies the selection or all
+  rows as TSV, CSV, JSON, Markdown or `INSERT` statements for the queried
+  table. Copying falls back to the terminal clipboard (OSC 52) over SSH
+- Mouse support: click to focus a panel, place the cursor or pick a cell, drag
+  to select, scroll with the wheel. `mouse = false` in `config.toml` turns it
+  off
+- The help screen scrolls
+
+### Changed
+
+- Postgres and MySQL values come back as numbers, booleans, JSON and bytes
+  where the column type says so, instead of text. Booleans print as
+  `true`/`false` and Postgres `bytea` as `0x…`, as MySQL binary already did
+- The `copy_row` and `copy_all` key actions are now `copy` and `select_all`;
+  the old names still work in `[keys]`
+
+### Fixed
+
+- Editing in the middle of a query no longer deletes from the end
+- On Linux, copied text no longer disappears from the clipboard
+
 ## [0.1.3] - 2026-10-12
 
 ### Added

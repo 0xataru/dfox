@@ -2,13 +2,13 @@
 source: dfox-tui/src/widgets/which_key.rs
 expression: "render(&test, 50, 14, super::render)"
 ---
-
-
-
                       ╭ Menu ────────────────────╮
-                      │ r  Run the query         │
-                      │ c  Copy the row          │
-                      │ a  Copy all rows         │
+                      │ r  Run the statement     │
+                      │ R  Run the script        │
+                      │ h  Query history         │
+                      │ n  New query tab         │
+                      │ c  Copy                  │
+                      │ y  Copy as…              │
                       │ f  Filter tables         │
                       │ m  Connections           │
                       │ t  Next theme            │

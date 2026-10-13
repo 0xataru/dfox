@@ -21,6 +21,9 @@ It allows users to perform database operations easily and efficiently through a 
 - PostgreSQL, MySQL and SQLite, with saved connections (passwords in the OS keychain).
 - User-friendly terminal interface for managing database connections and performing CRUD operations.
 - An explorer of databases, schemas, tables, views and routines, with fuzzy search.
+- A SQL editor with highlighting, query tabs, undo, and a searchable history of every query run.
+- A result grid that stays fast with a million rows: cell and range selection, resizable
+  columns, and copying as TSV, CSV, JSON, Markdown or `INSERT` statements.
 - Easily extendable for additional database types and features.
 - Built-in debug logging system for troubleshooting.
 
@@ -117,14 +120,26 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 ### General Navigation
 - **Tab** / **Shift+Tab** - Move between the explorer, the query editor and the results
 - **↑/↓** - Move in lists and results
-- **←/→** - Scroll the result columns
 - **Page Up/Page Down** - Scroll a page
 - **Home/End** - Jump to the first/last row
+- The mouse: click a panel, a cell or a place in the text; drag to select; the wheel
+  scrolls (with **Shift**, sideways in the results). Hold **Shift** (**Option** in some
+  macOS terminals) to select text the terminal's way, or set `mouse = false`
 
 ### Query Operations
-- **F5** or **Ctrl+E** - Run the query
-- **Ctrl+C** - Cancel the running query, or copy the selected row
-- **Ctrl+A** - Copy all rows
+- **F5**, **Ctrl+E** or **Ctrl+Enter** - Run the statement under the cursor, or the selection
+- **Shift+F5** or **Ctrl+Shift+Enter** - Run the whole script
+- **Ctrl+C** - Cancel the running query
+- **Ctrl+R** - Search the query history; **Enter** puts the query in the editor
+- **Ctrl+N** / **Ctrl+W** - New / close query tab; **Ctrl+PgDn** / **Ctrl+PgUp** (or
+  **Alt+]** / **Alt+[**) switch tabs. Each tab keeps its own results
+
+### Results
+- **←/→/↑/↓** - Move between cells; **Ctrl+←/→** first/last column
+- **Shift+arrows** - Select a range; **V** whole rows; **Ctrl+A** everything; **Esc** clears
+- **Ctrl+C** - Copy the cell or the selection (tab-separated)
+- **y** - Copy as TSV, CSV, JSON, Markdown or `INSERT` statements (the selection, or every row)
+- **>** / **<** - Widen / narrow the column
 
 ### Interface Controls
 - **F1** - Back to the connections
@@ -133,8 +148,12 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **Esc**, **q** or **Ctrl+Q** - Quit (asks first while connected)
 
 ### SQL Editor
-- Typing inserts at the cursor; **Enter** starts a new line
-- **Backspace** deletes, joining lines at the start of a line
+- Typing inserts at the cursor; **Enter** starts a new line with the same indentation
+- **Ctrl+Z** / **Ctrl+Y** - Undo / redo
+- **Shift+arrows**, **Shift+Home/End** - Select; **Ctrl+A** selects everything
+- **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (copy without a selection takes the line)
+- **Ctrl+←/→** or **Alt+←/→** - Move by word; **Alt+Backspace** deletes a word
+- A bar in the margin marks the statement **F5** would run
 
 ## Configuration
 
@@ -148,6 +167,7 @@ theme = "dfox"        # dfox, tokyo-night, catppuccin-mocha, catppuccin-latte,
 keymap = "standard"   # or "vim": hjkl, g/G, Ctrl+D/Ctrl+U outside text fields
 animations = true     # false shows still symbols instead of spinners
 icons = "auto"        # "nerd" for Nerd Font glyphs, "ascii" for plain text
+mouse = true          # false leaves the mouse to the terminal
 row_limit = 100000    # rows kept from a query; the rest are read and dropped
 
 [keys]                # replaces all keys of an action
@@ -200,6 +220,10 @@ dfox ./data.sqlite                          # a SQLite file
 From a source checkout, `make run` (or `cargo run --bin dfox-tui`).
 
 ### Connections
+
+Every query run is added to `history.jsonl` in `~/.local/state/dfox/` (or
+`$XDG_STATE_HOME/dfox/`, `%LOCALAPPDATA%\dfox\` on Windows, or the directory
+in `DFOX_STATE_DIR`), readable only by you.
 
 Saved connections live in `connections.toml` in the config directory, and
 their passwords in the OS keychain (Keychain on macOS, Credential Manager on

@@ -1,0 +1,8 @@
+---
+source: dfox-tui/src/components/editor/tests.rs
+expression: "render(&test, 70, 4, |f, area, ctx| e.render(f, area, ctx))"
+---
+╭ Query ─────────────────────────────────────────────────────────────╮
+│  1 Write SQL here · F5 runs the statement under the cursor         │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯

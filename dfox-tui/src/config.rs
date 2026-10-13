@@ -22,6 +22,9 @@ pub struct Config {
     pub animations: bool,
     /// `auto`, `nerd` or `ascii`.
     pub icons: IconStyle,
+    /// Clicks and the wheel. While on, selecting text with the mouse needs
+    /// Shift (Option in some macOS terminals).
+    pub mouse: bool,
     /// Rows kept from a query's result; the rest are read and dropped.
     pub row_limit: usize,
     /// Replaces the keys of an action, for example `execute = ["f5", "ctrl+r"]`.
@@ -35,6 +38,7 @@ impl Default for Config {
             keymap: Preset::Standard,
             animations: true,
             icons: IconStyle::Auto,
+            mouse: true,
             row_limit: 100_000,
             keys: BTreeMap::new(),
         }

@@ -19,7 +19,7 @@ async fn client() -> Option<PostgresClient> {
 }
 
 #[tokio::test]
-async fn every_type_renders_as_postgres_text() {
+async fn every_type_reads_as_postgres_prints_it() {
     let Some(db) = client().await else { return };
 
     let out = db
@@ -49,11 +49,11 @@ async fn every_type_renders_as_postgres_text() {
             Some("1.50"),
             Some("1.25"),
             Some("2.5"),
-            Some("t"),
+            Some("true"),
             Some("txt"),
             Some("v"),
             Some("c  "),
-            Some("\\xdeadbeef"),
+            Some("0xdeadbeef"),
             Some("2026-10-12"),
             Some("13:14:15"),
             Some("2026-10-12 13:14:15"),

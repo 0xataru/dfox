@@ -368,6 +368,26 @@ impl Explorer {
         }
     }
 
+    /// Selects the node drawn at a point on screen; a second click on it opens
+    /// or closes it.
+    pub fn click(&mut self, column: u16, row: u16, ctx: &mut Ctx) -> Option<Command> {
+        if self.filter.is_some() {
+            return None;
+        }
+        let before = self.state.borrow().selected().to_vec();
+        let clicked = self
+            .state
+            .borrow_mut()
+            .click_at(ratatui::layout::Position::new(column, row));
+        let selected = self.state.borrow().selected().to_vec();
+        // `click_at` toggled the node already; load what it needs.
+        if clicked && selected == before && self.state.borrow().opened().contains(&selected) {
+            self.state.borrow_mut().close(&selected);
+            return self.open_selected(false, ctx);
+        }
+        None
+    }
+
     /// Opens or closes the selected node, loading what it needs.
     fn open_selected(&mut self, toggle: bool, ctx: &mut Ctx) -> Option<Command> {
         let path = self.state.borrow().selected().to_vec();

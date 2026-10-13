@@ -1,0 +1,276 @@
+//! The SQL editor: highlighted text, a selection, undo, and a search through
+//! the query history.
+
+pub mod buffer;
+mod history;
+mod render;
+
+use std::cell::{Cell, RefCell};
+
+use dfox_core::models::connections::DbType;
+use ratatui::{
+    layout::{Position, Rect},
+    Frame,
+};
+
+use self::{
+    buffer::{Buffer, Motion},
+    history::HistorySearch,
+    render::width_of,
+};
+use crate::{
+    action::Action,
+    command::Command,
+    component::{Component, Ctx, RenderCtx},
+    sql::{self, Piece, Pos, Stmt},
+};
+
+/// A query tab, as its label in the editor's title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabLabel {
+    pub title: String,
+    pub active: bool,
+    pub running: bool,
+}
+
+/// What drawing works out from the text, kept until the text changes.
+#[derive(Debug, Default)]
+struct Cache {
+    version: Option<u64>,
+    highlight: Vec<Vec<Piece>>,
+    statements: usize,
+    /// The statement under `cursor`.
+    cursor: Pos,
+    statement: Option<Stmt>,
+}
+
+#[derive(Debug)]
+pub struct EditorPanel {
+    pub buffer: Buffer,
+    driver: DbType,
+    pub focused: bool,
+    /// First line and first column shown.
+    scroll: Cell<(usize, usize)>,
+    cache: RefCell<Cache>,
+    /// Where the text was last drawn, for the mouse.
+    text_area: Cell<Rect>,
+    gutter: Cell<u16>,
+    search: Option<HistorySearch>,
+}
+
+impl EditorPanel {
+    pub fn new(driver: DbType) -> Self {
+        Self {
+            buffer: Buffer::default(),
+            driver,
+            focused: false,
+            scroll: Cell::new((0, 0)),
+            cache: RefCell::new(Cache::default()),
+            text_area: Cell::new(Rect::default()),
+            gutter: Cell::new(0),
+            search: None,
+        }
+    }
+
+    pub fn text(&self) -> String {
+        self.buffer.text()
+    }
+
+    #[cfg(test)]
+    pub fn set_text(&mut self, text: &str) {
+        self.buffer.set_text(text);
+    }
+
+    /// What to run: the selection, or else the statement under the cursor.
+    pub fn statement(&self) -> Option<String> {
+        if let Some(selected) = self.buffer.selected_text() {
+            return Some(selected).filter(|s| !s.trim().is_empty());
+        }
+        let text = self.buffer.text();
+        let statement = sql::statement_at(&text, self.buffer.cursor(), self.driver)?;
+        Some(sql::slice(
+            self.buffer.lines(),
+            statement.start,
+            statement.end,
+        ))
+    }
+
+    /// True while the history search has the keys.
+    pub fn is_modal(&self) -> bool {
+        self.search.is_some()
+    }
+
+    pub fn paste(&mut self, text: &str) {
+        if let Some(search) = &mut self.search {
+            search
+                .query
+                .push_str(text.lines().next().unwrap_or_default());
+        } else {
+            self.buffer.insert_str(text);
+        }
+    }
+
+    fn page(&self) -> usize {
+        (self.text_area.get().height as usize).max(1)
+    }
+
+    /// Moves the cursor to a point on screen, extending the selection when
+    /// dragging. Returns false when the point isn't on the text.
+    pub fn click(&mut self, column: u16, row: u16, drag: bool) -> bool {
+        let area = self.text_area.get();
+        if !area.contains(Position::new(column, row)) && !drag {
+            return false;
+        }
+        let (top, left) = self.scroll.get();
+        let line = top + row.saturating_sub(area.y) as usize;
+        let x = column.saturating_sub(area.x + self.gutter.get()) as usize;
+        let Some(text) = self
+            .buffer
+            .lines()
+            .get(line.min(self.buffer.lines().len() - 1))
+        else {
+            return false;
+        };
+        // Walk the characters to find the one under the pointer.
+        let mut width = 0;
+        let mut col = left;
+        for c in text.chars().skip(left) {
+            let w = width_of(c);
+            if width + w > x {
+                break;
+            }
+            width += w;
+            col += 1;
+        }
+        self.buffer.set_cursor((line, col), drag);
+        self.buffer.break_undo();
+        true
+    }
+
+    /// Scrolls the view by `lines`, moving the cursor along.
+    pub fn scroll_by(&mut self, lines: isize) {
+        let motion = if lines < 0 {
+            Motion::PageUp(lines.unsigned_abs())
+        } else {
+            Motion::PageDown(lines.unsigned_abs())
+        };
+        self.buffer.move_cursor(motion, false);
+    }
+
+    fn copy(&mut self, ctx: &mut Ctx, cut: bool) {
+        let selected = if cut {
+            self.buffer.cut()
+        } else {
+            self.buffer.selected_text()
+        };
+        match selected {
+            Some(text) => ctx.copy(text, "the selection"),
+            None => {
+                let line = self.buffer.lines()[self.buffer.cursor().0].clone();
+                ctx.copy(line, "the line");
+            }
+        }
+    }
+
+    fn refresh_cache(&self) {
+        let mut cache = self.cache.borrow_mut();
+        let version = self.buffer.version();
+        let cursor = self.buffer.cursor();
+        if cache.version != Some(version) {
+            cache.highlight = sql::highlight(self.buffer.lines(), self.driver);
+            cache.statements = sql::statements(&self.buffer.text(), self.driver).len();
+            cache.version = Some(version);
+            cache.statement = None;
+            cache.cursor = (usize::MAX, 0);
+        }
+        if cache.cursor != cursor {
+            cache.statement = if cache.statements > 1 {
+                sql::statement_at(&self.buffer.text(), cursor, self.driver)
+            } else {
+                None
+            };
+            cache.cursor = cursor;
+        }
+    }
+}
+
+impl Component for EditorPanel {
+    fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if let Some(search) = &mut self.search {
+            if let Some(chosen) = search.handle(action, ctx) {
+                if let Some(sql) = chosen {
+                    self.buffer.set_text(&sql);
+                }
+                self.search = None;
+            }
+            return None;
+        }
+        let page = self.page();
+        let b = &mut self.buffer;
+        let motion = match action {
+            Action::Left => Some((Motion::Left, false)),
+            Action::Right => Some((Motion::Right, false)),
+            Action::Up => Some((Motion::Up, false)),
+            Action::Down => Some((Motion::Down, false)),
+            Action::Home => Some((Motion::Home, false)),
+            Action::End => Some((Motion::End, false)),
+            Action::PageUp => Some((Motion::PageUp(page), false)),
+            Action::PageDown => Some((Motion::PageDown(page), false)),
+            Action::WordLeft => Some((Motion::WordLeft, false)),
+            Action::WordRight => Some((Motion::WordRight, false)),
+            Action::SelectLeft => Some((Motion::Left, true)),
+            Action::SelectRight => Some((Motion::Right, true)),
+            Action::SelectUp => Some((Motion::Up, true)),
+            Action::SelectDown => Some((Motion::Down, true)),
+            Action::SelectHome => Some((Motion::Home, true)),
+            Action::SelectEnd => Some((Motion::End, true)),
+            _ => None,
+        };
+        if let Some((motion, select)) = motion {
+            b.move_cursor(motion, select);
+            b.break_undo();
+            return None;
+        }
+        match action {
+            Action::Input(c) => b.insert_char(c),
+            Action::Confirm => b.newline(),
+            Action::Backspace => b.backspace(),
+            Action::Delete => b.delete(),
+            Action::DeleteWord => b.delete_word(),
+            Action::Undo => {
+                b.undo();
+            }
+            Action::Redo => {
+                b.redo();
+            }
+            Action::SelectAll => b.select_all(),
+            Action::Copy => self.copy(ctx, false),
+            Action::Cut => self.copy(ctx, true),
+            Action::Paste => match ctx.clipboard.get() {
+                Some(text) => self.buffer.insert_str(&text),
+                None => ctx.toast(
+                    crate::widgets::toast::Level::Warning,
+                    "Nothing to paste: the clipboard can't be read",
+                ),
+            },
+            Action::History => self.search = Some(HistorySearch::open(ctx)),
+            _ => {}
+        }
+        None
+    }
+
+    fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
+        self.render_with(f, area, ctx, &[]);
+    }
+
+    fn wants_text(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+use render::{clean, horizontal_scroll};
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

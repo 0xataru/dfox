@@ -46,20 +46,11 @@ impl App {
                     w.explorer.on_described(&schema, &table, result);
                 }
             }
-            EngineEvent::Columns { id, columns } => {
-                if let Some(w) = &mut self.workspace {
-                    w.results.on_columns(id, columns);
-                }
-            }
-            EngineEvent::Rows { id, rows } => {
-                if let Some(w) = &mut self.workspace {
-                    w.results.on_rows(id, rows);
-                }
-            }
-            EngineEvent::QueryDone { id, outcome } => self.with_ctx(|app, ctx| {
+            event @ (EngineEvent::Columns { .. }
+            | EngineEvent::Rows { .. }
+            | EngineEvent::QueryDone { .. }) => self.with_ctx(|app, ctx| {
                 if let Some(w) = app.workspace {
-                    // The query may have created or dropped tables.
-                    if w.results.on_done(id, outcome, ctx) {
+                    if w.on_query_event(event, ctx) {
                         w.explorer.refresh_loaded(ctx);
                     }
                 }
@@ -69,6 +60,7 @@ impl App {
 
     fn connected(&mut self, connecting: super::Connecting) {
         let connection = connecting.connection;
+        let (name, driver) = (connection.name.clone(), connection.driver);
         let database = match (&connecting.switch_to, connection.driver) {
             (Some(database), _) => database.clone(),
             (None, DbType::Sqlite) => "main".to_string(),
@@ -90,7 +82,7 @@ impl App {
                 }
             });
         } else {
-            let mut workspace = Workspace::new(&database);
+            let mut workspace = Workspace::new(&name, driver, &database);
             self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
             self.workspace = Some(workspace);
         }

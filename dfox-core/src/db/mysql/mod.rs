@@ -18,8 +18,8 @@ use crate::{
 };
 
 use super::{
-    bytes_cell, replace_if_lost, replace_session, stream_raw, undecodable, Chunk, DbClient,
-    RunGuard, StreamSummary,
+    bytes_cell, replace_if_lost, replace_session, stream_raw, typed_cell, undecodable, Chunk,
+    DbClient, RunGuard, StreamSummary,
 };
 
 pub struct MySqlClient {
@@ -101,7 +101,8 @@ impl MySqlClient {
 /// MySQL sends every value as length-prefixed bytes: text in the text
 /// protocol, and text or raw bytes for strings in the binary protocol. Reading
 /// the bytes directly works for every column type, including unsigned
-/// integers, DECIMAL, BIT and columns with a binary collation.
+/// integers, DECIMAL, BIT and columns with a binary collation. Numbers,
+/// booleans and JSON are then read as such.
 pub(crate) fn mysql_cell(row: &MySqlRow, index: usize) -> OwnedCell {
     let value = match row.try_get_raw(index) {
         Ok(value) => value,
@@ -112,7 +113,10 @@ pub(crate) fn mysql_cell(row: &MySqlRow, index: usize) -> OwnedCell {
     }
     let type_name = value.type_info().name().to_string();
     match row.try_get_unchecked::<&[u8], _>(index) {
-        Ok(bytes) => bytes_cell(bytes),
+        Ok(bytes) => std::str::from_utf8(bytes)
+            .ok()
+            .and_then(|text| typed_cell(&type_name, text))
+            .unwrap_or_else(|| bytes_cell(bytes)),
         Err(err) => undecodable(&type_name, err),
     }
 }

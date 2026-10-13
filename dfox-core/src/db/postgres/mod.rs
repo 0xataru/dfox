@@ -18,8 +18,8 @@ use crate::{
 };
 
 use super::{
-    bytes_cell, replace_if_lost, replace_session, stream_raw, undecodable, Chunk, DbClient,
-    RunGuard, StreamSummary,
+    bytes_cell, replace_if_lost, replace_session, stream_raw, typed_cell, undecodable, Chunk,
+    DbClient, RunGuard, StreamSummary,
 };
 
 pub struct PostgresClient {
@@ -89,7 +89,9 @@ impl PostgresClient {
 }
 
 /// With the simple-query protocol Postgres sends every value as text, in the
-/// same form psql prints it, so no type is ever misread.
+/// same form psql prints it. Numbers, booleans, JSON and bytea are read as
+/// such when the text parses; everything else stays text, so no type is ever
+/// misread.
 pub(crate) fn pg_cell(row: &PgRow, index: usize) -> OwnedCell {
     let value = match row.try_get_raw(index) {
         Ok(value) => value,
@@ -99,7 +101,9 @@ pub(crate) fn pg_cell(row: &PgRow, index: usize) -> OwnedCell {
         return OwnedCell::Null;
     }
     let decoded = match value.format() {
-        PgValueFormat::Text => value.as_str().map(|s| OwnedCell::Text(s.into())),
+        PgValueFormat::Text => value.as_str().map(|s| {
+            typed_cell(value.type_info().name(), s).unwrap_or_else(|| OwnedCell::Text(s.into()))
+        }),
         PgValueFormat::Binary => value.as_bytes().map(bytes_cell),
     };
     decoded.unwrap_or_else(|err| undecodable(value.type_info().name(), err))

@@ -10,9 +10,12 @@ use ratatui::{
 use crate::{action::Action, component::RenderCtx};
 
 pub const ENTRIES: &[(char, Action, &str)] = &[
-    ('r', Action::Execute, "Run the query"),
-    ('c', Action::CopyRow, "Copy the row"),
-    ('a', Action::CopyAll, "Copy all rows"),
+    ('r', Action::Execute, "Run the statement"),
+    ('R', Action::ExecuteAll, "Run the script"),
+    ('h', Action::History, "Query history"),
+    ('n', Action::NewTab, "New query tab"),
+    ('c', Action::Copy, "Copy"),
+    ('y', Action::CopyAs, "Copy as…"),
     ('f', Action::Filter, "Filter tables"),
     ('m', Action::Connections, "Connections"),
     ('t', Action::NextTheme, "Next theme"),

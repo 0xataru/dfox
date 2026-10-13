@@ -6,8 +6,10 @@ use tokio::time::Instant;
 
 use crate::{
     action::Action,
+    clipboard::{Clipboard, Via},
     command::Command,
     config::Config,
+    history::History,
     icons::Icons,
     keymap::Keymap,
     theme::Theme,
@@ -42,10 +44,24 @@ pub struct Ctx<'a> {
     pub config: &'a Config,
     pub toasts: &'a mut Toasts,
     pub log: &'a mut EventLog,
+    pub clipboard: &'a mut dyn Clipboard,
+    pub history: &'a mut History,
     pub now: Instant,
 }
 
 impl Ctx<'_> {
+    /// Copies `text` and says so, naming `what` was copied.
+    pub fn copy(&mut self, text: String, what: &str) {
+        match self.clipboard.set(text) {
+            Ok(Via::System) => self.toast(Level::Success, format!("Copied {what}")),
+            Ok(Via::Terminal) => self.toast(
+                Level::Success,
+                format!("Copied {what} (terminal clipboard)"),
+            ),
+            Err(err) => self.toast(Level::Error, format!("Clipboard error: {err}")),
+        }
+    }
+
     /// Shows a toast and records it in the event log.
     pub fn toast(&mut self, level: Level, text: impl Into<String>) {
         let text = text.into();

@@ -24,6 +24,9 @@ tui-tree-widget = "0.24.1"
 nucleo-matcher = "0.3.1"
 url = "2.5.8"
 percent-encoding = "2.3.2"
+sqlparser = "0.63.0"
+serde_json = "1"
+unicode-width = "0.2.2"
 
 [dev-dependencies]
 insta = "1.49.0"
