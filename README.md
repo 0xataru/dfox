@@ -21,7 +21,10 @@ It allows users to perform database operations easily and efficiently through a 
 - PostgreSQL, MySQL and SQLite, with saved connections (passwords in the OS keychain).
 - User-friendly terminal interface for managing database connections and performing CRUD operations.
 - An explorer of databases, schemas, tables, views and routines, with fuzzy search.
-- A SQL editor with highlighting, query tabs, undo, and a searchable history of every query run.
+- A SQL editor with highlighting, autocomplete of tables and columns, query tabs, undo, and a
+  searchable history of every query run.
+- A command palette, a record inspector, and a confirmation before `DELETE`/`UPDATE` without
+  `WHERE`, `DROP` or `TRUNCATE` runs.
 - A result grid that stays fast with a million rows: cell and range selection, resizable
   columns, and copying as TSV, CSV, JSON, Markdown or `INSERT` statements.
 - Easily extendable for additional database types and features.
@@ -104,6 +107,7 @@ RUST_LOG=trace
 ## Keyboard Shortcuts
 
 Press **?** (or **F2**) in the app for the full list, generated from your keymap.
+**Ctrl+P** opens the command palette: type part of a command's name and press **Enter**.
 **Space** opens a command menu outside text fields.
 
 ### Connections
@@ -131,6 +135,8 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **Shift+F5** or **Ctrl+Shift+Enter** - Run the whole script
 - **Ctrl+C** - Cancel the running query
 - **Ctrl+R** - Search the query history; **Enter** puts the query in the editor
+- `DELETE` or `UPDATE` without `WHERE`, `DROP`, `TRUNCATE` and `ALTER … DROP` ask first
+  (**y** runs them; **Enter** doesn't). Read-only connections don't send queries that write
 - **Ctrl+N** / **Ctrl+W** - New / close query tab; **Ctrl+PgDn** / **Ctrl+PgUp** (or
   **Alt+]** / **Alt+[**) switch tabs. Each tab keeps its own results
 
@@ -140,6 +146,7 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **Ctrl+C** - Copy the cell or the selection (tab-separated)
 - **y** - Copy as TSV, CSV, JSON, Markdown or `INSERT` statements (the selection, or every row)
 - **>** / **<** - Widen / narrow the column
+- **Enter** or **i** - Inspect the row: every field in full, JSON pretty-printed, binary as a hex dump
 
 ### Interface Controls
 - **F1** - Back to the connections
@@ -154,6 +161,8 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (copy without a selection takes the line)
 - **Ctrl+←/→** or **Alt+←/→** - Move by word; **Alt+Backspace** deletes a word
 - A bar in the margin marks the statement **F5** would run
+- Table names are suggested after `FROM`/`JOIN`, columns after `SELECT`/`WHERE`/…, and members
+  after `alias.`; **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
 
 ## Configuration
 
@@ -168,6 +177,7 @@ keymap = "standard"   # or "vim": hjkl, g/G, Ctrl+D/Ctrl+U outside text fields
 animations = true     # false shows still symbols instead of spinners
 icons = "auto"        # "nerd" for Nerd Font glyphs, "ascii" for plain text
 mouse = true          # false leaves the mouse to the terminal
+confirm_destructive = true  # false runs DELETE without WHERE, DROP, … without asking
 row_limit = 100000    # rows kept from a query; the rest are read and dropped
 
 [keys]                # replaces all keys of an action

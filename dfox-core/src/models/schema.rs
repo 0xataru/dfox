@@ -43,6 +43,14 @@ impl ObjectKind {
     }
 }
 
+/// A column of a table or view, from [`list_columns`](crate::db::DbClient::list_columns).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct TableColumn {
+    pub table: String,
+    pub name: String,
+    pub data_type: String,
+}
+
 /// A table, view or routine in a schema.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct DbObject {

@@ -85,6 +85,16 @@ fn selections_span_lines_either_way() {
 }
 
 #[test]
+fn an_empty_selection_is_dropped_by_the_next_edit() {
+    let mut b = buffer("ab");
+    b.set_cursor((0, 2), true);
+    b.insert_str("cd");
+    typed(&mut b, "e");
+    assert_eq!(b.text(), "abcde");
+    assert_eq!(b.selection(), None);
+}
+
+#[test]
 fn arrows_collapse_a_selection() {
     let mut b = buffer("abcdef");
     b.set_cursor((0, 1), false);

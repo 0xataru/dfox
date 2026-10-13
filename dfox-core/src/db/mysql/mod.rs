@@ -12,7 +12,7 @@ use crate::{
     errors::DbError,
     models::{
         connections::{ConnectionParams, TlsMode},
-        schema::{ColumnSchema, DbObject, ObjectKind, TableSchema},
+        schema::{ColumnSchema, DbObject, ObjectKind, TableColumn, TableSchema},
     },
     result::OwnedCell,
 };
@@ -221,6 +221,27 @@ impl DbClient for MySqlClient {
                         .into_text()
                         .and_then(|rows| rows.parse().ok()),
                 })
+            })
+            .collect())
+    }
+
+    async fn list_columns(&self, schema: &str) -> Result<Vec<TableColumn>, DbError> {
+        let query = r#"
+            SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE
+            FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = ?
+            ORDER BY TABLE_NAME, ORDINAL_POSITION
+        "#;
+        let rows = sqlx::query(query)
+            .bind(schema)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|row| TableColumn {
+                table: text(row, 0),
+                name: text(row, 1),
+                data_type: text(row, 2),
             })
             .collect())
     }

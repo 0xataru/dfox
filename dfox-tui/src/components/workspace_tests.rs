@@ -400,3 +400,120 @@ fn workspace_narrow() {
     w.explorer.load(&mut Harness::new().ctx());
     insta::assert_snapshot!(render(&test, 80, 24, |f, area, ctx| w.render(f, area, ctx)));
 }
+
+#[test]
+fn destructive_statements_ask_first() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    w.editor_mut().set_text("delete from orders");
+    let command = w.handle(Action::Execute, &mut harness.ctx());
+    assert_eq!(
+        command,
+        Some(Command::ConfirmRun {
+            sql: "delete from orders".into(),
+            reasons: vec!["DELETE without WHERE on orders".into()],
+        })
+    );
+    assert!(harness.sent().is_empty());
+
+    w.run_checked("delete from orders".into(), &mut harness.ctx());
+    assert!(matches!(&harness.sent()[..], [DbCommand::Run { .. }]));
+}
+
+#[test]
+fn the_guard_can_be_turned_off() {
+    let mut harness = Harness::new();
+    harness.config.confirm_destructive = false;
+    let mut w = workspace();
+    w.editor_mut().set_text("drop table t");
+    assert_eq!(w.handle(Action::Execute, &mut harness.ctx()), None);
+    assert!(matches!(&harness.sent()[..], [DbCommand::Run { .. }]));
+}
+
+#[test]
+fn read_only_connections_refuse_writes() {
+    let mut harness = Harness::new();
+    let mut w = workspace().with_read_only(true);
+    w.editor_mut().set_text("insert into t values (1)");
+    w.handle(Action::Execute, &mut harness.ctx());
+    assert!(harness.sent().is_empty());
+    assert_eq!(
+        harness.toast_texts(),
+        ["This connection is read-only: the query would write"]
+    );
+    w.editor_mut().set_text("select 1");
+    w.handle(Action::Execute, &mut harness.ctx());
+    assert_eq!(harness.sent().len(), 1);
+}
+
+#[test]
+fn loaded_tables_feed_autocomplete() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    w.catalog.on_schemas(&["public".into()]);
+    w.on_objects(
+        "public",
+        Ok(crate::testing::sample_objects()),
+        &mut harness.ctx(),
+    );
+    assert_eq!(
+        harness.sent(),
+        [DbCommand::ListColumns {
+            schema: "public".into()
+        }]
+    );
+    // A failed load asks for nothing.
+    w.on_objects(
+        "other",
+        Err(dfox_core::errors::DbError::General("x".into())),
+        &mut harness.ctx(),
+    );
+    assert!(harness.sent().is_empty());
+
+    for c in "select * from ord".chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    assert!(w.editor().completing());
+    w.handle(Action::Down, &mut harness.ctx());
+    w.handle(Action::Up, &mut harness.ctx());
+    w.handle(Action::NextFocus, &mut harness.ctx());
+    assert_eq!(w.editor().text(), "select * from order_items");
+    assert_eq!(w.focused(), Panel::Editor);
+
+    // Ctrl+Space asks for suggestions anywhere; Esc closes them.
+    w.handle(Action::Input(' '), &mut harness.ctx());
+    w.handle(Action::Complete, &mut harness.ctx());
+    assert!(w.editor().completing());
+    assert_eq!(w.handle(Action::Back, &mut harness.ctx()), None);
+    assert!(!w.editor().completing());
+
+    // Other keys close the popup and do their own thing.
+    w.handle(Action::Complete, &mut harness.ctx());
+    w.handle(Action::Execute, &mut harness.ctx());
+    assert!(!w.editor().completing());
+}
+
+#[test]
+fn enter_in_the_results_opens_the_inspector() {
+    let test = TestCtx::new();
+    let mut harness = Harness::new();
+    harness.log.push("connected".into());
+    let mut w = workspace();
+    w.handle(Action::Debug, &mut harness.ctx());
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(w.results().takes_back());
+    render(&test, 120, 30, |f, area, ctx| w.render(f, area, ctx));
+    let [_, _, results] = w.areas.get();
+    // The wheel over the inspector scrolls it, not the grid.
+    w.mouse(
+        mouse(
+            MouseEventKind::ScrollDown,
+            results.right() - 5,
+            results.y + 3,
+        ),
+        &mut harness.ctx(),
+    );
+    assert_eq!(w.results().grid.cursor(), (0, 0));
+    w.handle(Action::Back, &mut harness.ctx());
+    assert!(!w.results().takes_back());
+}

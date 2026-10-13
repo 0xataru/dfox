@@ -528,3 +528,99 @@ fn help_scrolls_and_closes_on_other_keys() {
     test.key(KeyCode::Char('x'));
     assert_eq!(test.app.overlay, None);
 }
+
+#[test]
+fn the_palette_runs_a_command_by_name() {
+    let mut test = test_app("palette", None, "");
+    test.ctrl('p');
+    test.typed("thme");
+    test.key(KeyCode::Down);
+    test.key(KeyCode::Up);
+    test.key(KeyCode::Backspace);
+    test.typed("e");
+    test.app.paste("ignored");
+    test.key(KeyCode::Enter);
+    assert_eq!(test.app.theme.name, "tokyo-night");
+    assert_eq!(test.app.overlay, None);
+
+    test.ctrl('p');
+    test.key(KeyCode::Tab);
+    test.ctrl('x');
+    test.key(KeyCode::Esc);
+    assert_eq!(test.app.overlay, None);
+}
+
+#[test]
+fn destructive_queries_run_only_after_y() {
+    let mut test = test_app("guard", Some("pw"), "");
+    test.open_prod();
+    test.typed("delete from orders");
+    test.key(KeyCode::F(5));
+    assert!(test.sent().is_empty());
+    insta::assert_snapshot!(test.snapshot(80, 20));
+
+    // Enter doesn't confirm a destructive query; other keys keep asking.
+    test.key(KeyCode::Enter);
+    test.key(KeyCode::Char('x'));
+    assert!(test.sent().is_empty());
+    assert!(test.app.overlay.is_some());
+    test.key(KeyCode::Char('y'));
+    assert!(matches!(
+        &test.sent()[..],
+        [DbCommand::Run { sql, .. }] if sql == "delete from orders"
+    ));
+}
+
+#[test]
+fn columns_arrive_for_autocomplete() {
+    let mut test = test_app("columns", Some("pw"), "");
+    test.key(KeyCode::Enter);
+    test.sent();
+    test.app.apply(EngineEvent::Connected(Ok(())));
+    test.app
+        .apply(EngineEvent::Schemas(Ok(vec!["public".into()])));
+    test.app.apply(EngineEvent::Objects {
+        schema: "public".into(),
+        result: Ok(crate::testing::sample_objects()),
+    });
+    assert!(test.sent().contains(&DbCommand::ListColumns {
+        schema: "public".into()
+    }));
+    test.app.apply(EngineEvent::TableColumns {
+        schema: "public".into(),
+        result: Ok(vec![dfox_core::models::schema::TableColumn {
+            table: "customers".into(),
+            name: "email".into(),
+            data_type: "text".into(),
+        }]),
+    });
+    let workspace = test.app.workspace.as_ref().expect("workspace");
+    assert_eq!(
+        workspace.catalog.columns(None, "customers")[0].name,
+        "email"
+    );
+}
+
+#[test]
+fn tab_accepts_a_suggestion() {
+    let mut test = test_app("accept", Some("pw"), "");
+    test.open_prod();
+    test.app.apply(EngineEvent::TableColumns {
+        schema: "public".into(),
+        result: Ok(vec![dfox_core::models::schema::TableColumn {
+            table: "customers".into(),
+            name: "email".into(),
+            data_type: "text".into(),
+        }]),
+    });
+    test.typed("select * from customers c where c.");
+    test.key(KeyCode::Down);
+    test.key(KeyCode::Tab);
+    // Typing goes on after the name instead of replacing it.
+    test.typed(" is null");
+    let workspace = test.app.workspace.as_ref().expect("workspace");
+    assert_eq!(
+        workspace.editor().text(),
+        "select * from customers c where c.email is null"
+    );
+}

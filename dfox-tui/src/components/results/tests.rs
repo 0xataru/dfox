@@ -267,3 +267,40 @@ fn query_error() {
     };
     insta::assert_snapshot!(render(&test, 60, 5, |f, area, ctx| results.render(f, area, ctx)));
 }
+
+#[test]
+fn inspector_beside_the_grid() {
+    let test = TestCtx::new();
+    let mut harness = Harness::new();
+    let mut results = showing(store(3));
+    results.focused = true;
+    results.handle(Action::Down, &mut harness.ctx());
+    results.handle(Action::Inspect, &mut harness.ctx());
+    insta::assert_snapshot!(render(&test, 100, 16, |f, area, ctx| results.render(f, area, ctx)));
+    // Moving to another row starts it from the top again.
+    results.handle(Action::Down, &mut harness.ctx());
+    assert!(results.takes_back());
+    results.handle(Action::Back, &mut harness.ctx());
+    assert!(!results.takes_back());
+}
+
+#[test]
+fn inspector_over_a_narrow_grid() {
+    let test = TestCtx::new();
+    let mut store = RowStore::new(vec![
+        ColumnMeta::new("doc", "jsonb"),
+        ColumnMeta::new("blob", "bytea"),
+        ColumnMeta::new("gone", "text"),
+    ]);
+    store.push(vec![
+        OwnedCell::Json("{\"a\":[1,2],\"b\":\"x\"}".into()),
+        OwnedCell::Bytes(b"\x00\x01dfox".to_vec().into()),
+        OwnedCell::Null,
+    ]);
+    store.finish();
+    let mut results = showing(store);
+    results.handle(Action::Inspect, &mut Harness::new().ctx());
+    insta::assert_snapshot!(render(&test, 60, 20, |f, area, ctx| results.render(f, area, ctx)));
+    assert!(results.scroll_inspector(30, 5, 3));
+    assert!(!results.scroll_inspector(0, 0, 3));
+}

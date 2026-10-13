@@ -22,6 +22,11 @@ impl App {
                 }
             }
             EngineEvent::Pong { id, result } => self.manager.on_pong(id, result),
+            EngineEvent::TableColumns { schema, result } => {
+                if let Some(w) = &mut self.workspace {
+                    w.catalog.on_columns(&schema, result);
+                }
+            }
             EngineEvent::Databases(result) => self.with_ctx(|app, ctx| {
                 if let Some(w) = app.workspace {
                     w.explorer.on_databases(result, ctx);
@@ -29,14 +34,17 @@ impl App {
             }),
             EngineEvent::Schemas(result) => self.with_ctx(|app, ctx| {
                 if let Some(w) = app.workspace {
+                    if let Ok(schemas) = &result {
+                        w.catalog.on_schemas(schemas);
+                    }
                     w.explorer.on_schemas(result, ctx);
                 }
             }),
-            EngineEvent::Objects { schema, result } => {
-                if let Some(w) = &mut self.workspace {
-                    w.explorer.on_objects(&schema, result);
+            EngineEvent::Objects { schema, result } => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.on_objects(&schema, result, ctx);
                 }
-            }
+            }),
             EngineEvent::Described {
                 schema,
                 table,
@@ -60,7 +68,11 @@ impl App {
 
     fn connected(&mut self, connecting: super::Connecting) {
         let connection = connecting.connection;
-        let (name, driver) = (connection.name.clone(), connection.driver);
+        let (name, driver, read_only) = (
+            connection.name.clone(),
+            connection.driver,
+            connection.read_only,
+        );
         let database = match (&connecting.switch_to, connection.driver) {
             (Some(database), _) => database.clone(),
             (None, DbType::Sqlite) => "main".to_string(),
@@ -78,11 +90,12 @@ impl App {
         if switching {
             self.with_ctx(|app, ctx| {
                 if let Some(w) = app.workspace {
+                    w.catalog = Default::default();
                     w.explorer.set_active(&database, ctx);
                 }
             });
         } else {
-            let mut workspace = Workspace::new(&name, driver, &database);
+            let mut workspace = Workspace::new(&name, driver, &database).with_read_only(read_only);
             self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
             self.workspace = Some(workspace);
         }

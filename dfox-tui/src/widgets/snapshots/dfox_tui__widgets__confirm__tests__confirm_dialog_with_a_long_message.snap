@@ -1,0 +1,17 @@
+---
+source: dfox-tui/src/widgets/confirm.rs
+expression: "render(&test, 70, 14, |f, area, ctx| confirm.render(f, area, ctx))"
+---
+
+
+        ╭ Destructive query ─────────────────────────────────╮
+        │                                                    │
+        │           DELETE without WHERE on orders           │
+        │                     DROP TABLE                     │
+        │ customers_with_a_rather_long_name_that_wraps_around│
+        │                                                    │
+        │                   Run it anyway?                   │
+        │                                                    │
+        │                    y yes    n no                   │
+        │                                                    │
+        ╰────────────────────────────────────────────────────╯

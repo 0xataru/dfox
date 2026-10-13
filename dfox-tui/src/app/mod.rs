@@ -39,7 +39,9 @@ use crate::{
     theme::{self, ColorDepth, Theme},
     widgets::{
         confirm::Confirm,
-        help, prompt,
+        help,
+        palette::Palette,
+        prompt,
         toast::{Level, Toasts},
         which_key,
     },
@@ -63,6 +65,7 @@ pub enum Screen {
 enum Overlay {
     /// The key list, scrolled down this many lines.
     Help(usize),
+    Palette(Palette),
     Menu,
     Confirm(Confirm),
     /// Typing the password for `connection`.
@@ -353,6 +356,31 @@ impl App {
 
     fn handle_overlay_key(&mut self, overlay: Overlay, key: KeyEvent) {
         match overlay {
+            Overlay::Palette(mut palette) => match key.code {
+                KeyCode::Enter => {
+                    if let Some(action) = palette.chosen() {
+                        self.dispatch(action);
+                    }
+                }
+                KeyCode::Esc => {}
+                KeyCode::Up => {
+                    palette.select(false);
+                    self.overlay = Some(Overlay::Palette(palette));
+                }
+                KeyCode::Down | KeyCode::Tab => {
+                    palette.select(true);
+                    self.overlay = Some(Overlay::Palette(palette));
+                }
+                KeyCode::Backspace => {
+                    palette.backspace();
+                    self.overlay = Some(Overlay::Palette(palette));
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    palette.input(c);
+                    self.overlay = Some(Overlay::Palette(palette));
+                }
+                _ => self.overlay = Some(Overlay::Palette(palette)),
+            },
             Overlay::Help(scroll) => {
                 let scroll = match key.code {
                     KeyCode::Down | KeyCode::Char('j') => Some(scroll + 1),
@@ -371,9 +399,8 @@ impl App {
                 }
             }
             Overlay::Confirm(confirm) => match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                    self.apply_command(confirm.on_yes)
-                }
+                KeyCode::Char('y') | KeyCode::Char('Y') => self.apply_command(confirm.on_yes),
+                KeyCode::Enter if !confirm.danger => self.apply_command(confirm.on_yes),
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {}
                 _ => self.overlay = Some(Overlay::Confirm(confirm)),
             },
@@ -399,6 +426,7 @@ impl App {
     pub fn dispatch(&mut self, action: Action) {
         match action {
             Action::Help => self.overlay = Some(Overlay::Help(0)),
+            Action::Palette => self.overlay = Some(Overlay::Palette(Palette::default())),
             Action::Menu if self.screen == Screen::Workspace && !self.wants_text() => {
                 self.overlay = Some(Overlay::Menu)
             }
@@ -468,6 +496,7 @@ impl App {
 
         match &self.overlay {
             Some(Overlay::Help(scroll)) => help::render(f, main, *scroll, ctx),
+            Some(Overlay::Palette(palette)) => palette.render(f, main, ctx),
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
             Some(Overlay::Password { connection, typed }) => {

@@ -212,6 +212,21 @@ async fn main_is_the_schema_and_lists_tables_and_views() {
             ("v".to_string(), ObjectKind::View, None),
         ]
     );
+
+    let columns: Vec<_> = db
+        .list_columns("main")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| (c.table, c.name, c.data_type))
+        .collect();
+    assert_eq!(
+        columns,
+        [
+            ("t".to_string(), "i".to_string(), "INTEGER".to_string()),
+            ("v".to_string(), "1".to_string(), String::new()),
+        ]
+    );
 }
 
 #[tokio::test]

@@ -1,0 +1,15 @@
+---
+source: dfox-tui/src/widgets/palette.rs
+expression: "render(&test, 80, 16, |f, area, ctx| palette.render(f, area, ctx))"
+---
+
+
+
+          ╭ Commands ────────────────────────────────────────────────╮
+          │ ❯ run                                                    │
+          │                                                          │
+          │ Run statement/selection                               F5 │
+          │ Run the whole script                            Shift+F5 │
+          │ Narrow column                                          < │
+          │ Previous panel                                 Shift+Tab │
+          ╰──────────────────────────────────────────────────────────╯

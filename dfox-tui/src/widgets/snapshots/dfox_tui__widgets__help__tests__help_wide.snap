@@ -9,8 +9,10 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
 
                ╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮
                │                                                                                        │
-               │ F5 Ctrl+E         Run statement/selection  Ctrl+T            Next theme                │
-               │ Shift+F5          Run the whole script     F12               Event log                 │
+               │ Ctrl+P            Command palette          Ctrl+S            Save                      │
+               │ F5 Ctrl+E         Run statement/selection  F1                Connection list           │
+               │ Shift+F5          Run the whole script     Ctrl+T            Next theme                │
+               │ Ctrl+Space        Suggest names            F12               Event log                 │
                │ Ctrl+R            Query history            Space             Command menu              │
                │ Ctrl+N            New query tab            ? F2              Show keys                 │
                │ Ctrl+W            Close query tab          Esc               Back / close              │
@@ -24,16 +26,15 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
                │ V                 Select whole rows        PgDn              Page down                 │
                │ Ctrl+Z            Undo                     Home              First row / line start    │
                │ Ctrl+Y            Redo                     End               Last row / line end       │
-               │ >                 Widen column             Backspace         Delete back               │
-               │ <                 Narrow column            Alt+Backspace     Delete a word             │
-               │ Tab               Next panel               Alt+B Alt+←       Previous word             │
-               │ Shift+Tab         Previous panel           Alt+F Alt+→       Next word                 │
-               │ /                 Filter                   Shift+←           Select left               │
-               │ R                 Refresh                  Shift+→           Select right              │
-               │ n                 New connection           Shift+↑           Select up                 │
-               │ e                 Edit connection          Shift+↓           Select down               │
-               │ Delete d          Delete connection        Shift+Home        Select to line start      │
-               │ Ctrl+S            Save                     Shift+End         Select to line end        │
-               │ F1                Connection list                                                      │
+               │ i                 Inspect the row          Backspace         Delete back               │
+               │ >                 Widen column             Alt+Backspace     Delete a word             │
+               │ <                 Narrow column            Alt+B Alt+←       Previous word             │
+               │ Tab               Next panel               Alt+F Alt+→       Next word                 │
+               │ Shift+Tab         Previous panel           Shift+←           Select left               │
+               │ /                 Filter                   Shift+→           Select right              │
+               │ R                 Refresh                  Shift+↑           Select up                 │
+               │ n                 New connection           Shift+↓           Select down               │
+               │ e                 Edit connection          Shift+Home        Select to line start      │
+               │ Delete d          Delete connection        Shift+End         Select to line end        │
                │                                                                                        │
                ╰─────────────────────────────────── any key to close ───────────────────────────────────╯

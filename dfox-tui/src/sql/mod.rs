@@ -2,6 +2,9 @@
 //! statements, and finding the table a query reads from. Built on the
 //! `sqlparser` tokenizer, with the dialect of the connected driver.
 
+pub mod complete;
+pub mod guard;
+
 use dfox_core::models::connections::DbType;
 use sqlparser::{
     ast::{SetExpr, Statement, TableFactor},
@@ -53,18 +56,38 @@ pub fn dialect(driver: DbType) -> Box<dyn Dialect> {
 
 /// A token with its kind and where it is.
 #[derive(Debug, Clone, PartialEq)]
-struct Lexeme {
-    start: Pos,
-    end: Pos,
-    kind: Kind,
+pub(crate) struct Lexeme {
+    pub start: Pos,
+    pub end: Pos,
+    pub kind: Kind,
     /// Whitespace and comments.
-    trivia: bool,
-    semicolon: bool,
+    pub trivia: bool,
+    pub semicolon: bool,
+    /// The token; `EOF` for text the tokenizer gave up on.
+    pub token: Token,
+}
+
+impl Lexeme {
+    /// The upper-cased word, when the token is an unquoted word.
+    pub fn keyword(&self) -> Option<String> {
+        match &self.token {
+            Token::Word(word) if word.quote_style.is_none() => Some(word.value.to_uppercase()),
+            _ => None,
+        }
+    }
+
+    /// The name a word stands for, quoted or not.
+    pub fn name(&self) -> Option<&str> {
+        match &self.token {
+            Token::Word(word) => Some(&word.value),
+            _ => None,
+        }
+    }
 }
 
 /// Tokenizes `text`. Text the tokenizer gives up on, such as a string that
 /// isn't closed yet, runs to the end as one piece.
-fn lex(text: &str, driver: DbType) -> Vec<Lexeme> {
+pub(crate) fn lex(text: &str, driver: DbType) -> Vec<Lexeme> {
     let dialect = dialect(driver);
     let mut tokens: Vec<TokenWithSpan> = Vec::new();
     let failed = Tokenizer::new(dialect.as_ref(), text)
@@ -120,6 +143,7 @@ fn lex(text: &str, driver: DbType) -> Vec<Lexeme> {
             kind,
             trivia,
             semicolon: t.token == Token::SemiColon,
+            token: t.token.clone(),
         });
     }
 
@@ -140,6 +164,7 @@ fn lex(text: &str, driver: DbType) -> Vec<Lexeme> {
             kind,
             trivia: kind == Kind::Comment,
             semicolon: false,
+            token: Token::EOF,
         });
     }
     lexemes
@@ -255,6 +280,24 @@ pub fn slice(lines: &[String], start: Pos, end: Pos) -> String {
         }
     }
     out
+}
+
+/// A name as SQL: as it is when it is a plain lower-case name, otherwise
+/// quoted for the driver.
+pub fn quote_ident(name: &str, driver: DbType) -> String {
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if plain {
+        return name.to_string();
+    }
+    let quote = if driver == DbType::MySql { '`' } else { '"' };
+    let doubled = format!("{quote}{quote}");
+    format!("{quote}{}{quote}", name.replace(quote, &doubled))
 }
 
 /// The table a query reads, when it reads exactly one: `SELECT … FROM t`.
@@ -422,5 +465,4 @@ fn is_keyword(word: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "sql_tests.rs"]
 mod tests;

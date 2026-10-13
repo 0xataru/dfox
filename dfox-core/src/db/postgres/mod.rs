@@ -12,7 +12,7 @@ use crate::{
     errors::DbError,
     models::{
         connections::{ConnectionParams, TlsMode},
-        schema::{ColumnSchema, DbObject, ObjectKind, TableSchema},
+        schema::{ColumnSchema, DbObject, ObjectKind, TableColumn, TableSchema},
     },
     result::OwnedCell,
 };
@@ -233,6 +233,34 @@ impl DbClient for PostgresClient {
             }
         }
         Ok(objects)
+    }
+
+    async fn list_columns(&self, schema: &str) -> Result<Vec<TableColumn>, DbError> {
+        let query = r#"
+            SELECT c.relname::text, a.attname::text, format_type(a.atttypid, a.atttypmod)
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1
+              AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            ORDER BY c.relname, a.attnum
+        "#;
+        let rows = sqlx::query(query)
+            .bind(schema)
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter()
+            .map(|row| {
+                Ok(TableColumn {
+                    table: row.try_get(0)?,
+                    name: row.try_get(1)?,
+                    data_type: row.try_get(2)?,
+                })
+            })
+            .collect::<Result<_, sqlx::Error>>()
+            .map_err(Into::into)
     }
 
     async fn describe_table(&self, schema: &str, table: &str) -> Result<TableSchema, DbError> {

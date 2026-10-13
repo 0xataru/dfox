@@ -239,6 +239,22 @@ async fn sqlite_metadata_and_errors() {
         other => panic!("expected Described, got {other:?}"),
     }
 
+    engine.engine.send(Command::ListColumns {
+        schema: "main".to_string(),
+    });
+    match engine.next().await {
+        EngineEvent::TableColumns { schema, result } => {
+            assert_eq!(schema, "main");
+            let columns: Vec<_> = result
+                .expect("columns")
+                .into_iter()
+                .map(|c| format!("{}.{}", c.table, c.name))
+                .collect();
+            assert_eq!(columns, ["people.id", "people.name"]);
+        }
+        other => panic!("expected TableColumns, got {other:?}"),
+    }
+
     let bad = engine.query("SELECT * FROM no_such_table", 10).await;
     assert!(matches!(bad.outcome, Err(DbError::Sqlx(_))));
     assert_eq!(engine.scalar("SELECT 1").await.as_deref(), Some("1"));

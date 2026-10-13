@@ -137,3 +137,45 @@ pub fn sample_objects() -> Vec<dfox_core::models::schema::DbObject> {
         object("total_spent", ObjectKind::Function, None),
     ]
 }
+
+/// Two schemas with tables and columns, for autocomplete tests.
+pub fn sample_catalog() -> crate::catalog::Catalog {
+    let mut catalog = crate::catalog::Catalog::default();
+    catalog.on_schemas(&["public".into(), "audit".into()]);
+    let object = |name: &str, kind| dfox_core::models::schema::DbObject {
+        name: name.into(),
+        kind,
+        rows: None,
+    };
+    catalog.on_objects(
+        "audit",
+        &[
+            object("log", dfox_core::models::schema::ObjectKind::Table),
+            object("orders", dfox_core::models::schema::ObjectKind::Table),
+        ],
+    );
+    catalog.on_objects(
+        "public",
+        &[
+            object("customers", dfox_core::models::schema::ObjectKind::Table),
+            object("orders", dfox_core::models::schema::ObjectKind::Table),
+            object("total", dfox_core::models::schema::ObjectKind::Function),
+        ],
+    );
+    let column = |table: &str, name: &str| dfox_core::models::schema::TableColumn {
+        table: table.into(),
+        name: name.into(),
+        data_type: "int".into(),
+    };
+    catalog.on_columns(
+        "public",
+        Ok(vec![
+            column("customers", "id"),
+            column("customers", "name"),
+            column("orders", "id"),
+            column("orders", "customer_id"),
+        ]),
+    );
+    catalog.on_columns("audit", Ok(vec![column("orders", "at")]));
+    catalog
+}

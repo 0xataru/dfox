@@ -7,6 +7,8 @@ use dfox_core::{
     result::{Cell, ResultSet},
 };
 
+use crate::sql;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     Tsv,
@@ -147,7 +149,10 @@ pub fn export(result: &impl ResultSet, region: &Region, format: Format, target: 
             }
         }
         Format::Insert => {
-            let columns: Vec<String> = names.iter().map(|n| identifier(n, target.driver)).collect();
+            let columns: Vec<String> = names
+                .iter()
+                .map(|n| sql::quote_ident(n, target.driver))
+                .collect();
             let _ = write!(
                 out,
                 "INSERT INTO {} ({}) VALUES",
@@ -219,23 +224,6 @@ fn markdown(text: &str) -> String {
     text.replace('|', "\\|")
         .replace("\r\n", "<br>")
         .replace('\n', "<br>")
-}
-
-/// A column name, quoted when it isn't a plain lower-case name.
-pub fn identifier(name: &str, driver: DbType) -> String {
-    let plain = name
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_lowercase() || c == '_')
-        && name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
-    if plain {
-        return name.to_string();
-    }
-    let quote = if driver == DbType::MySql { '`' } else { '"' };
-    let doubled = format!("{quote}{quote}");
-    format!("{quote}{}{quote}", name.replace(quote, &doubled))
 }
 
 /// A value written as SQL.
@@ -402,7 +390,7 @@ mod tests {
         assert_eq!(json_value(Cell::Json("not json")), "\"not json\"");
         assert_eq!(json_value(Cell::Bool(true)), "true");
         assert_eq!(json_value(Cell::UInt(3)), "3");
-        assert_eq!(identifier("a\"b", DbType::Sqlite), "\"a\"\"b\"");
+        assert_eq!(sql::quote_ident("a\"b", DbType::Sqlite), "\"a\"\"b\"");
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 pub mod confirm;
 pub mod help;
+pub mod palette;
 pub mod progress;
 pub mod prompt;
 pub mod status_bar;

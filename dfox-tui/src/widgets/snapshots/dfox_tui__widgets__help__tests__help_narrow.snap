@@ -4,8 +4,10 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx)
 ---
                  ╭ Keys ───────────────────────────────────────╮
                  │                                             │
+                 │ Ctrl+P            Command palette           │
                  │ F5 Ctrl+E         Run statement/selection   │
                  │ Shift+F5          Run the whole script      │
+                 │ Ctrl+Space        Suggest names             │
                  │ Ctrl+R            Query history             │
                  │ Ctrl+N            New query tab             │
                  │ Ctrl+W            Close query tab           │
@@ -19,10 +21,8 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx)
                  │ V                 Select whole rows         │
                  │ Ctrl+Z            Undo                      │
                  │ Ctrl+Y            Redo                      │
+                 │ i                 Inspect the row           │
                  │ >                 Widen column              │
                  │ <                 Narrow column             │
-                 │ Tab               Next panel                │
-                 │ Shift+Tab         Previous panel            │
-                 │ /                 Filter                    │
                  │                                             │
                  ╰───── ↑↓ scroll · any other key closes ──────╯

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     errors::DbError,
-    models::schema::{DbObject, TableSchema},
+    models::schema::{DbObject, TableColumn, TableSchema},
     result::{ColumnMeta, OwnedCell},
 };
 use async_trait::async_trait;
@@ -100,6 +100,9 @@ pub trait DbClient: Send + Sync {
     /// Tables, views and routines in `schema`, sorted by name.
     async fn list_objects(&self, schema: &str) -> Result<Vec<DbObject>, DbError>;
     async fn describe_table(&self, schema: &str, table: &str) -> Result<TableSchema, DbError>;
+    /// Every column of every table and view in `schema`, in one query, by
+    /// table and then column position. For autocomplete.
+    async fn list_columns(&self, schema: &str) -> Result<Vec<TableColumn>, DbError>;
 }
 
 async fn collect_output<F>(

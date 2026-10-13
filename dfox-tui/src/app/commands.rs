@@ -30,6 +30,7 @@ impl App {
                     title: "Quit".to_string(),
                     message: message.to_string(),
                     on_yes: Command::Quit,
+                    danger: false,
                 }));
             }
             Command::Connect(key) => self.connect(key),
@@ -56,6 +57,7 @@ impl App {
                     title: "Delete".to_string(),
                     message: format!("Delete the connection {name:?}?"),
                     on_yes: Command::DeleteConnection(name),
+                    danger: true,
                 }));
             }
             Command::DeleteConnection(name) => self.delete_connection(&name),
@@ -69,6 +71,21 @@ impl App {
                 }
             }
             Command::Connections => self.show_manager(),
+            Command::ConfirmRun { sql, reasons } => {
+                let mut message = reasons.join("\n");
+                message.push_str("\n\nRun it anyway?");
+                self.overlay = Some(Overlay::Confirm(Confirm {
+                    title: "Destructive query".to_string(),
+                    message,
+                    on_yes: Command::RunConfirmed(sql),
+                    danger: true,
+                }));
+            }
+            Command::RunConfirmed(sql) => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.run_checked(sql, ctx);
+                }
+            }),
         }
     }
 

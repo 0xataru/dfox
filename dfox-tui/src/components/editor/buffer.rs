@@ -280,9 +280,12 @@ impl Buffer {
         self.last_edit = None;
     }
 
-    /// Removes the selection's text. Returns whether there was one.
+    /// Removes the selection's text. Returns whether there was one. An
+    /// empty selection is dropped too, so the edit that follows doesn't
+    /// start a selection.
     fn delete_selection(&mut self) -> bool {
         let Some((start, end)) = self.selection() else {
+            self.anchor = None;
             return false;
         };
         let tail = {
