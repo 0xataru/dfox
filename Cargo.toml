@@ -13,3 +13,17 @@ repository = "https://github.com/0xataru/dfox"
 # (see clippy.toml).
 [workspace.lints.clippy]
 unwrap_used = "deny"
+
+# The shipped binary: slower to build, faster to run. Tests and benchmarks
+# still unwind on panic; the app restores the terminal in its panic hook,
+# which runs before the abort.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+# Benchmarks compare main with a change under the same settings, so they
+# skip the slow whole-program optimisation.
+[profile.bench]
+lto = "thin"
+codegen-units = 16

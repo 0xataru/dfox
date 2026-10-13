@@ -70,6 +70,12 @@ pub struct ConnectionForm {
     pub error: Option<String>,
 }
 
+impl Default for ConnectionForm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectionForm {
     pub fn new() -> Self {
         Self::edit(None, &Connection::new("", DbType::Postgres), None)

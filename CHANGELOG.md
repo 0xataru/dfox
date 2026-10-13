@@ -9,6 +9,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Benchmarks (`make bench`): rows per second and time to the first rows for
+  each database, memory for a million rows, and drawing the grid. Pull
+  requests are compared with `main` on the same runner and fail on a clear
+  slowdown of more than 10%. The numbers to beat are in
+  `crates/dfox-bench/BASELINE.md`
+
 - `dfox-core`: the session interfaces for drivers on native clients. A
   `Session` runs requests and streams results as Apache Arrow record batches,
   exposes a `Catalog` tree (children, describe, and browsing with filters,
@@ -25,6 +31,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Changed
 
+- Release builds use whole-program optimisation, a single codegen unit,
+  abort on panic and the mimalloc allocator: the binary went from 18.8 MB to
+  10.6 MB
 - The workspace moved to `crates/`, and each database is now its own crate:
   `dfox-driver-postgres`, `dfox-driver-mysql` and `dfox-driver-sqlite`. They
   are cargo features of `dfox-tui`, all on by default, so
