@@ -924,12 +924,73 @@ dependencies = [
 ]
 
 [[package]]
+name = "dfox-driver-mysql"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dfox-core",
+ "dfox-testkit",
+ "futures-util",
+ "log",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "dfox-driver-postgres"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dfox-core",
+ "dfox-testkit",
+ "futures-util",
+ "log",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "dfox-driver-sqlite"
+version = "0.2.0"
+dependencies = [
+ "async-trait",
+ "dfox-core",
+ "dfox-testkit",
+ "futures-util",
+ "log",
+ "sqlx",
+ "tokio",
+]
+
+[[package]]
+name = "dfox-sql"
+version = "0.2.0"
+dependencies = [
+ "sqlparser",
+]
+
+[[package]]
+name = "dfox-testkit"
+version = "0.2.0"
+dependencies = [
+ "dfox-core",
+ "dfox-driver-mysql",
+ "dfox-driver-postgres",
+ "dfox-driver-sqlite",
+ "tokio",
+]
+
+[[package]]
 name = "dfox-tui"
 version = "0.2.0"
 dependencies = [
  "arboard",
  "crossterm",
  "dfox-core",
+ "dfox-driver-mysql",
+ "dfox-driver-postgres",
+ "dfox-driver-sqlite",
+ "dfox-sql",
  "directories",
  "dotenvy",
  "env_logger",
@@ -942,7 +1003,6 @@ dependencies = [
  "ratatui",
  "serde",
  "serde_json",
- "sqlparser",
  "tachyonfx",
  "throbber-widgets-tui",
  "tokio",

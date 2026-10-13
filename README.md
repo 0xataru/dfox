@@ -32,10 +32,14 @@ It allows users to perform database operations easily and efficiently through a 
 
 ## Project Structure
 
-The project is organized as a Cargo workspace consisting of two main components:
+A Cargo workspace, with every crate in `crates/`:
 
-- **dfox-core**: The core library responsible for database operations. It includes implementations for MySQL, PostgreSQL, and SQLite clients, as well as data models and error handling.
-- **dfox-tui**: The command-line interface for user interaction. It contains the main functions for launching the application, along with UI components and event handlers.
+- **dfox-core**: the driver interfaces, query results and the engine that runs database work in the background.
+- **dfox-driver-postgres**, **dfox-driver-mysql**, **dfox-driver-sqlite**: one crate per database.
+- **dfox-sql**: highlighting, statement splitting, autocomplete context and the destructive-query guard.
+- **dfox-tui**: the terminal app. Each database is a cargo feature, so a smaller build can leave drivers out: `cargo build --release -p dfox-tui --no-default-features --features sqlite`.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#project-layout) for more.
 
 ## Debug Logging
 

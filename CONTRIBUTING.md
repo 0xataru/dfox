@@ -16,16 +16,25 @@ Questions and open-ended ideas belong in
 
 ## Project layout
 
-DFox is a Cargo workspace with two crates:
+DFox is a Cargo workspace; every crate lives in `crates/`:
 
-- **`dfox-core`**: database access. A `DbClient` trait with PostgreSQL, MySQL
-  and SQLite implementations on top of `sqlx`, plus the type mapping from rows
-  to JSON values.
+- **`dfox-core`**: the `Driver` and `DbClient` interfaces, query results,
+  connection models, and the engine that runs database work in the background.
+  It knows no particular database.
+- **`dfox-driver-postgres`**, **`dfox-driver-mysql`**, **`dfox-driver-sqlite`**:
+  one crate per database, each with its integration tests.
+- **`dfox-sql`**: reading SQL without running it: highlighting, splitting
+  scripts, autocomplete context and the destructive-statement guard.
 - **`dfox-tui`**: the terminal interface, built with `ratatui` and `crossterm`.
-  Screens, components and key handlers live under `src/ui/`.
+  Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, all on by
+  default), so `cargo build -p dfox-tui --no-default-features --features sqlite`
+  builds a SQLite-only binary.
+- **`dfox-testkit`**: helpers for the driver tests, and tests of the engine
+  over every driver. Not published.
 
-New database support goes in `dfox-core` behind the `DbClient` trait. The TUI
-should not need to know which backend it is talking to.
+New database support is a new driver crate implementing `Driver`, plus a
+feature in `dfox-tui`. The TUI should not need to know which database it is
+talking to.
 
 ## Workflow
 
@@ -45,11 +54,11 @@ docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
    ```
 
 2. **Make your change.** Add a test where the code can be tested without a
-   terminal, for example type mapping in `dfox-core`. Anything drawn on screen
+   terminal, for example type mapping in a driver crate. Anything drawn on screen
    gets an `insta` snapshot test; after changing how something looks, run
    `cargo insta review` (from `cargo install cargo-insta`) and accept the
    snapshots that show what you meant. Colours come only from the theme in
-   `dfox-tui/src/theme/`, and components never `.await`; `scripts/guards.sh`
+   `crates/dfox-tui/src/theme/`, and components never `.await`; `scripts/guards.sh`
    checks both.
 
 3. **Run what CI runs:**

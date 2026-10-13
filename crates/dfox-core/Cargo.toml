@@ -1,0 +1,20 @@
+[package]
+name = "dfox-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait = "0.1.77"
+# Only what the shared sqlx code needs; each driver crate adds its database.
+sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio"] }
+tokio = { version = "1.40.0", features = ["full"] }
+serde = { version = "1.0.209", features = ["derive"] }
+thiserror = "2.0.21"
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+log = "0.4.21"
+
+
+[lints]
+workspace = true
