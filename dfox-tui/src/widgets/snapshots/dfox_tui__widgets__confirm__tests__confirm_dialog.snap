@@ -4,10 +4,10 @@ expression: "render(&test, 60, 11, |f, area, ctx| confirm.render(f, area, ctx))"
 ---
 
 
-        ╭ Quit ────────────────────────────────────╮
-        │   Quit dfox? A query is still running.   │
-        │                                          │
-        │               y yes    n no              │
-        │                                          │
-        │                                          │
-        ╰──────────────────────────────────────────╯
+   ╭ Quit ──────────────────────────────────────────────╮
+   │                                                    │
+   │        Quit dfox? A query is still running.        │
+   │                                                    │
+   │                    y yes    n no                   │
+   │                                                    │
+   ╰────────────────────────────────────────────────────╯

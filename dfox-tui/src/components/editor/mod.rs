@@ -1,7 +1,8 @@
-//! The SQL editor: highlighted text, a selection, undo, and a search through
-//! the query history.
+//! The SQL editor: highlighted text, a selection, undo, autocomplete, and a
+//! search through the query history.
 
 pub mod buffer;
+pub mod complete;
 mod history;
 mod render;
 
@@ -15,11 +16,13 @@ use ratatui::{
 
 use self::{
     buffer::{Buffer, Motion},
+    complete::Completion,
     history::HistorySearch,
     render::width_of,
 };
 use crate::{
     action::Action,
+    catalog::Catalog,
     command::Command,
     component::{Component, Ctx, RenderCtx},
     sql::{self, Piece, Pos, Stmt},
@@ -55,7 +58,10 @@ pub struct EditorPanel {
     /// Where the text was last drawn, for the mouse.
     text_area: Cell<Rect>,
     gutter: Cell<u16>,
+    /// Where the cursor was drawn, for the autocomplete popup.
+    screen_cursor: Cell<Option<(u16, u16)>>,
     search: Option<HistorySearch>,
+    completion: Option<Completion>,
 }
 
 impl EditorPanel {
@@ -68,7 +74,9 @@ impl EditorPanel {
             cache: RefCell::new(Cache::default()),
             text_area: Cell::new(Rect::default()),
             gutter: Cell::new(0),
+            screen_cursor: Cell::new(None),
             search: None,
+            completion: None,
         }
     }
 
@@ -98,6 +106,65 @@ impl EditorPanel {
     /// True while the history search has the keys.
     pub fn is_modal(&self) -> bool {
         self.search.is_some()
+    }
+
+    /// True while the autocomplete popup is open.
+    pub fn completing(&self) -> bool {
+        self.completion.is_some()
+    }
+
+    /// Updates autocomplete after `action` changed the text: suggestions
+    /// while typing a word or after a dot, or on request (`forced`).
+    pub fn complete(&mut self, catalog: &Catalog, action: Action) {
+        let refresh = match action {
+            Action::Complete => true,
+            Action::Input(c) => c.is_alphanumeric() || c == '_' || c == '.',
+            Action::Backspace => self.completion.is_some(),
+            _ => false,
+        };
+        self.completion = if refresh && self.buffer.selection().is_none() {
+            complete::suggest(
+                &self.buffer.text(),
+                self.buffer.cursor(),
+                self.driver,
+                catalog,
+                action == Action::Complete,
+            )
+        } else {
+            None
+        };
+    }
+
+    pub fn close_completion(&mut self) {
+        self.completion = None;
+    }
+
+    /// Keys for the open popup. Returns false for keys it doesn't use,
+    /// which close it.
+    fn handle_completion(&mut self, action: Action) -> bool {
+        let Some(completion) = &mut self.completion else {
+            return false;
+        };
+        match action {
+            Action::Up => completion.select(false),
+            Action::Down => completion.select(true),
+            Action::NextFocus | Action::Confirm => {
+                if let Some(item) = completion.chosen() {
+                    let (start, insert) = (completion.start, item.insert.clone());
+                    let cursor = self.buffer.cursor();
+                    self.buffer.set_cursor(start, false);
+                    self.buffer.set_cursor(cursor, true);
+                    self.buffer.insert_str(&insert);
+                }
+                self.completion = None;
+            }
+            Action::Back => self.completion = None,
+            _ => {
+                self.completion = None;
+                return false;
+            }
+        }
+        true
     }
 
     pub fn paste(&mut self, text: &str) {
@@ -203,6 +270,9 @@ impl Component for EditorPanel {
                 }
                 self.search = None;
             }
+            return None;
+        }
+        if self.handle_completion(action) {
             return None;
         }
         let page = self.page();

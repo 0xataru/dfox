@@ -2,8 +2,9 @@
 
 pub mod export;
 pub mod grid;
+mod inspector;
 
-use std::time::Duration;
+use std::{cell::Cell, time::Duration};
 
 use dfox_core::{
     engine::{Command as DbCommand, QueryId, QueryStats},
@@ -12,7 +13,7 @@ use dfox_core::{
     result::{ColumnMeta, OwnedCell, ResultSet, RowStore},
 };
 use ratatui::{
-    layout::Rect,
+    layout::{Position, Rect},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -63,6 +64,11 @@ pub struct ResultsPanel {
     sql: String,
     /// The copy-as menu is open.
     picker: bool,
+    /// The record inspector is open.
+    inspecting: bool,
+    inspect_scroll: Cell<usize>,
+    /// Where the inspector was drawn, for the mouse wheel.
+    inspector_area: Cell<Rect>,
 }
 
 impl ResultsPanel {
@@ -77,6 +83,9 @@ impl ResultsPanel {
             driver,
             sql: String::new(),
             picker: false,
+            inspecting: false,
+            inspect_scroll: Cell::new(0),
+            inspector_area: Cell::new(Rect::default()),
         }
     }
 
@@ -121,6 +130,7 @@ impl ResultsPanel {
         self.message = None;
         self.grid = Grid::default();
         self.picker = false;
+        self.inspect_scroll.set(0);
     }
 
     pub fn on_columns(&mut self, id: QueryId, columns: Vec<ColumnMeta>) {
@@ -202,7 +212,23 @@ impl ResultsPanel {
     /// True when Back has something to undo here: an open menu or a
     /// selection.
     pub fn takes_back(&self) -> bool {
-        self.picker || self.grid.has_selection()
+        self.picker || self.inspecting || self.grid.has_selection()
+    }
+
+    /// Scrolls the inspector when the point is on it. Returns false
+    /// otherwise.
+    pub fn scroll_inspector(&mut self, column: u16, row: u16, lines: isize) -> bool {
+        if !self.inspecting
+            || !self
+                .inspector_area
+                .get()
+                .contains(Position::new(column, row))
+        {
+            return false;
+        }
+        let scroll = self.inspect_scroll.get().saturating_add_signed(lines);
+        self.inspect_scroll.set(scroll);
+        true
     }
 
     fn size(&self) -> (usize, usize) {
@@ -299,6 +325,13 @@ impl Component for ResultsPanel {
             return None;
         }
         match action {
+            Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
+                self.inspecting = !self.inspecting;
+                self.inspect_scroll.set(0);
+            }
+            Action::Back if self.inspecting && !self.grid.has_selection() => {
+                self.inspecting = false
+            }
             Action::Copy => self.copy(ctx),
             Action::CopyAs if self.store.row_count() == 0 => {
                 ctx.toast(Level::Warning, "No results to copy")
@@ -306,7 +339,11 @@ impl Component for ResultsPanel {
             Action::CopyAs => self.picker = true,
             action => {
                 let size = self.size();
+                let row = self.grid.cursor().0;
                 self.grid.handle(action, size);
+                if self.grid.cursor().0 != row {
+                    self.inspect_scroll.set(0);
+                }
             }
         }
         None
@@ -357,8 +394,31 @@ impl Component for ResultsPanel {
             f.render_widget(text, area);
         } else if rows > 0 {
             f.render_widget(block, area);
-            self.grid
-                .render(f.buffer_mut(), inner(area), &self.store, self.focused, ctx);
+            let mut grid_area = inner(area);
+            if self.inspecting {
+                // Beside the grid when there is room, over it otherwise.
+                let room = area.inner(ratatui::layout::Margin::new(1, 1));
+                let wide = room.width >= 80;
+                let width = if wide { room.width * 2 / 5 } else { room.width };
+                let panel = Rect {
+                    x: room.right() - width,
+                    width,
+                    ..room
+                };
+                if wide {
+                    grid_area.width = grid_area.width.saturating_sub(width + 1);
+                }
+                self.grid
+                    .render(f.buffer_mut(), grid_area, &self.store, self.focused, ctx);
+                let row = self.grid.cursor().0.min(rows - 1);
+                let used =
+                    inspector::render(f, panel, &self.store, row, self.inspect_scroll.get(), ctx);
+                self.inspect_scroll.set(used);
+                self.inspector_area.set(panel);
+            } else {
+                self.grid
+                    .render(f.buffer_mut(), grid_area, &self.store, self.focused, ctx);
+            }
         } else {
             let status = match &self.running {
                 Some(query) if query.cancelling => Line::from(vec![

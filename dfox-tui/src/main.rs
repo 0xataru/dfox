@@ -9,6 +9,7 @@ use theme::ColorDepth;
 
 mod action;
 mod app;
+mod catalog;
 mod clipboard;
 mod command;
 mod component;

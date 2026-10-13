@@ -9,6 +9,30 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Autocomplete in the editor: tables after `FROM`/`JOIN`/`INTO`/`UPDATE`,
+  columns of the statement's tables after `SELECT`, `WHERE`, `ON`, `SET`,
+  commas and operators, and tables or columns after `schema.`/`alias.`.
+  `Ctrl+Space` asks anywhere. Names are quoted where needed. Tables and
+  columns load in the background as schemas open
+- A command palette (`Ctrl+P`) that finds any command by name and shows its
+  key
+- A record inspector (`Enter` or `i` in the results): every field of the row
+  in full, JSON pretty-printed and binary as a hex dump, beside the grid or
+  over it on narrow screens
+- A confirmation before running `DELETE` or `UPDATE` without `WHERE`, `DROP`,
+  `TRUNCATE` or `ALTER … DROP`, naming each one. Only `y` confirms.
+  `confirm_destructive = false` turns it off
+- Read-only connections refuse queries that write before sending them
+- `dfox-core`: `DbClient::list_columns(schema)` and the engine command
+  `ListColumns`, returning every column of a schema in one query
+
+### Fixed
+
+- Text typed right after inserting a suggestion or a paste with an empty
+  selection replaced the inserted text
+
+### Added
+
 - The SQL editor highlights SQL for the connected database, and has undo and
   redo, selection with Shift, word moves, copy, cut and paste (including
   bracketed paste from the terminal) and indentation kept on Enter

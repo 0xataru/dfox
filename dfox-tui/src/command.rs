@@ -26,4 +26,11 @@ pub enum Command {
     UseDatabase(String),
     /// Back to the connection manager.
     Connections,
+    /// Asks before running SQL the guard flagged, saying why.
+    ConfirmRun {
+        sql: String,
+        reasons: Vec<String>,
+    },
+    /// Runs SQL that was confirmed.
+    RunConfirmed(String),
 }

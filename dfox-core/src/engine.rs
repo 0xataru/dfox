@@ -24,7 +24,7 @@ use crate::{
     errors::DbError,
     models::{
         connections::{ConnectionParams, DbType},
-        schema::{DbObject, TableSchema},
+        schema::{DbObject, TableColumn, TableSchema},
     },
     result::{ColumnMeta, OwnedCell},
     DbManager,
@@ -53,6 +53,10 @@ pub enum Command {
     Describe {
         schema: String,
         table: String,
+    },
+    /// Every column of every table in `schema`, for autocomplete.
+    ListColumns {
+        schema: String,
     },
     /// Measures how long it takes to reach a database, without logging in
     /// and without touching the current connection. See [`DbManager::ping`].
@@ -86,6 +90,10 @@ pub enum EngineEvent {
         schema: String,
         table: String,
         result: Result<TableSchema, DbError>,
+    },
+    TableColumns {
+        schema: String,
+        result: Result<Vec<TableColumn>, DbError>,
     },
     Pong {
         id: u64,
@@ -241,6 +249,16 @@ impl Engine {
                         result,
                     },
                     |client| async move { client.describe_table(&schema, &table).await },
+                )
+            }
+            Command::ListColumns { schema } => {
+                let event_schema = schema.clone();
+                self.metadata(
+                    move |result| EngineEvent::TableColumns {
+                        schema: event_schema,
+                        result,
+                    },
+                    |client| async move { client.list_columns(&schema).await },
                 )
             }
             Command::Ping {

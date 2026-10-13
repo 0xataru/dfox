@@ -325,6 +325,23 @@ async fn schemas_and_their_objects() {
         .columns
         .is_empty());
 
+    let columns: Vec<_> = db
+        .list_columns(&schema)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| (c.table, c.name, c.data_type))
+        .collect();
+    let column = |t: &str, n: &str, ty: &str| (t.to_string(), n.to_string(), ty.to_string());
+    assert_eq!(
+        columns,
+        [
+            column("m", "one", "integer"),
+            column("t", "id", "integer"),
+            column("v", "one", "integer"),
+        ]
+    );
+
     db.execute(&format!("DROP SCHEMA {schema} CASCADE"))
         .await
         .unwrap();

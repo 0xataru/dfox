@@ -5,8 +5,9 @@ use std::cell::Cell;
 
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use dfox_core::{
-    engine::{EngineEvent, QueryId},
-    models::connections::DbType,
+    engine::{Command as DbCommand, EngineEvent, QueryId},
+    errors::DbError,
+    models::{connections::DbType, schema::DbObject},
 };
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
@@ -20,9 +21,11 @@ use super::{
 };
 use crate::{
     action::Action,
+    catalog::Catalog,
     command::Command,
     component::{Component, Ctx, Focus, RenderCtx},
     history::Entry,
+    sql::guard,
     widgets::toast::Level,
 };
 
@@ -58,6 +61,10 @@ pub struct Workspace {
     next_tab: usize,
     /// The history file couldn't be written; said once.
     history_failed: bool,
+    /// The connection is read-only: scripts that write aren't sent.
+    read_only: bool,
+    /// Tables and columns, for autocomplete.
+    pub catalog: Catalog,
     /// Where the explorer, editor and results were drawn, for the mouse.
     areas: Cell<[Rect; 3]>,
 }
@@ -75,11 +82,34 @@ impl Workspace {
             next_query: 0,
             next_tab: 0,
             history_failed: false,
+            read_only: false,
+            catalog: Catalog::default(),
             areas: Cell::new([Rect::default(); 3]),
         };
         workspace.new_tab();
         workspace.set_focus(Panel::Editor);
         workspace
+    }
+
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
+    /// Records a schema's tables, and asks for their columns.
+    pub fn on_objects(
+        &mut self,
+        schema: &str,
+        result: Result<Vec<DbObject>, DbError>,
+        ctx: &mut Ctx,
+    ) {
+        if let Ok(objects) = &result {
+            self.catalog.on_objects(schema, objects);
+            ctx.engine.send(DbCommand::ListColumns {
+                schema: schema.to_string(),
+            });
+        }
+        self.explorer.on_objects(schema, result);
     }
 
     pub fn focused(&self) -> Panel {
@@ -172,12 +202,33 @@ impl Workspace {
         self.sync_focus();
     }
 
-    /// Runs `sql` in the current tab.
-    fn run(&mut self, sql: Option<String>, ctx: &mut Ctx) {
+    /// Runs `sql` in the current tab, after checking it. Destructive
+    /// statements come back as a command to ask first.
+    fn run(&mut self, sql: Option<String>, ctx: &mut Ctx) -> Option<Command> {
         let Some(sql) = sql.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) else {
             ctx.toast(Level::Info, "Nothing to run");
-            return;
+            return None;
         };
+        let findings = guard::check(&sql, self.driver);
+        if self.read_only && findings.writes {
+            ctx.toast(
+                Level::Error,
+                "This connection is read-only: the query would write",
+            );
+            return None;
+        }
+        if !findings.destructive.is_empty() && ctx.config.confirm_destructive {
+            return Some(Command::ConfirmRun {
+                sql,
+                reasons: findings.destructive,
+            });
+        }
+        self.run_checked(sql, ctx);
+        None
+    }
+
+    /// Runs `sql` in the current tab without checking it again.
+    pub fn run_checked(&mut self, sql: String, ctx: &mut Ctx) {
         if let Some(i) = self.running_tab() {
             let message = if i == self.active {
                 "A query is already running".to_string()
@@ -334,7 +385,12 @@ impl Workspace {
                     Panel::Results if sideways => {
                         self.tab_mut().results.scroll_columns(lines.signum())
                     }
-                    Panel::Results => self.tab_mut().results.scroll_by(lines),
+                    Panel::Results => {
+                        let results = &mut self.tab_mut().results;
+                        if !results.scroll_inspector(event.column, event.row, lines) {
+                            results.scroll_by(lines);
+                        }
+                    }
                 }
             }
             MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight
@@ -358,6 +414,17 @@ impl Component for Workspace {
         if self.modal() {
             return self.delegate(action, ctx);
         }
+        // The autocomplete popup takes the keys that pick from it.
+        let picking = matches!(
+            action,
+            Action::NextFocus | Action::Confirm | Action::Up | Action::Down | Action::Back
+        );
+        if self.editor().completing() {
+            if picking && self.focus.is(Panel::Editor) {
+                return self.delegate(action, ctx);
+            }
+            self.editor_mut().close_completion();
+        }
         match action {
             Action::NextFocus => {
                 self.focus.next();
@@ -369,11 +436,18 @@ impl Component for Workspace {
             }
             Action::Execute => {
                 let sql = self.editor().statement();
-                self.run(sql, ctx);
+                return self.run(sql, ctx);
             }
             Action::ExecuteAll => {
                 let sql = Some(self.editor().text());
-                self.run(sql, ctx);
+                return self.run(sql, ctx);
+            }
+            Action::Complete if self.focus.is(Panel::Editor) => {
+                let tab = &mut self.tabs[self.active];
+                tab.editor.complete(&self.catalog, action);
+            }
+            Action::Inspect | Action::Confirm if self.focus.is(Panel::Results) => {
+                return self.delegate(action, ctx);
             }
             Action::Copy => return self.copy(ctx),
             Action::NewTab => {
@@ -401,7 +475,14 @@ impl Component for Workspace {
                 return self.delegate(action, ctx);
             }
             Action::Back => return Some(Command::ConfirmQuit),
-            action => return self.delegate(action, ctx),
+            action => {
+                let command = self.delegate(action, ctx);
+                if self.focus.is(Panel::Editor) {
+                    let tab = &mut self.tabs[self.active];
+                    tab.editor.complete(&self.catalog, action);
+                }
+                return command;
+            }
         }
         None
     }

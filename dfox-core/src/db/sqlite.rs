@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, Mutex};
 
 use crate::{
     errors::DbError,
-    models::schema::{ColumnSchema, DbObject, ObjectKind, TableSchema},
+    models::schema::{ColumnSchema, DbObject, ObjectKind, TableColumn, TableSchema},
     result::OwnedCell,
 };
 
@@ -158,6 +158,25 @@ impl DbClient for SqliteClient {
                     kind,
                     rows: None,
                 })
+            })
+            .collect())
+    }
+
+    async fn list_columns(&self, schema: &str) -> Result<Vec<TableColumn>, DbError> {
+        let query = r#"
+            SELECT t.name, c.name, c.type
+            FROM pragma_table_list AS t
+            JOIN pragma_table_info(t.name, t.schema) AS c
+            WHERE t.schema = ?1 AND t.name NOT LIKE 'sqlite_%' AND t.type IN ('table', 'view', 'virtual')
+            ORDER BY t.name, c.cid
+        "#;
+        let rows = self.metadata(query, &[schema]).await?;
+        Ok(rows
+            .iter()
+            .map(|row| TableColumn {
+                table: text(row, 0),
+                name: text(row, 1),
+                data_type: text(row, 2),
             })
             .collect())
     }

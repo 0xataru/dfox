@@ -1,0 +1,12 @@
+---
+source: dfox-tui/src/widgets/palette.rs
+expression: "render(&test, 80, 10, |f, area, ctx| empty.render(f, area, ctx))"
+---
+
+
+
+          ╭ Commands ────────────────────────────────────────────────╮
+          │ ❯ zzz                                                    │
+          │                                                          │
+          │   No matching command                                    │
+          ╰──────────────────────────────────────────────────────────╯

@@ -78,6 +78,7 @@ impl App {
             Screen::Workspace => match self.workspace.as_ref().map(|w| w.focused()) {
                 Some(Panel::Editor) => &[
                     (Action::Execute, "run"),
+                    (Action::Palette, "commands"),
                     (Action::NextFocus, "focus"),
                     (Action::Help, "keys"),
                 ],
@@ -88,7 +89,8 @@ impl App {
                     (Action::Help, "keys"),
                 ],
                 _ => &[
-                    (Action::Execute, "run"),
+                    (Action::Inspect, "inspect"),
+                    (Action::CopyAs, "copy as"),
                     (Action::NextFocus, "focus"),
                     (Action::Menu, "menu"),
                     (Action::Help, "keys"),

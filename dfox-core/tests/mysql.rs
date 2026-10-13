@@ -300,6 +300,28 @@ async fn the_database_is_the_only_schema() {
         ]
     );
 
+    let columns: Vec<_> = db
+        .list_columns("dfox")
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|c| c.table.starts_with(&prefix))
+        .map(|c| {
+            (
+                c.table.trim_start_matches(&prefix).to_string(),
+                c.name,
+                c.data_type,
+            )
+        })
+        .collect();
+    assert_eq!(
+        columns,
+        [
+            ("_t".to_string(), "id".to_string(), "int".to_string()),
+            ("_v".to_string(), "one".to_string(), "int".to_string()),
+        ]
+    );
+
     db.execute(&format!(
         "DROP TABLE {prefix}_t; DROP VIEW {prefix}_v;
          DROP FUNCTION {prefix}_f; DROP PROCEDURE {prefix}_p;"

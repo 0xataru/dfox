@@ -27,6 +27,9 @@ pub struct Config {
     pub mouse: bool,
     /// Rows kept from a query's result; the rest are read and dropped.
     pub row_limit: usize,
+    /// Ask before running `DELETE` or `UPDATE` without `WHERE`, `DROP`,
+    /// `TRUNCATE` and `ALTER … DROP`.
+    pub confirm_destructive: bool,
     /// Replaces the keys of an action, for example `execute = ["f5", "ctrl+r"]`.
     pub keys: BTreeMap<String, Vec<String>>,
 }
@@ -40,6 +43,7 @@ impl Default for Config {
             icons: IconStyle::Auto,
             mouse: true,
             row_limit: 100_000,
+            confirm_destructive: true,
             keys: BTreeMap::new(),
         }
     }

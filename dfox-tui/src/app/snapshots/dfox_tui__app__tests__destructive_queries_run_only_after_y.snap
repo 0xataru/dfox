@@ -1,0 +1,24 @@
+---
+source: dfox-tui/src/app/tests.rs
+expression: "test.snapshot(80, 20)"
+---
+╭ Explorer ──────────╮╭ Query ─────────────────────────────────────────────────╮
+│   ◆ postgres       ││  1 delete from orders                                  │
+│ ▾ ◆ shop ●         ││                                                        │
+│   ▾ Tables 3       ││                                                        │
+│       ▤ customers  ││                                                        │
+│       ▤ ord╭ Destructive query ─────────────────────────────────╮            │
+│       ▤ ord│                                                    │n 1, Col 19 ╯
+│   ▸ Views 1│           DELETE without WHERE on orders           │────────────╮
+│   ▸ Functio│                                                    │            │
+│   ▸ Procedu│                   Run it anyway?                   │            │
+│            │                                                    │            │
+│            │                    y yes    n no                   │            │
+│            │                                                    │            │
+│            ╰────────────────────────────────────────────────────╯            │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+╰────────────────────╯╰────────────────────────────────────────────────────────╯
+ dfox  ▌◆ prod · shop                F5 run  Ctrl+P commands  Tab focus  ? keys

@@ -128,6 +128,7 @@ impl EditorPanel {
             .collect();
         f.render_widget(Paragraph::new(rows), text_area);
 
+        self.screen_cursor.set(None);
         if self.focused && self.search.is_none() {
             let x: usize = lines[line]
                 .chars()
@@ -138,6 +139,7 @@ impl EditorPanel {
             let x = text_area.x + gutter + x as u16;
             let y = text_area.y + (line - top) as u16;
             if x < text_area.right() && y < text_area.bottom() {
+                self.screen_cursor.set(Some((x, y)));
                 f.set_cursor_position((x, y));
             }
         }
@@ -147,6 +149,9 @@ impl EditorPanel {
     pub fn render_overlay(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         if let Some(search) = &self.search {
             search.render(f, area, ctx);
+        }
+        if let (Some(completion), Some((x, y))) = (&self.completion, self.screen_cursor.get()) {
+            super::complete::render(completion, f, x, y, ctx);
         }
     }
 }
