@@ -1,0 +1,17 @@
+---
+source: dfox-tui/src/app/tests.rs
+expression: "test.snapshot(80, 16)"
+---
+
+
+
+
+                           ▀██   ▄█▀█▄
+                         ▄▄▄██  ▄██▄    ▄█▀▀█▄  ▀█▄ ▄█▀
+                        ██  ██   ██     ██  ██   ▄█▀█▄
+                         ▀▀▀ ▀▀ ▀▀▀▀     ▀▀▀▀   ▀▀   ▀▀
+
+                          blazing fast · every database
+
+                        ────────────────────────────────
+                            checking connections 0/1

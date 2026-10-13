@@ -19,6 +19,7 @@ mod connections;
 mod history;
 mod icons;
 mod keymap;
+mod motion;
 mod sql;
 mod terminal;
 #[cfg(test)]
@@ -29,12 +30,17 @@ mod widgets;
 const USAGE: &str = "\
 dfox — a terminal database client
 
-Usage: dfox [URL]
+Usage: dfox [OPTIONS] [URL]
 
-  URL    connect right away, for example
-         postgres://user@localhost:5432/shop
-         mysql://root@127.0.0.1/app
-         sqlite:///path/to/file.db  (or just the path)
+  URL                connect right away, for example
+                     postgres://user@localhost:5432/shop
+                     mysql://root@127.0.0.1/app
+                     sqlite:///path/to/file.db  (or just the path)
+
+  --reduced-motion   no splash, transitions or spinners (also with NO_COLOR
+                     set, or animations = false in config.toml)
+  -h, --help         show this help
+  -V, --version      show the version
 
 Saved connections and settings live in ~/.config/dfox/, the query
 history in ~/.local/state/dfox/.
@@ -42,17 +48,25 @@ history in ~/.local/state/dfox/.
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let argument = env::args().nth(1);
-    match argument.as_deref() {
-        Some("-h" | "--help") => {
-            print!("{USAGE}");
-            return Ok(());
+    let mut argument = None;
+    let mut reduced_motion = env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    for arg in env::args().skip(1) {
+        match arg.as_str() {
+            "-h" | "--help" => {
+                print!("{USAGE}");
+                return Ok(());
+            }
+            "-V" | "--version" => {
+                println!("dfox {}", env!("CARGO_PKG_VERSION"));
+                return Ok(());
+            }
+            "--reduced-motion" => reduced_motion = true,
+            flag if flag.starts_with("--") => {
+                eprintln!("dfox: unknown option {flag}\n\n{USAGE}");
+                std::process::exit(2);
+            }
+            _ => argument = Some(arg),
         }
-        Some("-V" | "--version") => {
-            println!("dfox {}", env!("CARGO_PKG_VERSION"));
-            return Ok(());
-        }
-        _ => {}
     }
 
     dotenvy::dotenv().ok();
@@ -70,7 +84,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Starting dfox application");
 
     let config_dir = Config::dir();
-    let (config, config_problem) = Config::load(config_dir.as_deref());
+    let (mut config, config_problem) = Config::load(config_dir.as_deref());
+    if reduced_motion {
+        config.animations = false;
+    }
     let (store, store_problem) = Store::load(config_dir.as_deref());
     let (history, history_problem) = History::load(History::dir().as_deref());
     let mut problems: Vec<String> = config_problem
@@ -134,6 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             detected,
             connect,
             problems,
+            splash: true,
         },
     );
 

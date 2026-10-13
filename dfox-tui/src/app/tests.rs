@@ -61,6 +61,7 @@ fn test_app(name: &str, password: Option<&str>, pgpass_text: &str) -> Test {
             detected: Vec::new(),
             connect: None,
             problems: Vec::new(),
+            splash: false,
         },
     );
     let mut test = Test { app, rx, dir };
@@ -142,6 +143,7 @@ fn the_manager_pings_every_connection_on_start() {
             detected: Vec::new(),
             connect: None,
             problems: Vec::new(),
+            splash: false,
         },
     );
     assert_eq!(app.screen, Screen::Manager);
@@ -302,6 +304,7 @@ fn a_url_on_the_command_line_connects_right_away() {
             }],
             connect: Some(EntryKey::Detected(0)),
             problems: Vec::new(),
+            splash: false,
         },
     );
     let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
@@ -430,6 +433,7 @@ fn setup_problems_show_as_toasts() {
             detected: Vec::new(),
             connect: None,
             problems: vec!["connections.toml: oops".into()],
+            splash: false,
         },
     );
     let texts: Vec<_> = app.toasts.items().iter().map(|t| t.text.as_str()).collect();
@@ -623,4 +627,178 @@ fn tab_accepts_a_suggestion() {
         workspace.editor().text(),
         "select * from customers c where c.email is null"
     );
+}
+
+/// An app with `prod` saved that starts with the splash, when animations
+/// are on.
+fn splash_app(name: &str, animations: bool) -> Test {
+    let dir = std::env::temp_dir().join(format!("dfox-app-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (mut store, _) = Store::load(Some(&dir));
+    store.save(None, prod()).expect("save");
+    let (tx, rx) = mpsc::unbounded_channel();
+    let app = App::new(
+        EngineHandle::new(tx),
+        Setup {
+            config: Config {
+                animations,
+                ..Default::default()
+            },
+            themes_dir: None,
+            depth: ColorDepth::TrueColor,
+            store,
+            secrets: Box::new(Memory::default()),
+            pgpass: Vec::new(),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
+            detected: Vec::new(),
+            connect: None,
+            problems: Vec::new(),
+            splash: true,
+        },
+    );
+    Test { app, rx, dir }
+}
+
+/// Draws a frame the way the event loop does, effects included.
+fn draw_frame(app: &mut App) {
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 30)).expect("terminal");
+    terminal.draw(|f| app.render(f)).expect("draw");
+}
+
+#[test]
+fn the_splash_waits_for_the_first_checks() {
+    let mut test = splash_app("splash", true);
+    assert_eq!(test.app.screen, Screen::Splash);
+    assert!(test.app.is_animating());
+    assert!(!test.app.wants_text());
+    insta::assert_snapshot!(test.snapshot(80, 16));
+    draw_frame(&mut test.app);
+    assert!(test.app.motion.is_running());
+
+    let started = test.app.splash.expect("splash");
+    test.app.update_splash(started + Duration::from_millis(100));
+    assert_eq!(test.app.screen, Screen::Splash);
+    let id = match &test.sent()[..] {
+        [DbCommand::Ping { id, .. }] => *id,
+        other => panic!("expected a ping, got {other:?}"),
+    };
+    test.app.on_engine_event(EngineEvent::Pong {
+        id,
+        result: Ok(Duration::from_millis(3)),
+    });
+    assert_eq!(
+        test.app.splash_progress(started).1,
+        "checking connections 1/1"
+    );
+    // Checks are done, but the logo gets its moment.
+    test.app.update_splash(started + Duration::from_millis(300));
+    assert_eq!(test.app.screen, Screen::Splash);
+    let before = test.app.seen();
+    test.app.update_splash(started + Duration::from_millis(450));
+    assert_eq!(test.app.screen, Screen::Manager);
+    test.app.react(before);
+    assert!(test.app.motion.is_running());
+}
+
+#[test]
+fn the_splash_never_outstays_600_ms() {
+    let mut test = splash_app("splash-max", true);
+    let started = test.app.splash.expect("splash");
+    test.app.update_splash(started + Duration::from_millis(600));
+    assert_eq!(test.app.screen, Screen::Manager);
+    // Once over, it stays over.
+    test.app.update_splash(started + Duration::from_secs(5));
+    assert_eq!(test.app.screen, Screen::Manager);
+}
+
+#[test]
+fn a_key_skips_the_splash_and_does_nothing_else() {
+    let mut test = splash_app("splash-key", true);
+    test.key(KeyCode::Char('q'));
+    assert_eq!(test.app.screen, Screen::Manager);
+    assert!(!test.app.should_quit);
+}
+
+#[test]
+fn reduced_motion_skips_the_splash_and_every_effect() {
+    let mut test = splash_app("still", false);
+    assert_eq!(test.app.screen, Screen::Manager);
+    let before = test.app.seen();
+    test.key(KeyCode::Char('n'));
+    test.app.react(before);
+    assert!(!test.app.motion.is_running());
+}
+
+#[test]
+fn changes_start_effects() {
+    let mut test = test_app("effects", Some("pw"), "");
+    draw_frame(&mut test.app);
+    // A failed connect flashes the list.
+    test.key(KeyCode::Enter);
+    test.app
+        .on_engine_event(EngineEvent::Connected(Err(DbError::General("down".into()))));
+    assert!(test.app.motion.is_running());
+
+    // A new screen fades in; a new toast slides in.
+    test.key(KeyCode::Enter);
+    let before = test.app.seen();
+    test.app.on_engine_event(EngineEvent::Connected(Ok(())));
+    test.app
+        .toasts
+        .push(Level::Info, "hi".into(), Instant::now());
+    test.app.react(before);
+    assert!(test.app.motion.is_running());
+    test.app.motion.finish();
+    draw_frame(&mut test.app);
+    assert!(!test.app.motion.is_running());
+
+    // Focus and tab changes in the workspace.
+    let before = test.app.seen();
+    test.key(KeyCode::Tab);
+    test.app.react(before);
+    assert!(test.app.motion.is_running());
+    test.app.motion.finish();
+    draw_frame(&mut test.app);
+    let before = test.app.seen();
+    test.ctrl('n');
+    test.app.react(before);
+    assert!(test.app.motion.is_running());
+    test.app.motion.finish();
+    draw_frame(&mut test.app);
+}
+
+#[test]
+fn finished_queries_flash_the_results() {
+    let mut test = test_app("flash", Some("pw"), "");
+    test.open_prod();
+    draw_frame(&mut test.app);
+    for (sql, outcome) in [
+        ("select 1", Ok(QueryStats::default())),
+        ("select 2", Err(DbError::Cancelled)),
+        ("select 3", Err(DbError::General("boom".into()))),
+    ] {
+        test.app.paste(sql);
+        test.key(KeyCode::F(5));
+        let id = match &test.sent()[..] {
+            [DbCommand::Run { id, .. }] => *id,
+            other => panic!("expected a run, got {other:?}"),
+        };
+        test.app
+            .on_engine_event(EngineEvent::QueryDone { id, outcome });
+        assert!(test.app.motion.is_running());
+        test.app.motion.finish();
+        draw_frame(&mut test.app);
+        assert!(!test.app.motion.is_running());
+        test.ctrl('a');
+        test.key(KeyCode::Backspace);
+        test.sent();
+    }
+    // Events of queries not on screen don't flash anything.
+    test.app.on_engine_event(EngineEvent::QueryDone {
+        id: 999,
+        outcome: Ok(QueryStats::default()),
+    });
+    assert!(!test.app.motion.is_running());
 }

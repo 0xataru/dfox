@@ -5,6 +5,7 @@ pub mod help;
 pub mod palette;
 pub mod progress;
 pub mod prompt;
+pub mod splash;
 pub mod status_bar;
 pub mod throbber;
 pub mod toast;

@@ -7,6 +7,24 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Motion, with `tachyonfx`: the focused panel's border lights up, screens and
+  query tabs fade in, toasts slide in, and the results border flashes green
+  when a query finishes, red when it fails and amber when it is cancelled.
+  A failed connection flashes the connection list red. Every transition
+  takes at most 250 ms, and any key finishes it at once
+- A splash screen with the logo and a bar that fills as dfox checks the saved
+  connections. It shows for 0.4 to 0.6 s, and any key skips it
+- While a query runs, the status bar shows rows per second, and the cancel
+  hint fades in after two seconds
+- `--reduced-motion` (also `NO_COLOR`, or `animations = false`) turns off the
+  splash, transitions and spinners; clocks and toasts then update once a
+  second
+- Effects draw at 60 frames a second, and at 20 when drawing is slow, such
+  as over SSH
+- `vhs` tapes in `examples/tapes/` and `make demo` to record the README GIFs
+
 ## [0.1.4] - 2026-10-13
 
 ### Added

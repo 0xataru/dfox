@@ -3,11 +3,12 @@
 
 mod commands;
 mod events;
+mod motion;
 mod status;
 #[cfg(test)]
 mod tests;
 
-use std::{io, path::PathBuf, time::Duration};
+use std::{cell::Cell, io, path::PathBuf, time::Duration};
 
 use crossterm::event::{
     Event, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
@@ -15,7 +16,7 @@ use crossterm::event::{
 use dfox_core::engine::{EngineEvent, EngineHandle};
 use futures_util::StreamExt;
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     widgets::Paragraph,
     DefaultTerminal, Frame,
 };
@@ -41,7 +42,7 @@ use crate::{
         confirm::Confirm,
         help,
         palette::Palette,
-        prompt,
+        prompt, splash,
         toast::{Level, Toasts},
         which_key,
     },
@@ -49,13 +50,24 @@ use crate::{
 
 pub use crate::components::manager::Detected;
 
-/// Redraw interval while something animates. Nothing redraws while idle.
+/// Redraw interval while a spinner or a clock is shown. Nothing redraws
+/// while idle.
 const FRAME: Duration = Duration::from_millis(80);
+/// With animations off, clocks and toasts still update this often.
+const STILL_FRAME: Duration = Duration::from_secs(1);
+/// Redraw interval while an effect runs: about 60 frames a second...
+const FX_FRAME: Duration = Duration::from_millis(16);
+/// ...or 20 when drawing is slow, such as over SSH.
+const SLOW_FX_FRAME: Duration = Duration::from_millis(50);
+/// A frame that takes longer than this to draw counts as slow.
+const SLOW_DRAW: Duration = Duration::from_millis(12);
 /// How often the connection manager re-checks every connection.
 const PING_EVERY: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
+    /// The logo while the first connection checks run.
+    Splash,
     Manager,
     Form,
     Workspace,
@@ -109,6 +121,8 @@ pub struct Setup {
     pub connect: Option<EntryKey>,
     /// Shown as warnings once the UI is up.
     pub problems: Vec<String>,
+    /// Show the splash first, when animations are on.
+    pub splash: bool,
 }
 
 pub struct App {
@@ -135,6 +149,15 @@ pub struct App {
     overlay: Option<Overlay>,
     pub should_quit: bool,
     frame: u64,
+    motion: crate::motion::Motion,
+    /// When the splash started, while it shows.
+    splash: Option<Instant>,
+    /// The splash logo needs its sweep-in, once drawn here.
+    splash_logo: Cell<Option<Rect>>,
+    /// The area above the status bar, as last drawn.
+    main_area: Cell<Rect>,
+    /// How long drawing takes, smoothed, to slow effects down over SSH.
+    draw_cost: Duration,
 }
 
 impl App {
@@ -151,6 +174,7 @@ impl App {
             detected,
             connect,
             problems,
+            splash,
         } = setup;
         let (keymap, key_problems) = Keymap::new(config.keymap, &config.keys);
         let mut problems: Vec<String> = problems.into_iter().chain(key_problems).collect();
@@ -162,7 +186,13 @@ impl App {
                     .unwrap_or_default()
             });
         let manager = Manager::new(store.connections.clone(), detected);
+        let splash = (splash && config.animations && connect.is_none()).then(Instant::now);
         let mut app = Self {
+            motion: crate::motion::Motion::new(config.animations),
+            splash,
+            splash_logo: Cell::new(None),
+            main_area: Cell::new(Rect::default()),
+            draw_cost: Duration::ZERO,
             engine,
             icons: Icons::new(config.icons),
             config,
@@ -193,6 +223,9 @@ impl App {
             app.toasts.push(Level::Warning, problem, now);
         }
         app.show_manager();
+        if app.splash.is_some() {
+            app.screen = Screen::Splash;
+        }
         if let Some(key) = connect {
             app.apply_command(Command::Connect(key));
         }
@@ -207,17 +240,37 @@ impl App {
         mut events: mpsc::Receiver<EngineEvent>,
     ) -> io::Result<()> {
         let mut input = EventStream::new();
-        let mut frames = tokio::time::interval(FRAME);
+        let period = if self.config.animations {
+            FRAME
+        } else {
+            STILL_FRAME
+        };
+        let mut frames = tokio::time::interval(period);
         frames.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut pings = tokio::time::interval_at(Instant::now() + PING_EVERY, PING_EVERY);
         pings.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut dirty = true;
+        let mut drawn = Instant::now();
+        // The splash counts from the first frame, after the terminal is set
+        // up.
+        if self.splash.is_some() {
+            self.splash = Some(drawn);
+        }
 
         while !self.should_quit {
             if dirty {
+                let start = std::time::Instant::now();
                 terminal.draw(|f| self.render(f))?;
+                self.draw_cost = (self.draw_cost * 3 + start.elapsed()) / 4;
+                drawn = Instant::now();
                 dirty = false;
             }
+            let fx_frame = if self.draw_cost > SLOW_DRAW {
+                SLOW_FX_FRAME
+            } else {
+                FX_FRAME
+            };
+            let before = self.seen();
             tokio::select! {
                 event = input.next() => match event {
                     // Windows also reports key releases; act on presses only.
@@ -239,20 +292,41 @@ impl App {
                     None => return Ok(()),
                 },
                 Some(event) = events.recv() => {
-                    self.apply(event);
+                    self.on_engine_event(event);
                     dirty = true;
                 }
                 _ = frames.tick(), if self.is_animating() => {
                     self.frame += 1;
-                    self.toasts.expire(Instant::now());
+                    let now = Instant::now();
+                    self.toasts.expire(now);
+                    self.update_splash(now);
+                    dirty = true;
+                }
+                _ = tokio::time::sleep_until(drawn + fx_frame), if self.motion.is_running() => {
                     dirty = true;
                 }
                 _ = pings.tick(), if self.screen == Screen::Manager => {
                     self.with_ctx(|app, ctx| app.manager.ping_all(ctx));
                 }
             }
+            self.react(before);
         }
         Ok(())
+    }
+
+    /// Applies an engine event, with an effect for how a query or a
+    /// connection attempt ended.
+    pub fn on_engine_event(&mut self, event: EngineEvent) {
+        let outcome = self.outcome(&event);
+        let failed_connect =
+            self.connecting.is_some() && matches!(event, EngineEvent::Connected(Err(_)));
+        self.apply(event);
+        if let Some(outcome) = outcome {
+            self.flash_results(outcome);
+        }
+        if failed_connect {
+            self.flash_failed_connect();
+        }
     }
 
     /// Runs `f` with a handler context made from the app's own fields.
@@ -278,6 +352,7 @@ impl App {
         !self.toasts.is_empty()
             || self.connecting.is_some()
             || match self.screen {
+                Screen::Splash => true,
                 Screen::Manager => self.manager.is_animating(),
                 Screen::Form => false,
                 Screen::Workspace => self.workspace.as_ref().is_some_and(|w| w.is_animating()),
@@ -286,13 +361,19 @@ impl App {
 
     fn wants_text(&self) -> bool {
         match self.screen {
-            Screen::Manager => false,
+            Screen::Splash | Screen::Manager => false,
             Screen::Form => self.form.as_ref().is_some_and(|f| f.wants_text()),
             Screen::Workspace => self.workspace.as_ref().is_some_and(|w| w.wants_text()),
         }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        // A key never waits for an effect.
+        self.motion.finish();
+        if self.splash.is_some() {
+            self.end_splash();
+            return;
+        }
         if let Some(overlay) = self.overlay.take() {
             self.handle_overlay_key(overlay, key);
             return;
@@ -436,6 +517,7 @@ impl App {
             action => {
                 let screen = self.screen;
                 let command = self.with_ctx(|app, ctx| match screen {
+                    Screen::Splash => None,
                     Screen::Manager => app.manager.handle(action, ctx),
                     Screen::Form => app.form.as_mut().and_then(|f| f.handle(action, ctx)),
                     Screen::Workspace => app.workspace.as_mut().and_then(|w| w.handle(action, ctx)),
@@ -461,25 +543,44 @@ impl App {
         }
     }
 
-    pub fn render(&self, f: &mut Frame) {
+    /// Draws the frame, then the running effects over it.
+    pub fn render(&mut self, f: &mut Frame) {
+        let now = Instant::now();
         let ctx = RenderCtx {
             theme: &self.theme,
             icons: &self.icons,
             keymap: &self.keymap,
-            now: Instant::now(),
+            now,
             frame: self.frame,
             animations: self.config.animations,
         };
         self.draw(f, &ctx);
+        if let Some(logo) = self.splash_logo.take() {
+            let effect = crate::motion::splash_in(&self.theme, logo);
+            self.motion.start(crate::motion::Slot::Splash, effect);
+        }
+        let area = f.area();
+        self.motion.apply(f.buffer_mut(), area, now);
     }
 
     fn draw(&self, f: &mut Frame, ctx: &RenderCtx) {
         let area = f.area();
         f.render_widget(Paragraph::new("").style(ctx.theme.base()), area);
+        if self.screen == Screen::Splash {
+            let (progress, label) = self.splash_progress(ctx.now);
+            let logo = splash::render(f, area, progress, &label, ctx);
+            // The first splash frame starts the logo's sweep.
+            if self.frame == 0 && !self.motion.is_running() {
+                self.splash_logo.set(Some(logo));
+            }
+            return;
+        }
         let [main, status] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+        self.main_area.set(main);
 
         match self.screen {
+            Screen::Splash => {}
             Screen::Manager => self.manager.render(f, main, ctx),
             Screen::Form => {
                 if let Some(form) = &self.form {

@@ -1,0 +1,13 @@
+---
+source: dfox-tui/src/widgets/splash.rs
+expression: "render(&test, 30, 10, |f, area, ctx|\n{ super::render(f, area, 1.0, \"\", ctx); })"
+---
+
+        ▝█ ▗▛▙
+       ▗▄█ ▟▙  ▟▀▙ ▜▖▟▘
+       █ █ ▐▌  █ █ ▗▛▙
+       ▝▀▝▘▀▀  ▝▀▘ ▀ ▝▘
+
+ blazing fast · every database
+
+   ━━━━━━━━━━━━━━━━━━━━━━━━
