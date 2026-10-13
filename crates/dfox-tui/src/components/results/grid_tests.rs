@@ -257,3 +257,100 @@ fn grid_render_time() {
     println!("grid render p99: {p99:?}");
     assert!(p99 < std::time::Duration::from_millis(2), "{p99:?}");
 }
+
+/// Arrow results draw through the same `ResultSet` interface.
+fn arrow_result(rows: usize, columns: usize) -> dfox_core::arrow::ArrowResultSet {
+    use std::sync::Arc;
+
+    use arrow_array::{
+        ArrayRef, Date32Array, Decimal128Array, Int64Array, RecordBatch, StringArray,
+    };
+    use arrow_schema::DataType;
+    use dfox_core::arrow::{field, schema, ArrowResultSet};
+
+    let mut fields = vec![
+        field("id", DataType::Int64, "int8"),
+        field("price", DataType::Decimal128(12, 2), "numeric"),
+        field("day", DataType::Date32, "date"),
+    ];
+    fields.extend((3..columns).map(|c| field(&format!("text_{c}"), DataType::Utf8, "text")));
+    let schema = schema(fields);
+    let mut result = ArrowResultSet::new(schema.clone());
+    for start in (0..rows).step_by(8192) {
+        let end = rows.min(start + 8192);
+        let mut arrays: Vec<ArrayRef> = vec![
+            Arc::new(Int64Array::from_iter_values(start as i64..end as i64)),
+            Arc::new(
+                Decimal128Array::from_iter_values((start..end).map(|i| i as i128 * 1234))
+                    .with_precision_and_scale(12, 2)
+                    .expect("decimal"),
+            ),
+            Arc::new(Date32Array::from_iter(
+                (start..end).map(|i| (i % 7 != 0).then_some(19_000 + i as i32 % 365)),
+            )),
+        ];
+        arrays.extend((3..columns).map(|c| {
+            Arc::new(StringArray::from_iter_values(
+                (start..end).map(|i| format!("r{i}c{c}")),
+            )) as ArrayRef
+        }));
+        result.push(RecordBatch::try_new(schema.clone(), arrays).expect("batch"));
+    }
+    result.finish();
+    result
+}
+
+#[test]
+fn arrow_results_draw_like_any_other() {
+    let result = arrow_result(30, 4);
+    let mut grid = Grid::default();
+    grid.handle(Action::Down, (30, 4));
+    let test = TestCtx::new();
+    let mut terminal = Terminal::new(TestBackend::new(60, 8)).expect("terminal");
+    let ctx = test.render_ctx();
+    terminal
+        .draw(|f| {
+            let area = f.area();
+            grid.render(f.buffer_mut(), area, &result, true, &ctx)
+        })
+        .expect("draw");
+    let screen: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(60)
+        .map(|row| {
+            row.iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    insta::assert_snapshot!(screen);
+}
+
+/// `cargo test -p dfox-tui --release -- --ignored arrow_grid_render_time`
+#[test]
+#[ignore = "timing; run in release"]
+fn arrow_grid_render_time() {
+    let result = arrow_result(1_000_000, 20);
+    let mut grid = Grid::default();
+    grid.handle(Action::End, (1_000_000, 20));
+    let test = TestCtx::new();
+    let ctx = test.render_ctx();
+    let area = Rect::new(0, 0, 200, 60);
+    let mut buf = Buffer::empty(area);
+    let mut times: Vec<_> = (0..500)
+        .map(|_| {
+            let start = std::time::Instant::now();
+            grid.render(&mut buf, area, &result, true, &ctx);
+            start.elapsed()
+        })
+        .collect();
+    times.sort();
+    let p99 = times[times.len() * 99 / 100];
+    println!("arrow grid render p99: {p99:?}");
+    assert!(p99 < std::time::Duration::from_millis(2), "{p99:?}");
+}

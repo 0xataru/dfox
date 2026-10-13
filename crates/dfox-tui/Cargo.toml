@@ -42,6 +42,8 @@ mysql = ["dep:dfox-driver-mysql"]
 sqlite = ["dep:dfox-driver-sqlite"]
 
 [dev-dependencies]
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"
 insta = "1.49.0"
 
 

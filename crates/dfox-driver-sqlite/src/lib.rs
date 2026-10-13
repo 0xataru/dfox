@@ -20,13 +20,43 @@ use dfox_core::{
 
 use dfox_core::db::sqlx_support::{replace_if_lost, stream_raw, undecodable};
 use dfox_core::db::{Chunk, DbClient, StreamSummary};
-use dfox_core::driver::Driver;
+use dfox_core::driver::{Driver, DriverInfo, FieldKind, FormField, FormSpec};
 
 /// SQLite files, through sqlx.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SqliteDriver;
 
 impl Driver for SqliteDriver {
+    fn info(&self) -> DriverInfo {
+        DriverInfo {
+            id: "sqlite",
+            name: "SQLite",
+            default_port: None,
+            url_schemes: &["sqlite"],
+        }
+    }
+
+    fn connection_form(&self) -> FormSpec {
+        FormSpec {
+            fields: vec![
+                FormField {
+                    key: "database",
+                    label: "File",
+                    kind: FieldKind::Path,
+                    default: None,
+                    required: true,
+                },
+                FormField {
+                    key: "read_only",
+                    label: "Read-only",
+                    kind: FieldKind::Bool,
+                    default: Some("false".to_string()),
+                    required: false,
+                },
+            ],
+        }
+    }
+
     fn db_type(&self) -> DbType {
         DbType::Sqlite
     }

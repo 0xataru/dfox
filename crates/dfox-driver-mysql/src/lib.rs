@@ -24,13 +24,26 @@ use dfox_core::db::sqlx_support::{
     bytes_cell, replace_if_lost, replace_session, stream_raw, typed_cell, undecodable, RunGuard,
 };
 use dfox_core::db::{Chunk, DbClient, StreamSummary};
-use dfox_core::driver::Driver;
+use dfox_core::driver::{server_form, Driver, DriverInfo, FormSpec};
 
 /// MySQL and MariaDB, through sqlx.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MySqlDriver;
 
 impl Driver for MySqlDriver {
+    fn info(&self) -> DriverInfo {
+        DriverInfo {
+            id: "mysql",
+            name: "MySQL",
+            default_port: Some(3306),
+            url_schemes: &["mysql", "mariadb"],
+        }
+    }
+
+    fn connection_form(&self) -> FormSpec {
+        server_form(3306)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::MySql
     }

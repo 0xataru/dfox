@@ -18,9 +18,12 @@ Questions and open-ended ideas belong in
 
 DFox is a Cargo workspace; every crate lives in `crates/`:
 
-- **`dfox-core`**: the `Driver` and `DbClient` interfaces, query results,
-  connection models, and the engine that runs database work in the background.
-  It knows no particular database.
+- **`dfox-core`**: the driver interfaces, query results, connection models,
+  and the engine that runs database work in the background. It knows no
+  particular database. Two generations live side by side while the drivers
+  move to native clients: `DbClient` (rows as cells, used by the app today)
+  and `Session` + `Catalog` (Arrow batches, a catalog tree, edits by primary
+  key), which the app switches to once every driver has one.
 - **`dfox-driver-postgres`**, **`dfox-driver-mysql`**, **`dfox-driver-sqlite`**:
   one crate per database, each with its integration tests.
 - **`dfox-sql`**: reading SQL without running it: highlighting, splitting
@@ -29,12 +32,14 @@ DFox is a Cargo workspace; every crate lives in `crates/`:
   Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, all on by
   default), so `cargo build -p dfox-tui --no-default-features --features sqlite`
   builds a SQLite-only binary.
-- **`dfox-testkit`**: helpers for the driver tests, and tests of the engine
-  over every driver. Not published.
+- **`dfox-testkit`**: helpers for the driver tests, the conformance suite
+  every driver's `Session` must pass, a mock driver that passes it without a
+  server, and tests of the engine over every driver. Not published.
 
-New database support is a new driver crate implementing `Driver`, plus a
-feature in `dfox-tui`. The TUI should not need to know which database it is
-talking to.
+New database support is a new driver crate implementing `Driver` (with
+`open` returning a `Session`), a test that runs
+`dfox_testkit::conformance::check` against the database, and a feature in
+`dfox-tui`. The TUI should not need to know which database it is talking to.
 
 ## Workflow
 
