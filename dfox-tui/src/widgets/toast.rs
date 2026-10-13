@@ -72,6 +72,21 @@ impl Toasts {
         self.items.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Where the newest toast is drawn in `area`: at the top.
+    pub fn newest_area(area: Rect) -> Rect {
+        let width = Self::WIDTH.min(area.width);
+        Rect::new(
+            area.x + area.width - width,
+            area.y,
+            width,
+            3.min(area.height),
+        )
+    }
+
     #[cfg(test)]
     pub fn items(&self) -> &[Toast] {
         &self.items

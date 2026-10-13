@@ -1,0 +1,16 @@
+---
+source: dfox-tui/src/widgets/splash.rs
+expression: "render(&test, 60, 14, |f, area, ctx|\n{ super::render(f, area, 0.5, \"checking connections 1/2\", ctx); })"
+---
+
+
+
+                 ▀██   ▄█▀█▄
+               ▄▄▄██  ▄██▄    ▄█▀▀█▄  ▀█▄ ▄█▀
+              ██  ██   ██     ██  ██   ▄█▀█▄
+               ▀▀▀ ▀▀ ▀▀▀▀     ▀▀▀▀   ▀▀   ▀▀
+
+                blazing fast · every database
+
+              ━━━━━━━━━━━━━━━━────────────────
+                  checking connections 1/2

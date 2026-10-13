@@ -63,6 +63,8 @@ pub struct Manager {
     selected: usize,
     scroll: usize,
     visible: Cell<usize>,
+    /// Where the list was last drawn, for effects.
+    list_area: Cell<Rect>,
     health: HashMap<String, Health>,
     pings: HashMap<u64, String>,
     next_ping: u64,
@@ -130,6 +132,17 @@ impl Manager {
                 params: connection.target(),
             });
         }
+    }
+
+    /// Checks answered and checks started, for the splash's progress bar.
+    pub fn ping_progress(&self) -> (usize, usize) {
+        let total = self.health.len();
+        let waiting = self.health.values().filter(|h| h.pinging).count();
+        (total - waiting, total)
+    }
+
+    pub fn list_area(&self) -> Rect {
+        self.list_area.get()
     }
 
     pub fn on_pong(&mut self, id: u64, result: Result<Duration, DbError>) {
@@ -200,6 +213,7 @@ impl Component for Manager {
         }
         let [list, detail] =
             Layout::horizontal([Constraint::Percentage(40), Constraint::Fill(1)]).areas(area);
+        self.list_area.set(list);
         self.render_list(f, list, ctx);
         self.render_detail(f, detail, ctx);
     }

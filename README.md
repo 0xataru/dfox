@@ -74,35 +74,24 @@ RUST_LOG=debug
 RUST_LOG=trace
 ```
 
-## How It Works
+## A Tour
 
-1. **Database Type Selection**  
-   Upon starting the application, the user is presented with a menu to select the database type (PostgreSQL, MySQL, or SQLite). Use the up/down keys to navigate and Enter to confirm your choice.  
-   ![Database Type Selection](./examples/db_type_selection.jpg)
+Connect to a saved connection, write a query with autocomplete, browse the results and
+inspect a row, then find any command in the palette:
 
-2. **Connection Input Screen**  
-   After selecting the database type, the user is prompted to input the connection details such as hostname, port, username, and password.  
-   ![Connection Input Screen](./examples/input_screen.jpg)
+![dfox: connections, autocomplete, results and the inspector](./examples/demo/overview.gif)
 
-3. **Database Selection**  
-   Once connected, a list of available databases is displayed. The user can choose the database to interact with.  
-   ![Database Selection](./examples/db_selection.jpg)
+The editor runs the statement under the cursor, keeps query tabs and a searchable history,
+and asks before a `DELETE` without `WHERE`:
 
-4. **Table View**  
-   The application dynamically renders the list of tables available in the selected database.  
-   ![Table View](./examples/table_view.jpg)
+![dfox: statements, tabs, history and the destructive-query guard](./examples/demo/editor.gif)
 
-5. **Describe Table**  
-   The user can select a table to view its schema, displayed in a tree-like structure, including column names, types, and constraints.  
-   ![Describe Table](./examples/describe_table.jpg)
+The grid streams 50,000 rows, moves by cell, selects rows, widens columns and copies as JSON:
 
-6. **Query Execution and Results**  
-   The user can execute SQL queries and view the results in the TUI.  
-   ![Query Result](./examples/query_result.jpg)
+![dfox: the result grid](./examples/demo/grid.gif)
 
-7. **Error Handling**  
-   If there is an error with the query or database operation, an error message is displayed in the interface.  
-   ![Query Error](./examples/query_error.jpg)
+The GIFs are recorded with [vhs](https://github.com/charmbracelet/vhs) from the tapes in
+`examples/tapes/`; `make demo` records them again.
 
 ## Keyboard Shortcuts
 
@@ -174,7 +163,7 @@ setting is optional:
 theme = "dfox"        # dfox, tokyo-night, catppuccin-mocha, catppuccin-latte,
                       # gruvbox, nord, high-contrast, or a file in themes/
 keymap = "standard"   # or "vim": hjkl, g/G, Ctrl+D/Ctrl+U outside text fields
-animations = true     # false shows still symbols instead of spinners
+animations = true     # false: no splash, transitions or spinners (or --reduced-motion, NO_COLOR)
 icons = "auto"        # "nerd" for Nerd Font glyphs, "ascii" for plain text
 mouse = true          # false leaves the mouse to the terminal
 confirm_destructive = true  # false runs DELETE without WHERE, DROP, … without asking

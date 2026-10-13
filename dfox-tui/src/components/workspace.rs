@@ -148,6 +148,25 @@ impl Workspace {
         self.tabs.iter().position(|t| t.results.running.is_some())
     }
 
+    pub fn active_tab(&self) -> usize {
+        self.active
+    }
+
+    /// Where `panel` was last drawn.
+    pub fn area(&self, panel: Panel) -> Rect {
+        let [explorer, editor, results] = self.areas.get();
+        match panel {
+            Panel::Explorer => explorer,
+            Panel::Editor => editor,
+            Panel::Results => results,
+        }
+    }
+
+    /// True when query `id` runs in the tab on screen.
+    pub fn shows_query(&self, id: QueryId) -> bool {
+        self.results().is_current(id)
+    }
+
     #[cfg(test)]
     pub fn tab_count(&self) -> usize {
         self.tabs.len()

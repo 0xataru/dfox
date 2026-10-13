@@ -27,6 +27,8 @@ percent-encoding = "2.3.2"
 sqlparser = "0.63.0"
 serde_json = "1"
 unicode-width = "0.2.2"
+tachyonfx = "0.25.2"
+tui-big-text = "0.8.10"
 
 [dev-dependencies]
 insta = "1.49.0"

@@ -29,6 +29,8 @@ pub struct Icons {
     pub null: &'static str,
     pub yes: &'static str,
     pub no: &'static str,
+    /// Plain ASCII only: no block characters for the big logo.
+    pub ascii: bool,
 }
 
 impl Icons {
@@ -55,6 +57,7 @@ impl Icons {
                 null: "∅",
                 yes: "✓",
                 no: "✗",
+                ascii: false,
             },
             IconStyle::Ascii => Self::ascii(),
         }
@@ -74,6 +77,7 @@ impl Icons {
             null: "∅",
             yes: "✓",
             no: "✗",
+            ascii: false,
         }
     }
 
@@ -91,6 +95,7 @@ impl Icons {
             null: "NULL",
             yes: "true",
             no: "false",
+            ascii: true,
         }
     }
 }

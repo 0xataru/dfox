@@ -2,7 +2,7 @@ CURRENT := $(shell ./scripts/version.sh 2>/dev/null)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run build release-build fmt fmt-check lint test test-it test-it-down cover check audit version bump release publish clean
+.PHONY: help run build release-build demo fmt fmt-check lint test test-it test-it-down cover check audit version bump release publish clean
 
 help: ## Show available commands
 	@echo "dfox — v$(CURRENT)"
@@ -66,6 +66,10 @@ release: ## Maintainer: open the release pull request (VERSION=X.Y.Z)
 
 publish: ## Maintainer: tag the merged release on main and push the tag
 	@./scripts/publish.sh
+
+demo: release-build ## Record the README GIFs into examples/demo (needs vhs and sqlite3)
+	@./examples/tapes/setup.sh
+	@for tape in examples/tapes/overview.tape examples/tapes/editor.tape examples/tapes/grid.tape; do vhs "$$tape"; done
 
 clean: ## Remove build artefacts
 	cargo clean
