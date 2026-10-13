@@ -1,5 +1,5 @@
 [workspace]
-members = ["dfox-core", "dfox-tui"]
+members = ["crates/*"]
 resolver = "2"
 
 # One version for the whole workspace, bumped by `make bump`.

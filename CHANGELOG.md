@@ -7,6 +7,19 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Changed
+
+- The workspace moved to `crates/`, and each database is now its own crate:
+  `dfox-driver-postgres`, `dfox-driver-mysql` and `dfox-driver-sqlite`. They
+  are cargo features of `dfox-tui`, all on by default, so
+  `--no-default-features --features sqlite` builds a SQLite-only binary
+- The SQL helpers (highlighting, statement splitting, autocomplete context,
+  the destructive-statement guard) moved to a new `dfox-sql` crate
+- `dfox-core` no longer knows any database. A `Driver` trait connects, and
+  `engine::spawn` takes the `Drivers` an app was built with. `DbManager` and
+  `ConnectionConfig` are gone: `ping` is `dfox_core::driver::ping`, and each
+  driver crate exports its client and its `Driver`
+
 ## [0.2.0] - 2026-10-13
 
 ### Added

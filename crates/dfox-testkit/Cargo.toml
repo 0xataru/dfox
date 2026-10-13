@@ -1,0 +1,20 @@
+[package]
+name = "dfox-testkit"
+description = "Test helpers for dfox drivers, and tests of the engine over every driver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+dfox-core = { path = "../dfox-core" }
+
+[dev-dependencies]
+dfox-driver-mysql = { path = "../dfox-driver-mysql" }
+dfox-driver-postgres = { path = "../dfox-driver-postgres" }
+dfox-driver-sqlite = { path = "../dfox-driver-sqlite" }
+tokio = { version = "1.40.0", features = ["full"] }
+
+[lints]
+workspace = true

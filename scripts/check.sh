@@ -17,6 +17,11 @@ cargo fmt --all -- --check
 step "clippy"
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
+step "clippy, one driver at a time"
+for driver in postgres mysql sqlite; do
+	cargo clippy -p dfox-tui --no-default-features --features "$driver" --locked -- -D warnings
+done
+
 step "guards"
 ./scripts/guards.sh
 

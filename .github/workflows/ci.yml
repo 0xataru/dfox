@@ -30,6 +30,13 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      # Each driver is a cargo feature; the app must build with any one alone.
+      - name: clippy, one driver at a time
+        run: |
+          for driver in postgres mysql sqlite; do
+            cargo clippy -p dfox-tui --no-default-features --features "$driver" --locked -- -D warnings
+          done
+
       - name: guards
         run: ./scripts/guards.sh
 
@@ -89,7 +96,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: integration tests
-        run: cargo test -p dfox-core --locked --tests
+        run: >-
+          cargo test --locked --tests
+          -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-testkit
 
   # Known vulnerabilities in dependencies. Not required for merging: an advisory
   # can appear overnight on code that has not changed.

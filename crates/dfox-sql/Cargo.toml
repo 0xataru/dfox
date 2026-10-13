@@ -1,0 +1,13 @@
+[package]
+name = "dfox-sql"
+description = "Reading SQL for dfox: highlighting, statements, autocomplete context and guards"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sqlparser = "0.63.0"
+
+[lints]
+workspace = true

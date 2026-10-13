@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Rules the compiler can't check:
-#   - colours come from the theme: no `Color::` outside dfox-tui/src/theme/
+#   - colours come from the theme: no `Color::` outside crates/dfox-tui/src/theme/
 #   - drawing and key handling never wait: no `.await` in components or widgets
 #
 #   ./scripts/guards.sh
@@ -24,9 +24,9 @@ check() {
 	fi
 }
 
-check "colours must come from the theme (dfox-tui/src/theme/)" \
-	--include='*.rs' --exclude-dir=theme 'Color::' dfox-tui/src
+check "colours must come from the theme (crates/dfox-tui/src/theme/)" \
+	--include='*.rs' --exclude-dir=theme 'Color::' crates/dfox-tui/src
 check "components and widgets must not wait on anything" \
-	--include='*.rs' '\.await' dfox-tui/src/components dfox-tui/src/widgets
+	--include='*.rs' '\.await' crates/dfox-tui/src/components crates/dfox-tui/src/widgets
 
 exit "$failed"

@@ -1,6 +1,6 @@
 # Coverage is reported, never enforced: a drop should start a conversation in
-# the PR comment rather than block the merge. Core and TUI are reported as
-# separate components, since the TUI has few tests until its redesign.
+# the PR comment rather than block the merge. Each part of the workspace is its
+# own component.
 coverage:
   status:
     project:
@@ -15,11 +15,19 @@ component_management:
     - component_id: core
       name: dfox-core
       paths:
-        - dfox-core/**
+        - crates/dfox-core/**
+    - component_id: drivers
+      name: drivers
+      paths:
+        - crates/dfox-driver-*/**
+    - component_id: sql
+      name: dfox-sql
+      paths:
+        - crates/dfox-sql/**
     - component_id: tui
       name: dfox-tui
       paths:
-        - dfox-tui/**
+        - crates/dfox-tui/**
 
 comment:
   layout: "diff, components, files"
