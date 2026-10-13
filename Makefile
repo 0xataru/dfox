@@ -43,7 +43,7 @@ test-it-down: ## Stop the integration-test databases
 bench: ## Benchmarks; Postgres and MySQL ones run against `make test-it`'s databases
 	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:55432/postgres \
 	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:53306/dfox \
-	cargo bench -p dfox-bench
+	cargo bench -p dfox-bench --benches
 
 cover: ## Line coverage; HTML report in target/llvm-cov/html (needs cargo-llvm-cov)
 	@command -v cargo-llvm-cov >/dev/null || { echo "install it with: cargo install cargo-llvm-cov --locked"; exit 1; }

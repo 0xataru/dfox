@@ -142,14 +142,14 @@ jobs:
         run: |
           git checkout --quiet "${{ github.event.pull_request.base.sha }}"
           if [ -d crates/dfox-bench ]; then
-            cargo bench --locked -p dfox-bench -- --save-baseline main
+            cargo bench --locked -p dfox-bench --benches -- --save-baseline main
           else
             echo "main has no benchmarks yet"
           fi
           git checkout --quiet "${{ github.sha }}"
 
       - name: benchmark the change
-        run: cargo bench --locked -p dfox-bench -- --baseline-lenient main
+        run: cargo bench --locked -p dfox-bench --benches -- --baseline-lenient main
 
       - name: compare
         run: ./scripts/bench-compare.sh
