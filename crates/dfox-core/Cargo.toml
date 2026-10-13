@@ -14,6 +14,10 @@ serde = { version = "1.0.209", features = ["derive"] }
 thiserror = "2.0.21"
 futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
 log = "0.4.21"
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"
+arrow-cast = "60.0.0"
+bitflags = "2.13.2"
 
 
 [lints]

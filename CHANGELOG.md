@@ -7,6 +7,22 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- `dfox-core`: the session interfaces for drivers on native clients. A
+  `Session` runs requests and streams results as Apache Arrow record batches,
+  exposes a `Catalog` tree (children, describe, and browsing with filters,
+  sorting and paging), applies `ChangeSet` edits by primary key, and has a
+  `CancelHandle`. `Capabilities` tell the app what a session supports.
+  Drivers describe themselves with `DriverInfo` and their connection form
+  with a `FormSpec`
+- `dfox-core`: `ArrowResultSet` serves Arrow batches to the result grid
+  through the existing `ResultSet` interface, formatting only the cells that
+  are read. `Fetcher` reads a result within a memory budget (256 MB by
+  default) and fetches more on request. Ten million integers take 80 MB
+- `dfox-testkit`: a conformance suite every driver's session must pass, and
+  a mock driver that passes it
+
 ### Changed
 
 - The workspace moved to `crates/`, and each database is now its own crate:

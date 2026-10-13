@@ -1,9 +1,14 @@
-//! Shared helpers for the driver integration tests.
+//! Shared helpers for the driver integration tests, the [`conformance`]
+//! suite every driver's session must pass, and a [`mock`] driver that passes
+//! it without a server.
 //!
 //! Postgres and MySQL tests read their server from `DFOX_TEST_POSTGRES_URL` /
 //! `DFOX_TEST_MYSQL_URL` and are skipped when it is unset; `make test-it`
 //! starts both servers and sets the variables. With `DFOX_IT_REQUIRED=1`
 //! (set in CI) a missing variable fails the test instead.
+
+pub mod conformance;
+pub mod mock;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 

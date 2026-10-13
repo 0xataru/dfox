@@ -8,13 +8,16 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"
 dfox-core = { path = "../dfox-core" }
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+tokio = { version = "1.40.0", features = ["full"] }
 
 [dev-dependencies]
 dfox-driver-mysql = { path = "../dfox-driver-mysql" }
 dfox-driver-postgres = { path = "../dfox-driver-postgres" }
 dfox-driver-sqlite = { path = "../dfox-driver-sqlite" }
-tokio = { version = "1.40.0", features = ["full"] }
 
 [lints]
 workspace = true

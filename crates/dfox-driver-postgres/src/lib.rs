@@ -24,13 +24,26 @@ use dfox_core::db::sqlx_support::{
     bytes_cell, replace_if_lost, replace_session, stream_raw, typed_cell, undecodable, RunGuard,
 };
 use dfox_core::db::{Chunk, DbClient, StreamSummary};
-use dfox_core::driver::Driver;
+use dfox_core::driver::{server_form, Driver, DriverInfo, FormSpec};
 
 /// PostgreSQL, through sqlx.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PostgresDriver;
 
 impl Driver for PostgresDriver {
+    fn info(&self) -> DriverInfo {
+        DriverInfo {
+            id: "postgres",
+            name: "PostgreSQL",
+            default_port: Some(5432),
+            url_schemes: &["postgres", "postgresql"],
+        }
+    }
+
+    fn connection_form(&self) -> FormSpec {
+        server_form(5432)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::Postgres
     }
