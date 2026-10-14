@@ -101,10 +101,7 @@ impl Tunnel {
             target_host.to_string(),
             target_port,
         ));
-        log::info!(
-            "SSH tunnel to {target_host}:{target_port} via {} on {local}",
-            ssh.host
-        );
+        log::info!("SSH tunnel to {target_host}:{target_port} on {local}");
         Ok(Self {
             local,
             accept,
