@@ -32,13 +32,17 @@ test: ## Run the test suite (Postgres/MySQL integration tests skip themselves)
 
 test-it: ## Run the test suite against real Postgres and MySQL (needs Docker)
 	docker compose -f docker-compose.test.yml up -d --wait
+	./scripts/tls-postgres.sh
 	DFOX_IT_REQUIRED=1 \
+	DFOX_TEST_POSTGRES_TLS_URL=postgres://postgres:dfox@localhost:55433/postgres \
+	DFOX_TEST_POSTGRES_CA=$(CURDIR)/target/tls/ca.pem \
 	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:55432/postgres \
 	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:53306/dfox \
 	cargo test --workspace --locked
 
 test-it-down: ## Stop the integration-test databases
 	docker compose -f docker-compose.test.yml down
+	./scripts/tls-postgres.sh down
 
 bench: ## Benchmarks; Postgres and MySQL ones run against `make test-it`'s databases
 	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:55432/postgres \

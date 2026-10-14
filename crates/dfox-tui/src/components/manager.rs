@@ -312,6 +312,7 @@ impl Manager {
                 match connection.tls {
                     TlsMode::Prefer => "prefer",
                     TlsMode::Require => "require",
+                    TlsMode::VerifyFull => "verify",
                     TlsMode::Disable => "off",
                 }
                 .to_string(),

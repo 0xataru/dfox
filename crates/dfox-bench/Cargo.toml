@@ -19,6 +19,8 @@ ratatui = "0.30.2"
 tokio = { version = "1.40.0", features = ["full"] }
 
 [dev-dependencies]
+dfox-testkit = { path = "../dfox-testkit" }
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
 criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
 
 # The library holds shared data, not benchmarks; leaving it out keeps

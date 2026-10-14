@@ -37,6 +37,7 @@ pub struct Fetcher {
     overflow: Overflow,
     result: Option<ArrowResultSet>,
     rows_affected: u64,
+    notices: Vec<String>,
 }
 
 impl std::fmt::Debug for Fetcher {
@@ -60,6 +61,7 @@ impl Fetcher {
             overflow,
             result: None,
             rows_affected: 0,
+            notices: Vec::new(),
         }
     }
 
@@ -90,6 +92,7 @@ impl Fetcher {
                     }
                 }
                 Frame::Affected(rows) => self.rows_affected += rows,
+                Frame::Notice(message) => self.notices.push(message),
             }
         }
         self.stream = None;
@@ -118,6 +121,11 @@ impl Fetcher {
     /// Rows changed by the run's statements so far.
     pub fn rows_affected(&self) -> u64 {
         self.rows_affected
+    }
+
+    /// Messages the server sent so far, in order.
+    pub fn notices(&self) -> &[String] {
+        &self.notices
     }
 
     /// True once the run has ended.
@@ -159,13 +167,14 @@ mod tests {
 
     #[tokio::test]
     async fn a_run_is_read_to_the_end() {
-        let mut frames = vec![Ok(Frame::Affected(2))];
+        let mut frames = vec![Ok(Frame::Affected(2)), Ok(Frame::Notice("hi".into()))];
         frames.extend(ints(2500));
         frames.push(Ok(Frame::Affected(3)));
         let mut f = fetcher(frames, DEFAULT_BUDGET, Overflow::Stop);
         assert_eq!(f.fetch().await.expect("fetch"), FetchStatus::Done);
         assert!(f.is_done());
         assert_eq!(f.rows_affected(), 5);
+        assert_eq!(f.notices(), ["hi"]);
         let result = f.result().expect("result");
         assert_eq!(result.row_count(), 2500);
         assert!(result.is_complete());

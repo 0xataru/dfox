@@ -86,6 +86,8 @@ jobs:
       DFOX_IT_REQUIRED: "1"
       DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
       DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
+      DFOX_TEST_POSTGRES_TLS_URL: postgres://postgres:dfox@localhost:55433/postgres
+      DFOX_TEST_POSTGRES_CA: ${{ github.workspace }}/target/tls/ca.pem
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -94,6 +96,10 @@ jobs:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # A second Postgres with TLS and a test CA, for the verify-full tests.
+      - name: TLS Postgres
+        run: ./scripts/tls-postgres.sh
 
       - name: integration tests
         run: >-

@@ -50,7 +50,12 @@ impl Field {
 }
 
 const DRIVERS: [DbType; 3] = [DbType::Postgres, DbType::MySql, DbType::Sqlite];
-const TLS: [TlsMode; 3] = [TlsMode::Prefer, TlsMode::Require, TlsMode::Disable];
+const TLS: [TlsMode; 4] = [
+    TlsMode::Prefer,
+    TlsMode::Require,
+    TlsMode::VerifyFull,
+    TlsMode::Disable,
+];
 
 #[derive(Debug)]
 pub struct ConnectionForm {
@@ -295,6 +300,7 @@ impl Component for ConnectionForm {
                         match self.tls {
                             TlsMode::Prefer => "prefer",
                             TlsMode::Require => "require",
+                            TlsMode::VerifyFull => "verify",
                             TlsMode::Disable => "off",
                         }
                     ),

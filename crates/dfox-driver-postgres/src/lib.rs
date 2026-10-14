@@ -1,5 +1,7 @@
 //! PostgreSQL for dfox.
 
+pub mod native;
+
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use async_trait::async_trait;
@@ -48,6 +50,13 @@ impl Driver for PostgresDriver {
         DbType::Postgres
     }
 
+    fn open<'a>(
+        &'a self,
+        params: &'a ConnectionParams,
+    ) -> BoxFuture<'a, Result<Box<dyn dfox_core::session::Session>, DbError>> {
+        Box::pin(native::open(params))
+    }
+
     fn connect<'a>(
         &'a self,
         params: &'a ConnectionParams,
@@ -87,8 +96,12 @@ impl PostgresClient {
             .ssl_mode(match params.tls {
                 TlsMode::Prefer => PgSslMode::Prefer,
                 TlsMode::Require => PgSslMode::Require,
+                TlsMode::VerifyFull => PgSslMode::VerifyFull,
                 TlsMode::Disable => PgSslMode::Disable,
             });
+        if let Some(ca_file) = &params.ca_file {
+            options = options.ssl_root_cert(ca_file);
+        }
         if let Some(database) = &params.database {
             options = options.database(database);
         }

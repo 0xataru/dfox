@@ -45,8 +45,8 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
         if matches!(key.as_ref(), "sslmode" | "ssl-mode" | "ssl_mode") {
             connection.tls = match value.to_lowercase().as_str() {
                 "disable" | "disabled" => TlsMode::Disable,
-                "require" | "required" | "verify-ca" | "verify-full" | "verify_ca"
-                | "verify_identity" => TlsMode::Require,
+                "require" | "required" | "verify-ca" | "verify_ca" => TlsMode::Require,
+                "verify-full" | "verify_identity" => TlsMode::VerifyFull,
                 _ => TlsMode::Prefer,
             };
         }

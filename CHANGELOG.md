@@ -9,6 +9,22 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- A native PostgreSQL session on `tokio-postgres` and the binary protocol,
+  decoding rows straight into Arrow: integers, floats, exact `numeric`, text,
+  `bytea`, `uuid`, dates, times, timestamps (with `infinity`), intervals,
+  JSON, `inet`/`cidr`/`macaddr`, `money`, bit strings, points, arrays as
+  lists, enums and domains. Types without a decoder keep their bytes and
+  type name. It passes the driver test suite against a real server. The app
+  moves over in C4
+- The native session runs each statement of a script, keeps the last result,
+  reports `RAISE NOTICE` messages, cancels in milliseconds, browses tables
+  with filters, sorting and paging, and applies edits by primary key. A
+  catalog of 5,000 tables lists in about 25 ms
+- TLS `verify-full`: checks the server's certificate and host name against
+  the system's roots and an optional CA file (`ca_file`), for both Postgres
+  drivers and MySQL (`VerifyIdentity`). Connection errors now say why a TLS
+  handshake failed
+
 - Benchmarks (`make bench`): rows per second and time to the first rows for
   each database, memory for a million rows, and drawing the grid. Pull
   requests are compared with `main` on the same runner and fail on a clear

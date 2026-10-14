@@ -20,6 +20,10 @@ pub struct ConnectionParams {
     pub database: Option<String>,
     #[serde(default)]
     pub tls: TlsMode,
+    /// A PEM file of certificates to trust for [`TlsMode::VerifyFull`], on
+    /// top of the system's.
+    #[serde(default)]
+    pub ca_file: Option<String>,
     /// Refuse writes. The server enforces it: Postgres and MySQL start every
     /// session read-only, and SQLite opens the file read-only.
     #[serde(default)]
@@ -35,5 +39,9 @@ pub enum TlsMode {
     Prefer,
     /// Fail unless the connection is encrypted.
     Require,
+    /// Encrypt, and check the server's certificate and host name against
+    /// the system's trusted roots or [`ConnectionParams::ca_file`].
+    #[serde(rename = "verify-full")]
+    VerifyFull,
     Disable,
 }
