@@ -150,6 +150,11 @@ fn decode(c: &mut Criterion) {
         let client = rt.block_on(MySqlClient::connect(&url)).expect("MySQL");
         setup(&rt, &client, MYSQL_SETUP);
         bench(c, &rt, "mysql", &client, SELECT_ROWS);
+        let params = dfox_testkit::params_from_url(&url);
+        let mut session = rt
+            .block_on(dfox_driver_mysql::MySqlDriver.open(&params))
+            .expect("a native MySQL session");
+        bench_native(c, &rt, "mysql-native", session.as_mut(), SELECT_ROWS);
     }
 }
 

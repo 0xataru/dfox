@@ -1,6 +1,7 @@
 //! Tunnels through a real jump host, started by `scripts/ssh-server.sh`:
 //! every way of logging in, host keys that are unknown or changed, and a
-//! Postgres session that queries and cancels through the tunnel.
+//! Postgres session that queries and cancels through the tunnel, and a
+//! MySQL one over TLS.
 //!
 //! `DFOX_TEST_SSH_DIR` names the script's `target/ssh`; the jump host
 //! reaches the test Postgres as `host.docker.internal`.
@@ -289,4 +290,32 @@ async fn cancel_reaches_the_server_through_the_tunnel() {
 async fn without_ssh_open_connects_directly() {
     let Some(setup) = setup() else { return };
     select_one(&setup.postgres).await;
+}
+
+/// MySQL through the tunnel, encrypted: the session connects to the
+/// tunnel's end and still speaks TLS to the server behind it.
+#[tokio::test]
+async fn mysql_answers_through_the_tunnel_over_tls() {
+    use dfox_core::models::connections::TlsMode;
+
+    let Some(setup) = setup() else { return };
+    let Some(url) = server_url("DFOX_TEST_MYSQL_URL") else {
+        return;
+    };
+    let params = ConnectionParams {
+        host: HOST_FROM_JUMP.into(),
+        tls: TlsMode::Require,
+        ssh: Some(setup.ssh(setup.key("id_ed25519"))),
+        ..params_from_url(&url)
+    };
+    let mut session = dfox_ssh::open(&dfox_driver_mysql::MySqlDriver, &params)
+        .await
+        .expect("open through the tunnel");
+    let cipher = scalar(
+        session.as_mut(),
+        "SELECT VARIABLE_VALUE FROM performance_schema.session_status \
+         WHERE VARIABLE_NAME = 'Ssl_cipher'",
+    )
+    .await;
+    assert!(!cipher.is_empty(), "the connection is encrypted");
 }

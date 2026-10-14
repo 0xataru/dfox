@@ -11,7 +11,7 @@ databases). Expect ±10% between runs on a laptop.
 
 A stored table of a million rows (an integer, a text, an exact decimal, a
 timestamp and a boolean), read with `SELECT *`. sqlx drivers decode into
-cells; the native Postgres session decodes into Arrow batches.
+cells; the native sessions decode into Arrow batches.
 
 | Database | Rows/s | Whole table | First rows |
 |---|---:|---:|---:|
@@ -19,6 +19,7 @@ cells; the native Postgres session decodes into Arrow batches.
 | PostgreSQL, sqlx | 1.77 M | 564 ms | 7.9 ms |
 | **PostgreSQL, native** | **3.20 M** | **313 ms** | **3.7 ms** |
 | MySQL, sqlx | 1.45 M | 692 ms | 10.7 ms |
+| **MySQL, native** | **2.78 M** | **360 ms** | **3.6 ms** |
 
 The native Postgres session reads the table **1.80×** faster than sqlx, with
 the first rows in half the time, so C2's ≥ 1.5× target is met. Postgres
@@ -37,8 +38,13 @@ about 340 ms just to receive the rows with no client at all. Every client
 looked alike, 1.09× on macOS and 1.04× on Linux CI. A stored table is what
 people actually read.
 
-Targets still ahead: native SQLite at ≥ 2× the sqlx rows/s (about 1.4 M
-rows/s) and native MySQL faster than above, in C3.
+The native MySQL session (C3, recorded 2026-10-15 on the same machine) reads
+the table **1.85×** faster than sqlx (667 ms in the same run), with the first
+rows in a third of the time. It reads rows over the text protocol, as the
+`mysql` client does.
+
+Target still ahead: native SQLite at ≥ 2× the sqlx rows/s (about 1.4 M
+rows/s), in C3.
 
 ## Memory for a million rows
 
