@@ -9,6 +9,22 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- A native MySQL session on `mysql_async`, decoding rows straight into
+  Arrow: integers keep their width and sign, `TINYINT(1)` is a boolean,
+  `DECIMAL` stays exact, binary strings and `BIT` are bytes, and dates and
+  times keep MySQL's own text (zero dates, `TIME` past a day). It reads a
+  million rows 1.85× faster than sqlx, with the first rows in a third of the
+  time, and passes the driver test suite. A script goes to the server whole,
+  so procedures and triggers need no `DELIMITER`; procedures return every
+  result set, and the last statement's warnings show as notices
+- The native MySQL session cancels with `KILL QUERY` in a few milliseconds,
+  browses every database on the server with filters, sorting and paging,
+  applies edits by primary key in a transaction, and lists 5,000 tables in
+  about 35 ms (row estimates are left out above 1,000 tables, where MySQL
+  would open each one). TLS `prefer` falls back to a plain connection when
+  the server has none, `verify-full` checks the system's roots and the CA
+  file, and the connection works through an SSH tunnel
+
 - `dfox-ssh`: SSH tunnels for any driver, on `russh`. It logs in with
   ssh-agent, a key file (with or without a passphrase) or a password, and
   forwards a local port to the database. The jump host's key must be in

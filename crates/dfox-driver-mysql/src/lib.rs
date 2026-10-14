@@ -1,5 +1,7 @@
 //! MySQL for dfox.
 
+pub mod native;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
@@ -46,6 +48,13 @@ impl Driver for MySqlDriver {
 
     fn db_type(&self) -> DbType {
         DbType::MySql
+    }
+
+    fn open<'a>(
+        &'a self,
+        params: &'a ConnectionParams,
+    ) -> BoxFuture<'a, Result<Box<dyn dfox_core::session::Session>, DbError>> {
+        Box::pin(native::open(params))
     }
 
     fn connect<'a>(
