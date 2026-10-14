@@ -16,6 +16,7 @@ cells; the native sessions decode into Arrow batches.
 | Database | Rows/s | Whole table | First rows |
 |---|---:|---:|---:|
 | SQLite (in memory), sqlx | 0.68 M | 1,472 ms | 1.6 ms |
+| **SQLite (in memory), native** | **3.26 M** | **307 ms** | **2.5 ms** |
 | PostgreSQL, sqlx | 1.77 M | 564 ms | 7.9 ms |
 | **PostgreSQL, native** | **3.20 M** | **313 ms** | **3.7 ms** |
 | MySQL, sqlx | 1.45 M | 692 ms | 10.7 ms |
@@ -43,8 +44,9 @@ the table **1.85×** faster than sqlx (667 ms in the same run), with the first
 rows in a third of the time. It reads rows over the text protocol, as the
 `mysql` client does.
 
-Target still ahead: native SQLite at ≥ 2× the sqlx rows/s (about 1.4 M
-rows/s), in C3.
+The native SQLite session (C3, recorded 2026-10-15 on the same machine) reads
+the table **4.9×** faster than sqlx (1,495 ms in the same run), beating C3's
+≥ 2× target. Its first rows come with the first full batch of 8,192 rows.
 
 ## Memory for a million rows
 

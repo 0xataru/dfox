@@ -13,6 +13,7 @@ use dfox_core::{
     arrow::{Fetcher, Frame, Overflow, DEFAULT_BUDGET},
     db::{Chunk, DbClient},
     driver::Driver,
+    models::connections::ConnectionParams,
     result::ResultSet,
     session::{Request, Session},
 };
@@ -133,6 +134,22 @@ fn decode(c: &mut Criterion) {
         .expect("an in-memory SQLite database");
     setup(&rt, &sqlite, SQLITE_SETUP);
     bench(c, &rt, "sqlite", &sqlite, SELECT_ROWS);
+    let params = ConnectionParams {
+        database: Some(":memory:".into()),
+        ..Default::default()
+    };
+    let mut session = rt
+        .block_on(dfox_driver_sqlite::SqliteDriver.open(&params))
+        .expect("a native SQLite session");
+    for sql in SQLITE_SETUP {
+        rt.block_on(async {
+            let mut frames = session.run(Request::new(*sql)).await.expect("setup");
+            while let Some(frame) = frames.next().await {
+                frame.unwrap_or_else(|err| panic!("{sql}: {err}"));
+            }
+        });
+    }
+    bench_native(c, &rt, "sqlite-native", session.as_mut(), SELECT_ROWS);
 
     if let Ok(url) = std::env::var("DFOX_TEST_POSTGRES_URL") {
         let client = rt
