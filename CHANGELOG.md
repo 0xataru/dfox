@@ -9,6 +9,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The decode benchmark reads a stored table instead of generating rows in
+  the query, which made the server's work hide the client's. On it, the
+  native Postgres session reads a million rows 1.8× faster than sqlx (3.2 M
+  rows/s), with the first rows in half the time
 - A native PostgreSQL session on `tokio-postgres` and the binary protocol,
   decoding rows straight into Arrow: integers, floats, exact `numeric`, text,
   `bytea`, `uuid`, dates, times, timestamps (with `infinity`), intervals,

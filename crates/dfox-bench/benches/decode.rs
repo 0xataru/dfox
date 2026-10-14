@@ -1,5 +1,6 @@
-//! Streaming a million rows (an integer, a text and a float) from each
-//! database: rows per second, and how soon the first rows arrive.
+//! Reading a stored table of a million rows (an integer, a text, an exact
+//! decimal, a timestamp and a boolean) from each database: rows per second,
+//! and how soon the first rows arrive. The table is made before measuring.
 //!
 //! SQLite always runs, on an in-memory database. Postgres and MySQL run when
 //! `DFOX_TEST_POSTGRES_URL` / `DFOX_TEST_MYSQL_URL` are set.
@@ -7,7 +8,7 @@
 use std::time::{Duration, Instant};
 
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-use dfox_bench::{MYSQL_ROWS, POSTGRES_ROWS, ROWS, SQLITE_ROWS};
+use dfox_bench::{MYSQL_SETUP, POSTGRES_SETUP, ROWS, SELECT_ROWS, SQLITE_SETUP};
 use dfox_core::{
     arrow::{Fetcher, Frame, Overflow, DEFAULT_BUDGET},
     db::{Chunk, DbClient},
@@ -74,7 +75,7 @@ fn bench_native(c: &mut Criterion, rt: &Runtime, name: &str, session: &mut dyn S
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(20));
     group.throughput(Throughput::Elements(ROWS as u64));
-    group.bench_function("1M rows", |b| {
+    group.bench_function("1M table rows", |b| {
         b.iter_custom(|iters| {
             (0..iters)
                 .map(|_| rt.block_on(stream_native(&mut *session, sql)))
@@ -86,7 +87,7 @@ fn bench_native(c: &mut Criterion, rt: &Runtime, name: &str, session: &mut dyn S
     let mut group = c.benchmark_group(format!("first_row/{name}"));
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(20));
-    group.bench_function("1M rows", |b| {
+    group.bench_function("1M table rows", |b| {
         b.iter_custom(|iters| {
             (0..iters)
                 .map(|_| rt.block_on(first_native(&mut *session, sql)))
@@ -101,7 +102,7 @@ fn bench(c: &mut Criterion, rt: &Runtime, name: &str, client: &dyn DbClient, sql
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(20));
     group.throughput(Throughput::Elements(ROWS as u64));
-    group.bench_function("1M rows", |b| {
+    group.bench_function("1M table rows", |b| {
         b.iter_custom(|iters| (0..iters).map(|_| rt.block_on(stream(client, sql)).1).sum())
     });
     group.finish();
@@ -109,10 +110,18 @@ fn bench(c: &mut Criterion, rt: &Runtime, name: &str, client: &dyn DbClient, sql
     let mut group = c.benchmark_group(format!("first_row/{name}"));
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(20));
-    group.bench_function("1M rows", |b| {
+    group.bench_function("1M table rows", |b| {
         b.iter_custom(|iters| (0..iters).map(|_| rt.block_on(stream(client, sql)).0).sum())
     });
     group.finish();
+}
+
+/// Fills the benchmark table, one statement at a time.
+fn setup(rt: &Runtime, client: &dyn DbClient, statements: &[&str]) {
+    for sql in statements {
+        rt.block_on(client.execute(sql))
+            .unwrap_or_else(|err| panic!("{sql}: {err}"));
+    }
 }
 
 fn decode(c: &mut Criterion) {
@@ -122,22 +131,25 @@ fn decode(c: &mut Criterion) {
     let sqlite = rt
         .block_on(SqliteClient::connect("sqlite::memory:"))
         .expect("an in-memory SQLite database");
-    bench(c, &rt, "sqlite", &sqlite, SQLITE_ROWS);
+    setup(&rt, &sqlite, SQLITE_SETUP);
+    bench(c, &rt, "sqlite", &sqlite, SELECT_ROWS);
 
     if let Ok(url) = std::env::var("DFOX_TEST_POSTGRES_URL") {
         let client = rt
             .block_on(PostgresClient::connect(&url))
             .expect("Postgres");
-        bench(c, &rt, "postgres", &client, POSTGRES_ROWS);
+        setup(&rt, &client, POSTGRES_SETUP);
+        bench(c, &rt, "postgres", &client, SELECT_ROWS);
         let params = dfox_testkit::params_from_url(&url);
         let mut session = rt
             .block_on(dfox_driver_postgres::PostgresDriver.open(&params))
             .expect("a native Postgres session");
-        bench_native(c, &rt, "postgres-native", session.as_mut(), POSTGRES_ROWS);
+        bench_native(c, &rt, "postgres-native", session.as_mut(), SELECT_ROWS);
     }
     if let Ok(url) = std::env::var("DFOX_TEST_MYSQL_URL") {
         let client = rt.block_on(MySqlClient::connect(&url)).expect("MySQL");
-        bench(c, &rt, "mysql", &client, MYSQL_ROWS);
+        setup(&rt, &client, MYSQL_SETUP);
+        bench(c, &rt, "mysql", &client, SELECT_ROWS);
     }
 }
 
