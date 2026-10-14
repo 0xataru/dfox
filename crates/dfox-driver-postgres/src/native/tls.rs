@@ -14,7 +14,7 @@ use dfox_core::{
 use rustls::{
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider},
-    pki_types::{CertificateDer, ServerName, UnixTime},
+    pki_types::{pem::PemObject, CertificateDer, ServerName, UnixTime},
     ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme,
 };
 use tokio_postgres::{config::SslMode, tls::NoTls, CancelToken, Client, Config};
@@ -103,7 +103,7 @@ fn roots(ca_file: Option<&str>) -> Result<RootCertStore, DbError> {
     if let Some(path) = ca_file {
         let pem = std::fs::read(path)
             .map_err(|err| DbError::Config(format!("can't read {path}: {err}")))?;
-        let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut pem.as_slice())
+        let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(&pem)
             .collect::<Result<_, _>>()
             .map_err(|err| DbError::Config(format!("{path}: {err}")))?;
         if certs.is_empty() {
