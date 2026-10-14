@@ -26,6 +26,9 @@ use crate::errors::DbError;
 pub const TYPE_NAME: &str = "dfox.type";
 /// Field metadata key: set to `"true"` on text columns that hold JSON.
 pub const JSON: &str = "dfox.json";
+/// Field metadata key: set to `"true"` on text columns that hold exact
+/// decimals, so they read as numbers.
+pub const DECIMAL: &str = "dfox.decimal";
 
 /// One step of a run's output.
 #[derive(Debug, Clone)]
@@ -37,6 +40,9 @@ pub enum Frame {
     Batch(RecordBatch),
     /// A statement changed this many rows.
     Affected(u64),
+    /// A message the server sent while running, such as Postgres's
+    /// `RAISE NOTICE`.
+    Notice(String),
 }
 
 /// What a run sends back, in order. Ends after the last statement, or with
@@ -54,11 +60,19 @@ pub fn field(name: &str, data_type: DataType, type_name: &str) -> Field {
 
 /// A text field that holds JSON.
 pub fn json_field(name: &str, type_name: &str) -> Field {
-    let mut field = field(name, DataType::Utf8, type_name);
+    tagged_text(name, type_name, JSON)
+}
+
+/// A text field that holds exact decimals.
+pub fn decimal_field(name: &str, type_name: &str) -> Field {
+    tagged_text(name, type_name, DECIMAL)
+}
+
+fn tagged_text(name: &str, type_name: &str, tag: &str) -> Field {
+    let field = field(name, DataType::Utf8, type_name);
     let mut metadata = field.metadata().clone();
-    metadata.insert(JSON.to_string(), "true".to_string());
-    field = field.with_metadata(metadata);
-    field
+    metadata.insert(tag.to_string(), "true".to_string());
+    field.with_metadata(metadata)
 }
 
 /// The schema of `fields`, ready to share.

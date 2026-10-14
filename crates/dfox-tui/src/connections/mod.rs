@@ -130,6 +130,7 @@ impl Connection {
             password: String::new(),
             database: Some(database),
             tls: self.tls,
+            ca_file: None,
             read_only: self.read_only,
         }
     }

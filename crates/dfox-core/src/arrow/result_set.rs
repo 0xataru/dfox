@@ -11,14 +11,29 @@ use arrow_array::{
     Array, RecordBatch,
 };
 use arrow_cast::display::{ArrayFormatter, FormatOptions};
-use arrow_schema::{DataType, SchemaRef};
+use arrow_schema::{DataType, IntervalUnit, SchemaRef, TimeUnit};
 
-use super::{JSON, TYPE_NAME};
+use super::{DECIMAL, JSON, TYPE_NAME};
 use crate::result::{Cell, ColumnMeta, ResultSet};
 
 /// Text of the values of one batch column that have no borrowable form, such
 /// as decimals and dates, made the first time each is read.
 type Shown = OnceLock<Vec<OnceLock<Box<str>>>>;
+
+/// What a text column holds, from its field metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextKind {
+    Plain,
+    Json,
+    /// An exact decimal kept as text, so no digits are lost.
+    Decimal,
+}
+
+/// Dates and times as Postgres and most databases print them.
+const FORMAT: FormatOptions<'static> = FormatOptions::new()
+    .with_timestamp_format(Some("%Y-%m-%d %H:%M:%S%.f"))
+    .with_timestamp_tz_format(Some("%Y-%m-%d %H:%M:%S%.f%:z"))
+    .with_time_format(Some("%H:%M:%S%.f"));
 
 /// Rows held as Arrow batches. Numbers, booleans, text and bytes are read
 /// straight from the arrays; other types are formatted once, when first
@@ -27,7 +42,7 @@ type Shown = OnceLock<Vec<OnceLock<Box<str>>>>;
 pub struct ArrowResultSet {
     schema: SchemaRef,
     columns: Vec<ColumnMeta>,
-    json: Vec<bool>,
+    kinds: Vec<TextKind>,
     batches: Vec<RecordBatch>,
     /// The row each batch starts at.
     starts: Vec<usize>,
@@ -53,15 +68,24 @@ impl ArrowResultSet {
                 ColumnMeta::new(f.name().clone(), type_name)
             })
             .collect();
-        let json = schema
+        let kinds = schema
             .fields()
             .iter()
-            .map(|f| f.metadata().get(JSON).is_some_and(|v| v == "true"))
+            .map(|f| {
+                let flag = |key| f.metadata().get(key).is_some_and(|v| v == "true");
+                if flag(JSON) {
+                    TextKind::Json
+                } else if flag(DECIMAL) {
+                    TextKind::Decimal
+                } else {
+                    TextKind::Plain
+                }
+            })
             .collect();
         Self {
             schema,
             columns,
-            json,
+            kinds,
             batches: Vec::new(),
             starts: Vec::new(),
             shown: Vec::new(),
@@ -108,12 +132,8 @@ impl ArrowResultSet {
     fn shown(&self, batch: usize, col: usize, index: usize, array: &dyn Array) -> &str {
         let column = self.shown[batch][col]
             .get_or_init(|| (0..array.len()).map(|_| OnceLock::new()).collect());
-        column[index].get_or_init(|| {
-            ArrayFormatter::try_new(array, &FormatOptions::default())
-                .map(|f| f.value(index).to_string())
-                .unwrap_or_else(|err| format!("⟨{err}⟩"))
-                .into()
-        })
+        column[index]
+            .get_or_init(|| format_value(array, index, &self.columns[col].type_name).into())
     }
 }
 
@@ -136,12 +156,10 @@ impl ResultSet for ArrowResultSet {
         if array.is_null(index) {
             return Some(Cell::Null);
         }
-        let text = |s| {
-            if self.json[col] {
-                Cell::Json(s)
-            } else {
-                Cell::Text(s)
-            }
+        let text = |s| match self.kinds[col] {
+            TextKind::Plain => Cell::Text(s),
+            TextKind::Json => Cell::Json(s),
+            TextKind::Decimal => Cell::Decimal(s),
         };
         Some(match array.data_type() {
             DataType::Null => Cell::Null,
@@ -176,6 +194,84 @@ impl ResultSet for ArrowResultSet {
     fn is_complete(&self) -> bool {
         self.complete
     }
+}
+
+/// The text of a value with no borrowable form. `infinity` dates and
+/// timestamps are stored as the type's extremes; UUIDs as 16 bytes.
+fn format_value(array: &dyn Array, index: usize, type_name: &str) -> String {
+    let infinite = |max: bool| if max { "infinity" } else { "-infinity" }.to_string();
+    match array.data_type() {
+        DataType::Date32 => {
+            let days = array
+                .as_primitive::<arrow_array::types::Date32Type>()
+                .value(index);
+            if days == i32::MAX || days == i32::MIN {
+                return infinite(days == i32::MAX);
+            }
+        }
+        DataType::Timestamp(TimeUnit::Microsecond, _) => {
+            let micros = array
+                .as_primitive::<arrow_array::types::TimestampMicrosecondType>()
+                .value(index);
+            if micros == i64::MAX || micros == i64::MIN {
+                return infinite(micros == i64::MAX);
+            }
+        }
+        DataType::Interval(IntervalUnit::MonthDayNano) => {
+            let value = array
+                .as_primitive::<arrow_array::types::IntervalMonthDayNanoType>()
+                .value(index);
+            return interval(value.months, value.days, value.nanoseconds / 1000);
+        }
+        DataType::FixedSizeBinary(16) if type_name.eq_ignore_ascii_case("uuid") => {
+            let b = array.as_fixed_size_binary().value(index);
+            let hex: String = b.iter().map(|b| format!("{b:02x}")).collect();
+            return format!(
+                "{}-{}-{}-{}-{}",
+                &hex[0..8],
+                &hex[8..12],
+                &hex[12..16],
+                &hex[16..20],
+                &hex[20..32]
+            );
+        }
+        _ => {}
+    }
+    ArrayFormatter::try_new(array, &FORMAT)
+        .map(|f| f.value(index).to_string())
+        .unwrap_or_else(|err| format!("⟨{err}⟩"))
+}
+
+/// An interval the way Postgres prints one: `1 year 2 mons 3 days 04:05:06`.
+pub(crate) fn interval(months: i32, days: i32, micros: i64) -> String {
+    let mut parts = Vec::new();
+    let (years, months) = (months / 12, months % 12);
+    let plural = |n: i64, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+    if years != 0 {
+        parts.push(plural(years.into(), "year", "years"));
+    }
+    if months != 0 {
+        parts.push(plural(months.into(), "mon", "mons"));
+    }
+    if days != 0 {
+        parts.push(plural(days.into(), "day", "days"));
+    }
+    if micros != 0 || parts.is_empty() {
+        let sign = if micros < 0 { "-" } else { "" };
+        let total = micros.unsigned_abs();
+        let (secs, frac) = (total / 1_000_000, total % 1_000_000);
+        let mut time = format!(
+            "{sign}{:02}:{:02}:{:02}",
+            secs / 3600,
+            secs % 3600 / 60,
+            secs % 60
+        );
+        if frac != 0 {
+            time.push_str(format!(".{frac:06}").trim_end_matches('0'));
+        }
+        parts.push(time);
+    }
+    parts.join(" ")
 }
 
 #[cfg(test)]
@@ -279,7 +375,7 @@ mod tests {
                 "0xdead",
                 "123.45",
                 "2024-10-04",
-                "2023-11-14T22:13:20",
+                "2023-11-14 22:13:20",
                 "[a, b]",
                 "NULL",
             ]
@@ -288,6 +384,76 @@ mod tests {
         assert!(matches!(result.cell(0, 11), Some(Cell::Decimal("123.45"))));
         assert_eq!(result.columns()[0], ColumnMeta::new("i", "int2"));
         assert!(result.is_complete());
+    }
+
+    #[test]
+    fn database_values_print_as_the_database_prints_them() {
+        use arrow_array::types::IntervalMonthDayNano;
+        use arrow_array::{Date32Array, FixedSizeBinaryArray, IntervalMonthDayNanoArray};
+        let uuid = FixedSizeBinaryArray::try_from_iter(
+            [[
+                0xa0, 0xee, 0xbc, 0x99, 0x9c, 0x0b, 0x4e, 0xf8, 0xbb, 0x6d, 0x6b, 0xb9, 0xbd, 0x38,
+                0x0a, 0x11,
+            ]]
+            .into_iter(),
+        )
+        .expect("uuid");
+        let result = result(
+            vec![
+                crate::arrow::decimal_field("price", "numeric"),
+                field("id", DataType::FixedSizeBinary(16), "uuid"),
+                field("ever", DataType::Date32, "date"),
+                field("never", DataType::Date32, "date"),
+                field(
+                    "at",
+                    DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None),
+                    "timestamp",
+                ),
+                field(
+                    "took",
+                    DataType::Interval(arrow_schema::IntervalUnit::MonthDayNano),
+                    "interval",
+                ),
+            ],
+            vec![
+                Arc::new(StringArray::from(vec!["-12.50"])),
+                Arc::new(uuid),
+                Arc::new(Date32Array::from(vec![i32::MAX])),
+                Arc::new(Date32Array::from(vec![i32::MIN])),
+                Arc::new(TimestampMicrosecondArray::from(vec![i64::MAX])),
+                Arc::new(IntervalMonthDayNanoArray::from(vec![
+                    IntervalMonthDayNano::new(
+                        14,
+                        3,
+                        (4 * 3600 + 5 * 60 + 6) * 1_000_000_000 + 500_000_000,
+                    ),
+                ])),
+            ],
+        );
+        let cells: Vec<String> = (0..6)
+            .map(|col| result.cell(0, col).expect("cell").to_string())
+            .collect();
+        assert_eq!(
+            cells,
+            [
+                "-12.50",
+                "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+                "infinity",
+                "-infinity",
+                "infinity",
+                "1 year 2 mons 3 days 04:05:06.5",
+            ]
+        );
+        assert!(result.cell(0, 0).is_some_and(|c| c.is_numeric()));
+    }
+
+    #[test]
+    fn intervals_read_like_postgres() {
+        assert_eq!(interval(0, 0, 0), "00:00:00");
+        assert_eq!(interval(0, 1, 0), "1 day");
+        assert_eq!(interval(-12, -2, 0), "-1 years -2 days");
+        assert_eq!(interval(0, 0, -90_000_000), "-00:01:30");
+        assert_eq!(interval(1, 0, 3_600_000_123), "1 mon 01:00:00.000123");
     }
 
     #[test]

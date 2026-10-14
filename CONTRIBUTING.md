@@ -32,6 +32,8 @@ DFox is a Cargo workspace; every crate lives in `crates/`:
   Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, all on by
   default), so `cargo build -p dfox-tui --no-default-features --features sqlite`
   builds a SQLite-only binary.
+- `make test-it` also starts a second Postgres with TLS and a throwaway CA
+  (`scripts/tls-postgres.sh`) for the `verify-full` tests.
 - **`dfox-bench`**: benchmarks of decoding, memory and drawing (`make
   bench`), with the numbers to beat in `crates/dfox-bench/BASELINE.md`. Pull
   requests run them against `main` and fail on a clear slowdown of more than

@@ -87,8 +87,12 @@ impl MySqlClient {
             .ssl_mode(match params.tls {
                 TlsMode::Prefer => MySqlSslMode::Preferred,
                 TlsMode::Require => MySqlSslMode::Required,
+                TlsMode::VerifyFull => MySqlSslMode::VerifyIdentity,
                 TlsMode::Disable => MySqlSslMode::Disabled,
             });
+        if let Some(ca_file) = &params.ca_file {
+            options = options.ssl_ca(ca_file);
+        }
         if let Some(database) = &params.database {
             options = options.database(database);
         }

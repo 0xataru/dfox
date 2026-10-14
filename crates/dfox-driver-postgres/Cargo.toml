@@ -13,6 +13,16 @@ futures-util = { version = "0.3.31", default-features = false, features = ["allo
 log = "0.4.21"
 sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres"] }
 tokio = { version = "1.40.0", features = ["full"] }
+tokio-postgres = "0.7.18"
+tokio-postgres-rustls = { version = "0.14.0", features = ["ring"] }
+postgres-types = "0.2.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-native-certs = "0.8.5"
+rustls-pemfile = "2.2.0"
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"
+dfox-sql = { version = "0.2.0", path = "../dfox-sql" }
+arrow-buffer = "60.0.0"
 
 [dev-dependencies]
 dfox-testkit = { path = "../dfox-testkit" }
