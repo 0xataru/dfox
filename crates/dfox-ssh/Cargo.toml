@@ -1,0 +1,21 @@
+[package]
+name = "dfox-ssh"
+description = "SSH tunnels for dfox: reach a database through a jump host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dfox-core = { path = "../dfox-core" }
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+log = "0.4.21"
+russh = { version = "0.64.1", default-features = false, features = ["ring", "rsa", "flate2"] }
+tokio = { version = "1.40.0", features = ["full"] }
+
+[dev-dependencies]
+dfox-driver-postgres = { path = "../dfox-driver-postgres" }
+dfox-testkit = { path = "../dfox-testkit" }
+
+[lints]
+workspace = true
