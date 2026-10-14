@@ -25,6 +25,12 @@ the first rows in half the time, so C2's ≥ 1.5× target is met. Postgres
 itself takes about 172 ms to send this table (`COPY … TO '/dev/null'`), so
 the native client's own work is about 140 ms of the 313.
 
+On a GitHub Actions runner (Linux, Postgres as a service container on the
+same 4-vCPU machine) the same benchmark gives sqlx 826 ms and native 668 ms:
+**1.24×**. The server and the client share those cores there, and the
+server's share of the time is larger, so the client's lead shrinks. Judge
+drivers on the laptop numbers above and use CI only to catch regressions.
+
 An earlier version of this benchmark generated the rows in the query
 (`generate_series` with arithmetic). That made the server's work dominate:
 about 340 ms just to receive the rows with no client at all. Every client
