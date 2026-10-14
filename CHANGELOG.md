@@ -9,6 +9,17 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- A native SQLite session on `rusqlite`, with the connection on a thread of
+  its own, decoding rows straight into Arrow. It reads a million rows 4.9×
+  faster than sqlx and passes the driver test suite. SQLite types each value,
+  so a column takes the type of its first value and widens as others arrive
+  (integers and reals together stay exact as decimals; text and blobs make
+  text) without losing a value. Scripts are split by SQLite itself, so
+  trigger bodies stay whole; a cancel interrupts in microseconds; the
+  catalog lists `main`, `temp` and attached databases with their tables,
+  views, columns and indexes; edits apply inside a savepoint, so they work
+  in an open transaction too. A missing file is an error, not a new empty
+  database
 - A native MySQL session on `mysql_async`, decoding rows straight into
   Arrow: integers keep their width and sign, `TINYINT(1)` is a boolean,
   `DECIMAL` stays exact, binary strings and `BIT` are bytes, and dates and

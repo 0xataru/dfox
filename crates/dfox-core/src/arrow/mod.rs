@@ -34,7 +34,9 @@ pub const DECIMAL: &str = "dfox.decimal";
 #[derive(Debug, Clone)]
 pub enum Frame {
     /// A statement returns rows with this schema. The batches that follow
-    /// belong to it, until the next `Schema`.
+    /// belong to it, until the next `Schema`. A driver that learns column
+    /// types only as rows arrive (SQLite) may send the schema again, wider,
+    /// followed by every row so far: the result starts over.
     Schema(SchemaRef),
     /// Rows of the current result set.
     Batch(RecordBatch),

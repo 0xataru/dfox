@@ -1,5 +1,7 @@
 //! SQLite for dfox.
 
+pub mod native;
+
 use async_trait::async_trait;
 use futures_util::future::BoxFuture;
 use sqlx::{
@@ -59,6 +61,13 @@ impl Driver for SqliteDriver {
 
     fn db_type(&self) -> DbType {
         DbType::Sqlite
+    }
+
+    fn open<'a>(
+        &'a self,
+        params: &'a ConnectionParams,
+    ) -> BoxFuture<'a, Result<Box<dyn dfox_core::session::Session>, DbError>> {
+        Box::pin(native::open(params))
     }
 
     fn connect<'a>(
