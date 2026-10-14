@@ -36,6 +36,7 @@ A Cargo workspace, with every crate in `crates/`:
 
 - **dfox-core**: the driver interfaces, query results and the engine that runs database work in the background.
 - **dfox-driver-postgres**, **dfox-driver-mysql**, **dfox-driver-sqlite**: one crate per database.
+- **dfox-ssh**: SSH tunnels to databases behind a jump host.
 - **dfox-sql**: highlighting, statement splitting, autocomplete context and the destructive-query guard.
 - **dfox-tui**: the terminal app. Each database is a cargo feature, so a smaller build can leave drivers out: `cargo build --release -p dfox-tui --no-default-features --features sqlite`.
 

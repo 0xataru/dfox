@@ -88,6 +88,7 @@ jobs:
       DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
       DFOX_TEST_POSTGRES_TLS_URL: postgres://postgres:dfox@localhost:55433/postgres
       DFOX_TEST_POSTGRES_CA: ${{ github.workspace }}/target/tls/ca.pem
+      DFOX_TEST_SSH_DIR: ${{ github.workspace }}/target/ssh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -101,10 +102,14 @@ jobs:
       - name: TLS Postgres
         run: ./scripts/tls-postgres.sh
 
+      # An SSH jump host in front of the test Postgres, for the tunnel tests.
+      - name: SSH jump host
+        run: ./scripts/ssh-server.sh
+
       - name: integration tests
         run: >-
           cargo test --locked --tests
-          -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-testkit
+          -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-ssh -p dfox-testkit
 
   # Benchmarks of main and of the change, on the same runner one after the
   # other, so they compare fairly. Fails when a benchmark is more than 10%

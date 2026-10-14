@@ -30,10 +30,12 @@ lint: ## Run clippy with warnings as errors
 test: ## Run the test suite (Postgres/MySQL integration tests skip themselves)
 	cargo test --workspace --locked
 
-test-it: ## Run the test suite against real Postgres and MySQL (needs Docker)
+test-it: ## Run the test suite against real Postgres, MySQL and an SSH jump host (needs Docker)
 	docker compose -f docker-compose.test.yml up -d --wait
 	./scripts/tls-postgres.sh
+	./scripts/ssh-server.sh
 	DFOX_IT_REQUIRED=1 \
+	DFOX_TEST_SSH_DIR=$(CURDIR)/target/ssh \
 	DFOX_TEST_POSTGRES_TLS_URL=postgres://postgres:dfox@localhost:55433/postgres \
 	DFOX_TEST_POSTGRES_CA=$(CURDIR)/target/tls/ca.pem \
 	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:55432/postgres \
@@ -43,6 +45,7 @@ test-it: ## Run the test suite against real Postgres and MySQL (needs Docker)
 test-it-down: ## Stop the integration-test databases
 	docker compose -f docker-compose.test.yml down
 	./scripts/tls-postgres.sh down
+	./scripts/ssh-server.sh down
 
 bench: ## Benchmarks; Postgres and MySQL ones run against `make test-it`'s databases
 	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:55432/postgres \

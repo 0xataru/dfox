@@ -9,6 +9,15 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- `dfox-ssh`: SSH tunnels for any driver, on `russh`. It logs in with
+  ssh-agent, a key file (with or without a passphrase) or a password, and
+  forwards a local port to the database. The jump host's key must be in
+  `known_hosts`: an unknown key is refused with its fingerprint and the
+  `ssh-keyscan` command that adds it, and a changed key is always refused.
+  TLS through the tunnel still verifies the database's own host name, and
+  cancelling works through it. Connections gain an `ssh` section; the app
+  gets fields for it in C4
+
 - The decode benchmark reads a stored table instead of generating rows in
   the query, which made the server's work hide the client's. On it, the
   native Postgres session reads a million rows 1.8× faster than sqlx (3.2 M

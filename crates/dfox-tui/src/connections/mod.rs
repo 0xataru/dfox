@@ -131,6 +131,8 @@ impl Connection {
             database: Some(database),
             tls: self.tls,
             ca_file: None,
+            ssh: None,
+            tunnel: None,
             read_only: self.read_only,
         }
     }

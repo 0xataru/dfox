@@ -62,10 +62,12 @@ pub async fn open(params: &ConnectionParams) -> Result<Box<dyn Session>, DbError
 }
 
 fn config(params: &ConnectionParams) -> Config {
+    // Through a tunnel: connect to its local end, verify TLS for the host.
+    let port = params.tunnel.map_or(params.port, |tunnel| tunnel.port());
     let mut config = Config::new();
     config
         .host(&params.host)
-        .port(params.port)
+        .port(port)
         .user(&params.username)
         .password(&params.password)
         .application_name("dfox")
@@ -73,6 +75,9 @@ fn config(params: &ConnectionParams) -> Config {
         .connect_timeout(Duration::from_secs(10));
     if let Some(database) = &params.database {
         config.dbname(database);
+    }
+    if let Some(tunnel) = params.tunnel {
+        config.hostaddr(tunnel.ip());
     }
     if params.read_only {
         config.options("-c default_transaction_read_only=on");
@@ -326,4 +331,33 @@ async fn flush(
     let batch = RecordBatch::try_new(schema.clone(), arrays)
         .map_err(|err| DbError::General(format!("building a batch: {err}")))?;
     send(tx, Frame::Batch(batch)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    use tokio_postgres::config::Host;
+
+    use super::*;
+
+    #[test]
+    fn a_tunnel_replaces_the_address_but_keeps_the_host_name_for_tls() {
+        let params = ConnectionParams {
+            host: "db.internal".into(),
+            port: 5432,
+            ..Default::default()
+        };
+        let direct = config(&params);
+        assert_eq!(direct.get_ports(), [5432]);
+        assert!(direct.get_hostaddrs().is_empty());
+
+        let through = config(&ConnectionParams {
+            tunnel: Some(SocketAddr::from((Ipv4Addr::LOCALHOST, 40000))),
+            ..params
+        });
+        assert_eq!(through.get_ports(), [40000]);
+        assert_eq!(through.get_hostaddrs(), [IpAddr::from(Ipv4Addr::LOCALHOST)]);
+        assert!(matches!(through.get_hosts(), [Host::Tcp(host)] if host == "db.internal"));
+    }
 }
