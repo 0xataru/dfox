@@ -32,8 +32,6 @@ DFox is a Cargo workspace; every crate lives in `crates/`:
   Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, all on by
   default), so `cargo build -p dfox-tui --no-default-features --features sqlite`
   builds a SQLite-only binary.
-- `make test-it` also starts a second Postgres with TLS and a throwaway CA
-  (`scripts/tls-postgres.sh`) for the `verify-full` tests.
 - **`dfox-bench`**: benchmarks of decoding, memory and drawing (`make
   bench`), with the numbers to beat in `crates/dfox-bench/BASELINE.md`. Pull
   requests run them against `main` and fail on a clear slowdown of more than
@@ -112,6 +110,8 @@ on `main`**.
 | `make check` | Everything CI requires: `fmt-check`, `lint`, `test` |
 | `make run` | Run the TUI |
 | `make test` | The test suite |
+| `make test-it` | The test suite against Postgres and MySQL in Docker, plus a second Postgres with TLS and a throwaway CA (`scripts/tls-postgres.sh`) for the `verify-full` tests |
+| `make bench` | The benchmarks; Postgres and MySQL ones need `make test-it`'s databases |
 | `make fmt` | Format the workspace with rustfmt |
 | `make lint` | clippy with warnings as errors |
 | `make cover` | Line coverage with an HTML report (needs `cargo-llvm-cov`) |
