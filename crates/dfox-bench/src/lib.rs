@@ -3,8 +3,8 @@
 //!
 //! The benchmarks:
 //!
-//! - `decode`: time to the first row, and rows per second, streaming a
-//!   million rows from each database. SQLite always runs; Postgres and MySQL
+//! - `decode`: time to the first row, and rows per second, reading a stored
+//!   table of a million rows from each database. SQLite always runs; Postgres and MySQL
 //!   run when `DFOX_TEST_POSTGRES_URL` / `DFOX_TEST_MYSQL_URL` are set, as in
 //!   `make test-it`.
 //! - `grid`: drawing a 200×60 grid over a million rows.
@@ -74,21 +74,48 @@ pub fn arrow_result(rows: usize, columns: usize) -> ArrowResultSet {
     result
 }
 
-/// A million rows of an integer, a text and a float, on Postgres.
-pub const POSTGRES_ROWS: &str =
-    "SELECT i, 'row ' || i, i * 1.5 FROM generate_series(1, 1000000) AS i";
+/// What the decode benchmark reads: a stored table, as a real `SELECT`
+/// does. Generating rows in the query instead makes the server's work
+/// dominate, which hides the client's.
+pub const SELECT_ROWS: &str = "SELECT * FROM dfox_bench_rows";
+
+/// Statements that fill `dfox_bench_rows` with a million rows of an
+/// integer, a text, an exact decimal, a timestamp and a boolean, one
+/// statement at a time.
+pub const POSTGRES_SETUP: &[&str] = &[
+    "DROP TABLE IF EXISTS dfox_bench_rows",
+    "CREATE TABLE dfox_bench_rows AS \
+     SELECT i, 'row ' || i AS label, i * 1.5 AS score, \
+            timestamptz '2026-01-01' + i * interval '1 second' AS at, i % 2 = 0 AS even \
+     FROM generate_series(1, 1000000) AS i",
+    "VACUUM ANALYZE dfox_bench_rows",
+];
 
 /// The same on MySQL: a thousand rows joined with themselves, so the server
 /// doesn't recurse a million times.
-pub const MYSQL_ROWS: &str =
-    "WITH RECURSIVE t(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM t WHERE n < 999) \
-     SELECT a.n * 1000 + b.n AS i, CONCAT('row ', a.n * 1000 + b.n), (a.n * 1000 + b.n) * 1.5 \
-     FROM t AS a, t AS b";
+pub const MYSQL_SETUP: &[&str] = &[
+    "DROP TABLE IF EXISTS dfox_bench_rows",
+    "CREATE TABLE dfox_bench_rows \
+     (i INT, label TEXT, score DECIMAL(12, 1), at DATETIME(6), even BOOLEAN)",
+    "INSERT INTO dfox_bench_rows \
+     WITH RECURSIVE t(n) AS (SELECT 0 UNION ALL SELECT n + 1 FROM t WHERE n < 999) \
+     SELECT a.n * 1000 + b.n + 1, CONCAT('row ', a.n * 1000 + b.n + 1), \
+            (a.n * 1000 + b.n + 1) * 1.5, \
+            TIMESTAMP '2026-01-01 00:00:00' + INTERVAL (a.n * 1000 + b.n + 1) SECOND, \
+            (a.n * 1000 + b.n + 1) % 2 = 0 \
+     FROM t AS a, t AS b",
+];
 
 /// The same on SQLite.
-pub const SQLITE_ROWS: &str =
-    "WITH RECURSIVE t(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM t WHERE i < 1000000) \
-     SELECT i, 'row ' || i, i * 1.5 FROM t";
+pub const SQLITE_SETUP: &[&str] = &[
+    "DROP TABLE IF EXISTS dfox_bench_rows",
+    "CREATE TABLE dfox_bench_rows \
+     (i INTEGER, label TEXT, score NUMERIC, at TIMESTAMP, even BOOLEAN)",
+    "INSERT INTO dfox_bench_rows \
+     WITH RECURSIVE t(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM t WHERE i < 1000000) \
+     SELECT i, 'row ' || i, i * 1.5, datetime('2026-01-01', '+' || i || ' seconds'), i % 2 = 0 \
+     FROM t",
+];
 
 #[cfg(test)]
 mod tests {
