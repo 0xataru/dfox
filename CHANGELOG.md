@@ -7,126 +7,68 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
-### Removed
-
-- sqlx, and with it the `DbClient` interface, the cell storage (`RowStore`)
-  and `async-trait`: every database runs on its native session. The release
-  binary is 13.2 MB (from 14.4 MB with both, and 10.6 MB in v0.2.0 on sqlx
-  alone, which had no Arrow, SSH or TLS verification)
-
-### Changed
-
-- SQLite 3.51.3 (was 3.46) through rusqlite 0.40, which no longer has to share
-  sqlx's SQLite build
-- The app runs on the native sessions: rows arrive as Arrow batches, the
-  explorer walks each driver's catalog tree (so MySQL shows every database,
-  with tables right under it, and SQLite shows `main` and attached
-  databases), and the SQL dialect comes from the session. Sessions open
-  through `dfox-ssh`, so a connection with SSH details goes through a
-  tunnel; the connection form gets the fields next. Server notices and
-  MySQL warnings show as toasts. The explorer keeps browsing while a query
-  runs
+## [0.3.0] - 2026-10-16
 
 ### Added
 
-- Connections can go through an SSH jump host: the connection form has an
-  SSH section (host, port, user, and login by ssh-agent, key file or
-  password, with an optional known_hosts file). The SSH password or key
-  passphrase is kept in the keychain, and asked for when it isn't saved.
-  The manager shows the jump host, and checks that it is reachable
-- A CA file for TLS `verify`, to trust a private certificate authority
-
-- A native SQLite session on `rusqlite`, with the connection on a thread of
-  its own, decoding rows straight into Arrow. It reads a million rows 4.9×
-  faster than sqlx and passes the driver test suite. SQLite types each value,
-  so a column takes the type of its first value and widens as others arrive
-  (integers and reals together stay exact as decimals; text and blobs make
-  text) without losing a value. Scripts are split by SQLite itself, so
-  trigger bodies stay whole; a cancel interrupts in microseconds; the
-  catalog lists `main`, `temp` and attached databases with their tables,
-  views, columns and indexes; edits apply inside a savepoint, so they work
-  in an open transaction too. A missing file is an error, not a new empty
-  database
-- A native MySQL session on `mysql_async`, decoding rows straight into
-  Arrow: integers keep their width and sign, `TINYINT(1)` is a boolean,
-  `DECIMAL` stays exact, binary strings and `BIT` are bytes, and dates and
-  times keep MySQL's own text (zero dates, `TIME` past a day). It reads a
-  million rows 1.85× faster than sqlx, with the first rows in a third of the
-  time, and passes the driver test suite. A script goes to the server whole,
-  so procedures and triggers need no `DELIMITER`; procedures return every
-  result set, and the last statement's warnings show as notices
-- The native MySQL session cancels with `KILL QUERY` in a few milliseconds,
-  browses every database on the server with filters, sorting and paging,
-  applies edits by primary key in a transaction, and lists 5,000 tables in
-  about 35 ms (row estimates are left out above 1,000 tables, where MySQL
-  would open each one). TLS `prefer` falls back to a plain connection when
-  the server has none, `verify-full` checks the system's roots and the CA
-  file, and the connection works through an SSH tunnel
-
-- `dfox-ssh`: SSH tunnels for any driver, on `russh`. It logs in with
-  ssh-agent, a key file (with or without a passphrase) or a password, and
-  forwards a local port to the database. The jump host's key must be in
-  `known_hosts`: an unknown key is refused with its fingerprint and the
+- A native engine. Every database runs on its own client and decodes rows
+  straight into Apache Arrow: PostgreSQL on `tokio-postgres` and its binary
+  protocol, MySQL and MariaDB on `mysql_async`, SQLite on `rusqlite`.
+  Reading a million rows is 1.8× faster on PostgreSQL, 1.85× on MySQL and
+  4.9× on SQLite, and the first rows show sooner. A million rows of four
+  columns take about 54 MB
+- PostgreSQL shows `numeric` exactly, and decodes intervals, `uuid`,
+  `inet`/`cidr`/`macaddr`, `money`, bit strings, points, arrays, enums and
+  domains; a type with no decoder keeps its bytes rather than turning into
+  NULL. `RAISE NOTICE` messages show as toasts
+- MySQL keeps each integer's width and sign, reads `TINYINT(1)` as a
+  boolean, keeps `DECIMAL` exact, shows binary strings and `BIT` as bytes,
+  and prints dates and times as MySQL does, zero dates and long `TIME`
+  values included. A script goes to the server whole, so procedures and
+  triggers need no `DELIMITER`, and `CALL` returns every result set.
+  Warnings show as toasts
+- SQLite handles each value's own type: a column takes the type of its first
+  value and widens as others arrive, without losing any. Trigger bodies stay
+  whole in scripts
+- Cancelling stops a query within milliseconds on every database
+- SSH jump hosts: a connection can go through one, logging in with your
+  ssh-agent, a key file or a password. The jump host's key must be in
+  `known_hosts` (or a file you choose): an unknown key is refused with the
   `ssh-keyscan` command that adds it, and a changed key is always refused.
-  TLS through the tunnel still verifies the database's own host name, and
-  cancelling works through it. Connections gain an `ssh` section; the app
-  gets fields for it in C4
-
-- The decode benchmark reads a stored table instead of generating rows in
-  the query, which made the server's work hide the client's. On it, the
-  native Postgres session reads a million rows 1.8× faster than sqlx (3.2 M
-  rows/s), with the first rows in half the time
-- A native PostgreSQL session on `tokio-postgres` and the binary protocol,
-  decoding rows straight into Arrow: integers, floats, exact `numeric`, text,
-  `bytea`, `uuid`, dates, times, timestamps (with `infinity`), intervals,
-  JSON, `inet`/`cidr`/`macaddr`, `money`, bit strings, points, arrays as
-  lists, enums and domains. Types without a decoder keep their bytes and
-  type name. It passes the driver test suite against a real server. The app
-  moves over in C4
-- The native session runs each statement of a script, keeps the last result,
-  reports `RAISE NOTICE` messages, cancels in milliseconds, browses tables
-  with filters, sorting and paging, and applies edits by primary key. A
-  catalog of 5,000 tables lists in about 25 ms
-- TLS `verify-full`: checks the server's certificate and host name against
-  the system's roots and an optional CA file (`ca_file`), for both Postgres
-  drivers and MySQL (`VerifyIdentity`). Connection errors now say why a TLS
-  handshake failed
-
-- Benchmarks (`make bench`): rows per second and time to the first rows for
-  each database, memory for a million rows, and drawing the grid. Pull
-  requests are compared with `main` on the same runner and fail on a clear
-  slowdown of more than 10%. The numbers to beat are in
-  `crates/dfox-bench/BASELINE.md`
-
-- `dfox-core`: the session interfaces for drivers on native clients. A
-  `Session` runs requests and streams results as Apache Arrow record batches,
-  exposes a `Catalog` tree (children, describe, and browsing with filters,
-  sorting and paging), applies `ChangeSet` edits by primary key, and has a
-  `CancelHandle`. `Capabilities` tell the app what a session supports.
-  Drivers describe themselves with `DriverInfo` and their connection form
-  with a `FormSpec`
-- `dfox-core`: `ArrowResultSet` serves Arrow batches to the result grid
-  through the existing `ResultSet` interface, formatting only the cells that
-  are read. `Fetcher` reads a result within a memory budget (256 MB by
-  default) and fetches more on request. Ten million integers take 80 MB
-- `dfox-testkit`: a conformance suite every driver's session must pass, and
-  a mock driver that passes it
+  TLS still checks the database's own name. The SSH password or key
+  passphrase is kept in the keychain, and asked for when it isn't saved
+- TLS `verify` checks the server's certificate and name against the
+  system's roots and an optional CA file, for PostgreSQL and MySQL. A
+  failed handshake says why. On MySQL, `prefer` falls back to a plain
+  connection when the server has no TLS
+- The explorer shows every MySQL database with its tables, and SQLite's
+  `main` and attached databases; it keeps browsing while a query runs, and
+  lists 5,000 tables in about 30 ms
+- Benchmarks (`make bench`) for reading, memory and drawing the grid. Pull
+  requests are compared with `main` and fail on a clear slowdown
 
 ### Changed
 
-- Release builds use whole-program optimisation, a single codegen unit,
-  abort on panic and the mimalloc allocator: the binary went from 18.8 MB to
-  10.6 MB
-- The workspace moved to `crates/`, and each database is now its own crate:
-  `dfox-driver-postgres`, `dfox-driver-mysql` and `dfox-driver-sqlite`. They
-  are cargo features of `dfox-tui`, all on by default, so
-  `--no-default-features --features sqlite` builds a SQLite-only binary
+- The release binary is 13.2 MB, down from 18.8 MB in v0.2.0, with
+  whole-program optimisation, one codegen unit, abort on panic and the
+  mimalloc allocator
+- Each database is its own crate (`dfox-driver-postgres`,
+  `dfox-driver-mysql`, `dfox-driver-sqlite`) and a cargo feature of
+  `dfox-tui`, all on by default: `--no-default-features --features sqlite`
+  builds a SQLite-only binary
 - The SQL helpers (highlighting, statement splitting, autocomplete context,
-  the destructive-statement guard) moved to a new `dfox-sql` crate
-- `dfox-core` no longer knows any database. A `Driver` trait connects, and
-  `engine::spawn` takes the `Drivers` an app was built with. `DbManager` and
-  `ConnectionConfig` are gone: `ping` is `dfox_core::driver::ping`, and each
-  driver crate exports its client and its `Driver`
+  the destructive-statement guard) are a crate of their own, `dfox-sql`
+- For library users: `dfox-core` knows no database. A `Driver` opens a
+  `Session` that streams Arrow batches, exposes a `Catalog` tree, applies
+  edits by primary key and can be cancelled; `Capabilities` say what it
+  supports. The engine runs on sessions and opens them through an `Opener`,
+  such as `dfox_ssh::open`. `dfox-testkit` holds the suite every driver
+  passes
+
+### Removed
+
+- sqlx, and with it `DbClient`, `RowStore`, `DbManager`, `ConnectionConfig`
+  and `async-trait`
 
 ## [0.2.0] - 2026-10-13
 
