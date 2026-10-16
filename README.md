@@ -242,8 +242,33 @@ dot shows whether it is reachable and a sparkline shows its latency.
 
 A connection can be **read-only**: the server refuses writes (Postgres and
 MySQL start the session read-only, SQLite opens the file read-only). **TLS**
-can be `prefer` (the default), `require` or turned off, and a coloured **tag**
-marks it in the list and the status bar.
+can be `prefer` (the default), `require`, `verify` (the server's certificate
+and name are checked against the system's roots and an optional **CA file**)
+or turned off, and a coloured **tag** marks it in the list and the status bar.
+
+A connection can go through an **SSH jump host** when the database isn't
+reachable directly. dfox logs in with your ssh-agent, a key file or a
+password, and forwards a local port to the database; TLS still checks the
+database's own name. The jump host's key must be in `~/.ssh/known_hosts` (or
+the file you choose): an unknown key is refused with the `ssh-keyscan`
+command that adds it, and a changed key is always refused. The SSH password
+or key passphrase goes to the keychain like the database password, and dfox
+asks for an SSH password that isn't saved. In `connections.toml`:
+
+```toml
+[[connection]]
+name = "prod"
+driver = "postgres"
+host = "db.internal"
+database = "shop"
+user = "app"
+
+[connection.ssh]
+host = "bastion.example.com"
+user = "me"
+login = "key"               # agent, key or password
+key = "~/.ssh/id_ed25519"
+```
 
 ## Contributing
 

@@ -1,7 +1,8 @@
 //! Saved connections, and connections found on this machine.
 //!
 //! Saved connections live in `connections.toml` in the config directory.
-//! Passwords never do: they go to the OS keychain ([`secrets`]).
+//! Passwords never do: they go to the OS keychain ([`secrets`]), and so do
+//! SSH passwords and key passphrases.
 
 pub mod pgpass;
 pub mod secrets;
@@ -9,7 +10,7 @@ pub mod url;
 
 use std::path::{Path, PathBuf};
 
-use dfox_core::models::connections::{ConnectionParams, DbType, TlsMode};
+use dfox_core::models::connections::{ConnectionParams, DbType, SshAuth, SshParams, TlsMode};
 use serde::{Deserialize, Serialize};
 
 /// A colour to tell connections apart, such as red for production.
@@ -50,6 +51,87 @@ impl Tag {
     }
 }
 
+/// How to log in to an SSH jump host.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SshLogin {
+    /// With the keys in the user's ssh-agent.
+    #[default]
+    Agent,
+    /// With a key file, and its passphrase from the keychain if it has one.
+    Key,
+    /// With a password from the keychain.
+    Password,
+}
+
+impl SshLogin {
+    pub const ALL: [SshLogin; 3] = [SshLogin::Agent, SshLogin::Key, SshLogin::Password];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            SshLogin::Agent => "agent",
+            SshLogin::Key => "key",
+            SshLogin::Password => "password",
+        }
+    }
+}
+
+/// An SSH jump host the connection goes through. Its secret, a password or
+/// a key passphrase, is in the keychain.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ssh {
+    pub host: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub user: String,
+    #[serde(default)]
+    pub login: SshLogin,
+    /// The private key file, for [`SshLogin::Key`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Where the jump host's key is checked; `~/.ssh/known_hosts` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub known_hosts: Option<String>,
+}
+
+impl Ssh {
+    /// The driver's SSH details, with the secret from the keychain.
+    fn params(&self, secret: Option<&str>) -> SshParams {
+        let secret = secret.map(str::to_string);
+        SshParams {
+            host: self.host.clone(),
+            port: self.port,
+            user: self.user.clone(),
+            auth: match self.login {
+                SshLogin::Agent => SshAuth::Agent { socket: None },
+                SshLogin::Key => SshAuth::Key {
+                    path: expand_home(self.key.as_deref().unwrap_or_default()),
+                    passphrase: secret,
+                },
+                SshLogin::Password => SshAuth::Password {
+                    password: secret.unwrap_or_default(),
+                },
+            },
+            known_hosts: self.known_hosts.as_deref().map(expand_home),
+        }
+    }
+}
+
+/// `path` with a leading `~/` turned into the home directory.
+pub fn expand_home(path: &str) -> String {
+    match (path.strip_prefix("~/"), directories::BaseDirs::new()) {
+        (Some(rest), Some(dirs)) => dirs.home_dir().join(rest).to_string_lossy().into_owned(),
+        _ => path.to_string(),
+    }
+}
+
+/// The keychain entry of a connection's SSH secret.
+pub fn ssh_secret_name(connection: &str) -> String {
+    format!("{connection}/ssh")
+}
+
 /// A connection as saved in `connections.toml`. It has no password field,
 /// so a password can't end up in the file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,10 +150,16 @@ pub struct Connection {
     pub user: String,
     #[serde(default)]
     pub tls: TlsMode,
+    /// More certificates to trust for `verify-full`, as PEM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_file: Option<String>,
     #[serde(default)]
     pub read_only: bool,
     #[serde(default)]
     pub tag: Tag,
+    /// The SSH jump host to go through, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ssh: Option<Ssh>,
 }
 
 impl Connection {
@@ -84,8 +172,10 @@ impl Connection {
             database: None,
             user: String::new(),
             tls: TlsMode::default(),
+            ca_file: None,
             read_only: false,
             tag: Tag::None,
+            ssh: None,
         }
     }
 
@@ -104,10 +194,19 @@ impl Connection {
         }
     }
 
-    /// Driver connection details, with `password`.
-    pub fn params(&self, password: &str) -> ConnectionParams {
+    /// True when connecting needs an SSH password that may not be saved.
+    pub fn needs_ssh_password(&self) -> bool {
+        self.ssh
+            .as_ref()
+            .is_some_and(|ssh| ssh.login == SshLogin::Password)
+    }
+
+    /// Driver connection details, with `password`, and `ssh_secret` for the
+    /// jump host.
+    pub fn params(&self, password: &str, ssh_secret: Option<&str>) -> ConnectionParams {
         ConnectionParams {
             password: password.to_string(),
+            ssh: self.ssh.as_ref().map(|ssh| ssh.params(ssh_secret)),
             ..self.target()
         }
     }
@@ -130,8 +229,8 @@ impl Connection {
             password: String::new(),
             database: Some(database),
             tls: self.tls,
-            ca_file: None,
-            ssh: None,
+            ca_file: self.ca_file.as_deref().map(expand_home),
+            ssh: self.ssh.as_ref().map(|ssh| ssh.params(None)),
             tunnel: None,
             read_only: self.read_only,
         }
@@ -149,6 +248,9 @@ impl Connection {
         }
         if let Some(database) = &self.database {
             address = format!("{address}/{database}");
+        }
+        if let Some(ssh) = &self.ssh {
+            address = format!("{address} via {}", ssh.host);
         }
         address
     }
@@ -338,8 +440,87 @@ mod tests {
             ("localhost", 3306, Some("mysql"))
         );
         assert_eq!(prod().address(), "app@db.example.com:5432/shop");
-        let params = prod().params("secret");
+        let params = prod().params("secret", None);
         assert!(params.read_only);
         assert_eq!(params.password, "secret");
+        assert!(params.ssh.is_none());
+    }
+
+    fn tunnelled() -> Connection {
+        Connection {
+            tls: TlsMode::VerifyFull,
+            ca_file: Some("~/certs/ca.pem".into()),
+            ssh: Some(Ssh {
+                host: "bastion.example.com".into(),
+                port: Some(2222),
+                user: "me".into(),
+                login: SshLogin::Key,
+                key: Some("~/.ssh/id_ed25519".into()),
+                known_hosts: None,
+            }),
+            ..prod()
+        }
+    }
+
+    #[test]
+    fn ssh_and_ca_files_are_saved_and_become_params() {
+        let dir = temp_dir("ssh");
+        let (mut store, _) = Store::load(Some(&dir));
+        store.save(None, tunnelled()).expect("save");
+        let text = std::fs::read_to_string(dir.join("connections.toml")).expect("file");
+        assert!(text.contains("[connection.ssh]"), "{text}");
+        assert!(!text.contains("passphrase"), "{text}");
+        let (reloaded, problem) = Store::load(Some(&dir));
+        assert!(problem.is_none());
+        assert_eq!(reloaded.connections, [tunnelled()]);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let connection = tunnelled();
+        assert_eq!(
+            connection.address(),
+            "app@db.example.com:5432/shop via bastion.example.com"
+        );
+        assert!(!connection.needs_ssh_password());
+        let params = connection.params("pw", Some("phrase"));
+        let ssh = params.ssh.expect("ssh");
+        assert_eq!(
+            (ssh.host.as_str(), ssh.port),
+            ("bastion.example.com", Some(2222))
+        );
+        match ssh.auth {
+            SshAuth::Key { path, passphrase } => {
+                assert!(
+                    path.ends_with(".ssh/id_ed25519") && !path.starts_with('~'),
+                    "{path}"
+                );
+                assert_eq!(passphrase.as_deref(), Some("phrase"));
+            }
+            other => panic!("expected a key, got {other:?}"),
+        }
+        let ca = params.ca_file.expect("a CA file");
+        assert!(ca.ends_with("certs/ca.pem") && !ca.starts_with('~'), "{ca}");
+        // The target, for pings, has no secret.
+        assert!(matches!(
+            connection.target().ssh.expect("ssh").auth,
+            SshAuth::Key {
+                passphrase: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn password_logins_need_a_password() {
+        let mut connection = tunnelled();
+        if let Some(ssh) = &mut connection.ssh {
+            ssh.login = SshLogin::Password;
+        }
+        assert!(connection.needs_ssh_password());
+        assert!(matches!(
+            connection.params("", Some("pw")).ssh.expect("ssh").auth,
+            SshAuth::Password { password } if password == "pw"
+        ));
+        assert_eq!(expand_home("/abs/path"), "/abs/path");
+        assert_eq!(ssh_secret_name("prod"), "prod/ssh");
     }
 }

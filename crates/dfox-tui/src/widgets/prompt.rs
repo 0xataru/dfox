@@ -10,17 +10,15 @@ use ratatui::{
 use super::centered;
 use crate::component::RenderCtx;
 
-pub fn render(f: &mut Frame, area: Rect, connection: &str, typed: usize, ctx: &RenderCtx) {
+/// The prompt titled `title`, with `typed` characters hidden.
+pub fn render(f: &mut Frame, area: Rect, title: &str, typed: usize, ctx: &RenderCtx) {
     let theme = ctx.theme;
     let popup = centered(area, 52, 7);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(theme.border(true))
-        .title(Span::styled(
-            format!(" Password for {connection} "),
-            theme.title(true),
-        ))
+        .title(Span::styled(format!(" {title} "), theme.title(true)))
         .style(theme.surface());
     let lines = vec![
         Line::from(""),
@@ -49,7 +47,11 @@ mod tests {
     fn password_prompt() {
         let test = TestCtx::new();
         insta::assert_snapshot!(render(&test, 60, 9, |f, area, ctx| super::render(
-            f, area, "prod", 5, ctx
+            f,
+            area,
+            "Password for prod",
+            5,
+            ctx
         )));
     }
 }

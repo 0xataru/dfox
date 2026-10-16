@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::{
-    connections::{pgpass, secrets::Memory, Tag},
+    connections::{pgpass, secrets::Memory, ssh_secret_name, Ssh, SshLogin, Tag},
     testing::{render, TestCtx},
 };
 use crossterm::event::MouseButton;
@@ -10,7 +10,7 @@ use dfox_core::{
     catalog::{Node, NodeKind, NodePath},
     engine::{Command as DbCommand, QueryStats},
     errors::DbError,
-    models::connections::DbType,
+    models::connections::{DbType, SshAuth},
     result::{ColumnMeta, OwnedCell},
 };
 
@@ -270,6 +270,93 @@ fn deleting_asks_first_and_removes_the_password() {
     test.key(KeyCode::Char('y'));
     assert!(test.app.store.connections.is_empty());
     assert_eq!(test.app.secrets.get("prod").expect("get"), None);
+}
+
+/// `prod` through a jump host, logging in with `login`.
+fn through_ssh(test: &mut Test, login: SshLogin) {
+    let connection = Connection {
+        ssh: Some(Ssh {
+            host: "bastion".into(),
+            port: None,
+            user: "me".into(),
+            login,
+            key: (login == SshLogin::Key).then(|| "/keys/id".into()),
+            known_hosts: None,
+        }),
+        ..prod()
+    };
+    test.app.store.save(Some("prod"), connection).expect("save");
+}
+
+#[test]
+fn an_ssh_password_is_asked_after_the_database_password() {
+    let mut test = test_app("ssh-prompt", None, "");
+    through_ssh(&mut test, SshLogin::Password);
+    test.key(KeyCode::Enter);
+    test.typed("db-pw");
+    test.key(KeyCode::Enter);
+    assert!(test.sent().is_empty(), "no connect before the SSH password");
+    test.typed("ssh-pw");
+    insta::assert_snapshot!(test.snapshot(80, 16));
+    test.key(KeyCode::Enter);
+    match &test.sent()[..] {
+        [DbCommand::Connect { params, .. }] => {
+            assert_eq!(params.password, "db-pw");
+            let ssh = params.ssh.as_ref().expect("ssh");
+            assert_eq!(ssh.host, "bastion");
+            assert!(matches!(
+                &ssh.auth,
+                SshAuth::Password { password } if password == "ssh-pw"
+            ));
+        }
+        other => panic!("expected a connect, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_saved_key_passphrase_is_used_and_kept_for_switching() {
+    let mut test = test_app("ssh-key", Some("pw"), "");
+    through_ssh(&mut test, SshLogin::Key);
+    test.app
+        .secrets
+        .set(&ssh_secret_name("prod"), "phrase")
+        .expect("secret");
+    test.key(KeyCode::Enter);
+    let passphrase = |sent: &[DbCommand]| match sent {
+        [DbCommand::Connect { params, .. }] => match &params.ssh.as_ref().expect("ssh").auth {
+            SshAuth::Key { passphrase, .. } => passphrase.clone(),
+            other => panic!("expected a key, got {other:?}"),
+        },
+        other => panic!("expected a connect, got {other:?}"),
+    };
+    assert_eq!(passphrase(&test.sent()).as_deref(), Some("phrase"));
+
+    test.app.apply(EngineEvent::Connected(Ok(session_info())));
+    test.sent();
+    test.app
+        .apply_command(Command::UseDatabase("postgres".into()));
+    assert_eq!(passphrase(&test.sent()).as_deref(), Some("phrase"));
+}
+
+#[test]
+fn the_ssh_secret_follows_renames_and_deletes() {
+    let mut test = test_app("ssh-secret", Some("pw"), "");
+    through_ssh(&mut test, SshLogin::Key);
+    test.app
+        .secrets
+        .set(&ssh_secret_name("prod"), "phrase")
+        .expect("secret");
+    test.key(KeyCode::Char('e'));
+    test.typed("uction");
+    test.ctrl('s');
+    let get = |test: &Test, name: &str| test.app.secrets.get(name).expect("get");
+    assert_eq!(get(&test, "production/ssh").as_deref(), Some("phrase"));
+    assert_eq!(get(&test, "prod/ssh"), None);
+
+    test.key(KeyCode::Char('d'));
+    test.key(KeyCode::Char('y'));
+    assert_eq!(get(&test, "production/ssh"), None);
+    assert_eq!(get(&test, "production"), None);
 }
 
 #[test]

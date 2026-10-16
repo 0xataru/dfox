@@ -20,6 +20,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Connections can go through an SSH jump host: the connection form has an
+  SSH section (host, port, user, and login by ssh-agent, key file or
+  password, with an optional known_hosts file). The SSH password or key
+  passphrase is kept in the keychain, and asked for when it isn't saved.
+  The manager shows the jump host, and checks that it is reachable
+- A CA file for TLS `verify`, to trust a private certificate authority
+
 - A native SQLite session on `rusqlite`, with the connection on a thread of
   its own, decoding rows straight into Arrow. It reads a million rows 4.9×
   faster than sqlx and passes the driver test suite. SQLite types each value,
