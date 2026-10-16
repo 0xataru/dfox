@@ -1,26 +1,34 @@
-use dfox_core::{
-    db::DbClient,
-    driver::Driver,
-    models::{connections::ConnectionParams, schema::ObjectKind},
-};
-use dfox_driver_sqlite::{SqliteClient, SqliteDriver};
-use dfox_testkit::{only_row, rows, scalar, unique};
+//! What any SQLite session must get right, from the first fixes (M0): values
+//! by their storage class, column order, PRAGMA and RETURNING, session
+//! state, row limits and names that are attacks.
 
-async fn client() -> SqliteClient {
-    SqliteClient::connect("sqlite::memory:")
-        .await
-        .expect("connect")
+use dfox_core::{
+    catalog::{NodeKind, NodePath},
+    driver::Driver,
+    models::connections::ConnectionParams,
+    session::Session,
+};
+use dfox_driver_sqlite::SqliteDriver;
+use dfox_testkit::{execute, only_row, rows, run, scalar};
+
+async fn session() -> Box<dyn Session> {
+    let params = ConnectionParams {
+        database: Some(":memory:".into()),
+        ..Default::default()
+    };
+    SqliteDriver.open(&params).await.expect("open a session")
 }
 
 #[tokio::test]
 async fn values_render_by_their_storage_class() {
-    let db = client().await;
-
-    let out = db
-        .run("SELECT 1, 1.0, 2.5, 'txt', x'deadbeef', NULL", 10)
-        .await
-        .unwrap();
-
+    let mut s = session().await;
+    let out = run(
+        s.as_mut(),
+        "SELECT 1, 1.0, 2.5, 'txt', x'deadbeef', NULL",
+        10,
+    )
+    .await
+    .expect("run");
     assert_eq!(
         only_row(&out),
         [
@@ -35,45 +43,18 @@ async fn values_render_by_their_storage_class() {
 }
 
 #[tokio::test]
-async fn boolean_columns_read_as_booleans() {
-    let db = client().await;
-
-    let out = db
-        .run(
-            "CREATE TABLE flags (b BOOLEAN, n INTEGER);
-             INSERT INTO flags VALUES (1, 1), (0, 0), (2, 2), (NULL, NULL);
-             SELECT b, n FROM flags ORDER BY rowid",
-            10,
-        )
-        .await
-        .unwrap();
-
-    // Only 0 and 1 in a BOOLEAN column; anything else stays as stored.
-    assert_eq!(
-        rows(&out),
-        [
-            [Some("true"), Some("1")],
-            [Some("false"), Some("0")],
-            [Some("2"), Some("2")],
-            [None, None],
-        ]
-    );
-}
-
-#[tokio::test]
-async fn mixed_type_columns_decode_per_value() {
-    let db = client().await;
-
-    let out = db
-        .run(
-            "CREATE TABLE mixed (v);
-             INSERT INTO mixed VALUES (1), ('a'), (2.5), (NULL), (x'00ff');
-             SELECT v FROM mixed ORDER BY rowid",
-            10,
-        )
-        .await
-        .unwrap();
-
+async fn mixed_type_columns_keep_every_value() {
+    let mut s = session().await;
+    let out = run(
+        s.as_mut(),
+        "CREATE TABLE mixed (v);
+         INSERT INTO mixed VALUES (1), ('a'), (2.5), (NULL), (x'00ff');
+         SELECT v FROM mixed ORDER BY rowid",
+        10,
+    )
+    .await
+    .expect("run");
+    // Text joins the column, so the blob is written as a literal.
     assert_eq!(
         rows(&out),
         [
@@ -81,95 +62,134 @@ async fn mixed_type_columns_decode_per_value() {
             [Some("a")],
             [Some("2.5")],
             [None],
-            [Some("0x00ff")]
+            [Some("X'00FF'")]
         ]
     );
 }
 
 #[tokio::test]
 async fn columns_keep_query_order_and_duplicates() {
-    let db = client().await;
-
-    let out = db
-        .run("SELECT 3 AS c, 1 AS a, 2 AS b, 4 AS a", 10)
+    let mut s = session().await;
+    let out = run(s.as_mut(), "SELECT 3 AS c, 1 AS a, 2 AS b, 4 AS a", 10)
         .await
-        .unwrap();
-
+        .expect("run");
     assert_eq!(out.columns, ["c", "a", "b", "a"]);
     assert_eq!(only_row(&out), [Some("3"), Some("1"), Some("2"), Some("4")]);
 }
 
 #[tokio::test]
 async fn pragma_and_returning_return_rows() {
-    let db = client().await;
-    db.execute("CREATE TABLE t (x INTEGER, y TEXT)")
-        .await
-        .unwrap();
+    let mut s = session().await;
+    let s = s.as_mut();
+    execute(s, "CREATE TABLE t (x INTEGER, y TEXT)").await;
 
-    let pragma = db.run("PRAGMA table_info(t)", 10).await.unwrap();
+    let pragma = run(s, "PRAGMA table_info(t)", 10).await.expect("pragma");
     assert_eq!(pragma.rows.len(), 2);
 
-    let returning = db
-        .run(
-            "INSERT INTO t VALUES (5, 'a'), (6, 'b') RETURNING x * 10",
-            10,
-        )
-        .await
-        .unwrap();
+    let returning = run(
+        s,
+        "INSERT INTO t VALUES (5, 'a'), (6, 'b') RETURNING x * 10",
+        10,
+    )
+    .await
+    .expect("returning");
     assert_eq!(rows(&returning), [[Some("50")], [Some("60")]]);
 }
 
 #[tokio::test]
 async fn session_state_carries_over_between_runs() {
-    let db = client().await;
-
-    db.execute("CREATE TABLE tx_t (x INTEGER)").await.unwrap();
-    db.execute("BEGIN").await.unwrap();
-    db.execute("INSERT INTO tx_t VALUES (1)").await.unwrap();
-    db.execute("ROLLBACK").await.unwrap();
-
-    let after = db.run("SELECT count(*) FROM tx_t", 10).await.unwrap();
+    let mut s = session().await;
+    let s = s.as_mut();
+    execute(s, "CREATE TABLE tx_t (x INTEGER)").await;
+    execute(s, "BEGIN").await;
+    execute(s, "INSERT INTO tx_t VALUES (1)").await;
+    execute(s, "ROLLBACK").await;
+    let after = run(s, "SELECT count(*) FROM tx_t", 10)
+        .await
+        .expect("count");
     assert_eq!(scalar(&after), Some("0"));
 }
 
 #[tokio::test]
-async fn row_limit_truncates_but_runs_every_statement() {
-    let db = client().await;
-    let fifty = "WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 50) \
-                 SELECT n FROM s";
-
-    let limited = db.run(fifty, 10).await.unwrap();
-    assert_eq!(limited.rows.len(), 10);
-    assert!(limited.truncated);
-
-    let after = db
-        .run(&format!("{fifty}; SELECT 'after'"), 10)
-        .await
-        .unwrap();
-    assert_eq!(scalar(&after), Some("after"));
-    assert!(!after.truncated);
+async fn scripts_report_changes_and_the_last_result_set() {
+    let mut s = session().await;
+    let out = run(
+        s.as_mut(),
+        "CREATE TABLE script_t (x INTEGER);
+         INSERT INTO script_t VALUES (1), (2), (3);
+         UPDATE script_t SET x = x + 1 WHERE x > 1;
+         SELECT 'first';
+         SELECT x FROM script_t ORDER BY x",
+        10,
+    )
+    .await
+    .expect("run");
+    assert_eq!(out.columns, ["x"]);
+    assert_eq!(rows(&out), [[Some("1")], [Some("3")], [Some("4")]]);
+    assert_eq!(out.rows_affected, 5);
 }
 
 #[tokio::test]
-async fn metadata_and_describe_are_injection_safe() {
-    let db = client().await;
-    db.execute(
-        "CREATE TABLE people (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL DEFAULT 'x', note TEXT)",
+async fn row_limit_truncates_but_runs_every_statement() {
+    let mut s = session().await;
+    let s = s.as_mut();
+    let fifty = "WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 50) \
+                 SELECT n FROM s";
+
+    let limited = run(s, fifty, 10).await.expect("run");
+    assert_eq!(limited.rows.len(), 10);
+
+    execute(s, "CREATE TABLE after_t (x INTEGER)").await;
+    let after = run(
+        s,
+        &format!("{fifty}; INSERT INTO after_t VALUES (1); SELECT 'after'"),
+        10,
     )
     .await
-    .unwrap();
-    db.execute("INSERT INTO people (note) VALUES ('creates sqlite_sequence')")
+    .expect("run");
+    assert_eq!(scalar(&after), Some("after"));
+    let count = run(s, "SELECT count(*) FROM after_t", 10)
         .await
-        .unwrap();
+        .expect("count");
+    assert_eq!(
+        scalar(&count),
+        Some("1"),
+        "the statement past the limit ran"
+    );
+}
+
+#[tokio::test]
+async fn catalog_names_are_parameters_not_sql() {
+    let mut s = session().await;
+    execute(
+        s.as_mut(),
+        "CREATE TABLE people (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+         name TEXT NOT NULL DEFAULT 'x', note TEXT);
+         INSERT INTO people (note) VALUES ('creates sqlite_sequence')",
+    )
+    .await;
 
     // Internal tables such as sqlite_sequence are hidden.
-    assert_eq!(db.list_tables().await.unwrap(), ["people"]);
+    let main = NodePath::root().child("main");
+    let tables: Vec<_> = s
+        .catalog()
+        .children(&main)
+        .await
+        .expect("tables")
+        .into_iter()
+        .map(|n| (n.name, n.kind))
+        .collect();
+    assert_eq!(tables, [("people".to_string(), NodeKind::Table)]);
 
-    let schema = db.describe_table("main", "people").await.unwrap();
-    let columns: Vec<_> = schema
+    let info = s
+        .catalog()
+        .describe(&main.child("people"))
+        .await
+        .expect("describe");
+    let columns: Vec<_> = info
         .columns
         .iter()
-        .map(|c| (c.name.as_str(), c.data_type.as_str(), c.is_nullable))
+        .map(|c| (c.name.as_str(), c.type_name.as_str(), c.nullable))
         .collect();
     assert_eq!(
         columns,
@@ -179,91 +199,12 @@ async fn metadata_and_describe_are_injection_safe() {
             ("note", "TEXT", true),
         ]
     );
-    assert_eq!(schema.columns[1].default.as_deref(), Some("'x'"));
+    assert_eq!(info.columns[1].default.as_deref(), Some("'x'"));
 
     let attack = "x'); DROP TABLE people; --";
-    assert!(db
-        .describe_table("main", attack)
+    assert!(s.catalog().describe(&main.child(attack)).await.is_err());
+    let still = run(s.as_mut(), "SELECT count(*) FROM people", 10)
         .await
-        .unwrap()
-        .columns
-        .is_empty());
-    assert_eq!(db.list_tables().await.unwrap(), ["people"]);
-}
-
-#[tokio::test]
-async fn connects_to_a_file_by_path() {
-    let path = std::env::temp_dir().join(format!("{}.db", unique("dfox_it")));
-    std::fs::File::create(&path).unwrap();
-    let params = ConnectionParams {
-        database: Some(path.to_string_lossy().into_owned()),
-        ..Default::default()
-    };
-
-    let db = SqliteDriver.connect(&params).await.unwrap();
-    db.execute("CREATE TABLE on_disk (x INTEGER)")
-        .await
-        .unwrap();
-    assert_eq!(db.list_tables().await.unwrap(), ["on_disk"]);
-    drop(db);
-
-    // Dropping the pool closes its connections in the background, so Windows
-    // may still hold the file open here.
-    let _ = std::fs::remove_file(&path);
-}
-
-#[tokio::test]
-async fn main_is_the_schema_and_lists_tables_and_views() {
-    let db = client().await;
-    db.execute("CREATE TABLE t (i INTEGER); CREATE VIEW v AS SELECT 1")
-        .await
-        .unwrap();
-
-    assert_eq!(db.list_schemas().await.unwrap(), ["main"]);
-    let objects: Vec<_> = db
-        .list_objects("main")
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|o| (o.name, o.kind, o.rows))
-        .collect();
-    assert_eq!(
-        objects,
-        [
-            ("t".to_string(), ObjectKind::Table, None),
-            ("v".to_string(), ObjectKind::View, None),
-        ]
-    );
-
-    let columns: Vec<_> = db
-        .list_columns("main")
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|c| (c.table, c.name, c.data_type))
-        .collect();
-    assert_eq!(
-        columns,
-        [
-            ("t".to_string(), "i".to_string(), "INTEGER".to_string()),
-            ("v".to_string(), "1".to_string(), String::new()),
-        ]
-    );
-}
-
-#[tokio::test]
-async fn read_only_files_refuse_writes() {
-    let path = std::env::temp_dir().join(format!("{}.db", unique("dfox_ro")));
-    std::fs::File::create(&path).unwrap();
-    let params = ConnectionParams {
-        database: Some(path.to_string_lossy().into_owned()),
-        read_only: true,
-        ..Default::default()
-    };
-
-    let db = SqliteDriver.connect(&params).await.unwrap();
-    let err = db.execute("CREATE TABLE t (i INTEGER)").await.unwrap_err();
-    assert!(err.to_string().contains("readonly"), "{err}");
-    drop(db);
-    let _ = std::fs::remove_file(&path);
+        .expect("the table is still there");
+    assert_eq!(scalar(&still), Some("1"));
 }

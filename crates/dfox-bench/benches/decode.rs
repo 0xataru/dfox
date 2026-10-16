@@ -4,6 +4,9 @@
 //!
 //! SQLite always runs, on an in-memory database. Postgres and MySQL run when
 //! `DFOX_TEST_POSTGRES_URL` / `DFOX_TEST_MYSQL_URL` are set.
+//!
+//! The groups keep their `-native` names from when the sqlx drivers ran
+//! beside them, so pull requests still compare against `main`.
 
 use std::time::{Duration, Instant};
 
@@ -11,41 +14,13 @@ use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use dfox_bench::{MYSQL_SETUP, POSTGRES_SETUP, ROWS, SELECT_ROWS, SQLITE_SETUP};
 use dfox_core::{
     arrow::{Fetcher, Frame, Overflow, DEFAULT_BUDGET},
-    db::{Chunk, DbClient},
     driver::Driver,
     models::connections::ConnectionParams,
     result::ResultSet,
     session::{Request, Session},
 };
-use dfox_driver_mysql::MySqlClient;
-use dfox_driver_postgres::PostgresClient;
-use dfox_driver_sqlite::SqliteClient;
 use futures_util::StreamExt;
-use tokio::{runtime::Runtime, sync::mpsc};
-
-/// Streams `sql` once. Returns when the first rows arrived and when the
-/// last did.
-async fn stream(client: &dyn DbClient, sql: &str) -> (Duration, Duration) {
-    let (tx, mut rx) = mpsc::channel(16);
-    let started = Instant::now();
-    let read = async {
-        let mut first = None;
-        let mut rows = 0;
-        while let Some(chunk) = rx.recv().await {
-            if let Chunk::Rows(batch) = chunk {
-                first.get_or_insert_with(|| started.elapsed());
-                rows += batch.len();
-            }
-        }
-        (first.unwrap_or_default(), rows)
-    };
-    let (result, (first, rows)) = tokio::join!(client.stream(sql, usize::MAX, tx), read);
-    if let Err(err) = result {
-        panic!("{sql}: {err}");
-    }
-    assert_eq!(rows, ROWS, "{sql}");
-    (first, started.elapsed())
-}
+use tokio::runtime::Runtime;
 
 /// Streams `sql` once through a native session into an Arrow result.
 async fn stream_native(session: &mut dyn Session, sql: &str) -> Duration {
@@ -98,50 +73,18 @@ fn bench_native(c: &mut Criterion, rt: &Runtime, name: &str, session: &mut dyn S
     group.finish();
 }
 
-fn bench(c: &mut Criterion, rt: &Runtime, name: &str, client: &dyn DbClient, sql: &str) {
-    let mut group = c.benchmark_group(format!("decode/{name}"));
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(20));
-    group.throughput(Throughput::Elements(ROWS as u64));
-    group.bench_function("1M table rows", |b| {
-        b.iter_custom(|iters| (0..iters).map(|_| rt.block_on(stream(client, sql)).1).sum())
-    });
-    group.finish();
-
-    let mut group = c.benchmark_group(format!("first_row/{name}"));
-    group.sample_size(10);
-    group.measurement_time(Duration::from_secs(20));
-    group.bench_function("1M table rows", |b| {
-        b.iter_custom(|iters| (0..iters).map(|_| rt.block_on(stream(client, sql)).0).sum())
-    });
-    group.finish();
-}
-
-/// Fills the benchmark table, one statement at a time.
-fn setup(rt: &Runtime, client: &dyn DbClient, statements: &[&str]) {
-    for sql in statements {
-        rt.block_on(client.execute(sql))
-            .unwrap_or_else(|err| panic!("{sql}: {err}"));
-    }
-}
-
-fn decode(c: &mut Criterion) {
-    let rt = Runtime::new().expect("a tokio runtime");
-    // Clients close their connections on the runtime when dropped.
-    let _runtime = rt.enter();
-    let sqlite = rt
-        .block_on(SqliteClient::connect("sqlite::memory:"))
-        .expect("an in-memory SQLite database");
-    setup(&rt, &sqlite, SQLITE_SETUP);
-    bench(c, &rt, "sqlite", &sqlite, SELECT_ROWS);
-    let params = ConnectionParams {
-        database: Some(":memory:".into()),
-        ..Default::default()
-    };
+/// Opens a session with `driver` and fills the benchmark table through it,
+/// one statement at a time.
+fn prepared(
+    rt: &Runtime,
+    driver: &dyn Driver,
+    params: &ConnectionParams,
+    statements: &[&str],
+) -> Box<dyn Session> {
     let mut session = rt
-        .block_on(dfox_driver_sqlite::SqliteDriver.open(&params))
-        .expect("a native SQLite session");
-    for sql in SQLITE_SETUP {
+        .block_on(driver.open(params))
+        .unwrap_or_else(|err| panic!("{}: {err}", driver.info().name));
+    for sql in statements {
         rt.block_on(async {
             let mut frames = session.run(Request::new(*sql)).await.expect("setup");
             while let Some(frame) = frames.next().await {
@@ -149,28 +92,35 @@ fn decode(c: &mut Criterion) {
             }
         });
     }
-    bench_native(c, &rt, "sqlite-native", session.as_mut(), SELECT_ROWS);
+    session
+}
+
+fn decode(c: &mut Criterion) {
+    let rt = Runtime::new().expect("a tokio runtime");
+    // Sessions close their connections on the runtime when dropped.
+    let _runtime = rt.enter();
+    let memory = ConnectionParams {
+        database: Some(":memory:".into()),
+        ..Default::default()
+    };
+    let mut sqlite = prepared(
+        &rt,
+        &dfox_driver_sqlite::SqliteDriver,
+        &memory,
+        SQLITE_SETUP,
+    );
+    bench_native(c, &rt, "sqlite-native", sqlite.as_mut(), SELECT_ROWS);
 
     if let Ok(url) = std::env::var("DFOX_TEST_POSTGRES_URL") {
-        let client = rt
-            .block_on(PostgresClient::connect(&url))
-            .expect("Postgres");
-        setup(&rt, &client, POSTGRES_SETUP);
-        bench(c, &rt, "postgres", &client, SELECT_ROWS);
         let params = dfox_testkit::params_from_url(&url);
-        let mut session = rt
-            .block_on(dfox_driver_postgres::PostgresDriver.open(&params))
-            .expect("a native Postgres session");
+        let driver = dfox_driver_postgres::PostgresDriver;
+        let mut session = prepared(&rt, &driver, &params, POSTGRES_SETUP);
         bench_native(c, &rt, "postgres-native", session.as_mut(), SELECT_ROWS);
     }
     if let Ok(url) = std::env::var("DFOX_TEST_MYSQL_URL") {
-        let client = rt.block_on(MySqlClient::connect(&url)).expect("MySQL");
-        setup(&rt, &client, MYSQL_SETUP);
-        bench(c, &rt, "mysql", &client, SELECT_ROWS);
         let params = dfox_testkit::params_from_url(&url);
-        let mut session = rt
-            .block_on(dfox_driver_mysql::MySqlDriver.open(&params))
-            .expect("a native MySQL session");
+        let driver = dfox_driver_mysql::MySqlDriver;
+        let mut session = prepared(&rt, &driver, &params, MYSQL_SETUP);
         bench_native(c, &rt, "mysql-native", session.as_mut(), SELECT_ROWS);
     }
 }

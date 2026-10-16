@@ -6,7 +6,6 @@
 pub mod arrow;
 #[deny(missing_docs)]
 pub mod catalog;
-pub mod db;
 #[deny(missing_docs)]
 pub mod driver;
 pub mod engine;

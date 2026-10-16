@@ -9,6 +9,10 @@ databases). Expect ±10% between runs on a laptop.
 
 ## Reading a million rows
 
+The sqlx drivers and the cell storage (`RowStore`) were removed in C4, so
+their rows below are history: the benchmarks now run the native sessions
+and Arrow only, under the `-native` names they had beside sqlx.
+
 A stored table of a million rows (an integer, a text, an exact decimal, a
 timestamp and a boolean), read with `SELECT *`. sqlx drivers decode into
 cells; the native sessions decode into Arrow batches.

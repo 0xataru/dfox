@@ -302,16 +302,6 @@ async fn verify_full_checks_the_certificate_and_the_host() {
     assert_eq!(run(s.as_mut(), encrypted).await.0, [["true"]]);
     let mut s = session(&with("127.0.0.1", TlsMode::Disable, None)).await;
     assert_eq!(run(s.as_mut(), encrypted).await.0, [["false"]]);
-
-    // The sqlx driver honours the CA file too.
-    let client = dfox_driver_postgres::PostgresClient::connect_params(&with(
-        "localhost",
-        TlsMode::VerifyFull,
-        Some(&ca),
-    ))
-    .await
-    .expect("sqlx verify-full");
-    drop(client);
 }
 
 /// The plan's target: a running query stops within 300 ms of the cancel.

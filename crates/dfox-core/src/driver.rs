@@ -2,10 +2,8 @@
 //! crate behind a cargo feature of the app, and the app hands the engine the
 //! drivers it was built with.
 //!
-//! A driver opens either kind of connection while the app moves over: a
-//! [`DbClient`] (rows as cells, through sqlx) with [`Driver::connect`], or a
-//! [`Session`] (Arrow batches, a catalog tree, edits) with [`Driver::open`].
-//! Drivers implement what they support; the other answers that it isn't.
+//! A driver opens a [`Session`] (Arrow batches, a catalog tree, edits) with
+//! [`Driver::open`].
 
 use std::{fmt, sync::Arc, time::Duration};
 
@@ -13,7 +11,6 @@ use futures_util::future::BoxFuture;
 use tokio::time::Instant;
 
 use crate::{
-    db::DbClient,
     errors::DbError,
     models::connections::{ConnectionParams, DbType},
     session::Session,
@@ -123,16 +120,6 @@ pub trait Driver: Send + Sync + 'static {
         FormSpec::default()
     }
 
-    /// Connects a [`DbClient`] from typed-in connection details.
-    fn connect<'a>(
-        &'a self,
-        params: &'a ConnectionParams,
-    ) -> BoxFuture<'a, Result<Box<dyn DbClient>, DbError>> {
-        let _ = params;
-        let name = self.info().name;
-        Box::pin(async move { Err(unsupported(name, "a client")) })
-    }
-
     /// Opens a [`Session`] from typed-in connection details.
     fn open<'a>(
         &'a self,
@@ -140,12 +127,12 @@ pub trait Driver: Send + Sync + 'static {
     ) -> BoxFuture<'a, Result<Box<dyn Session>, DbError>> {
         let _ = params;
         let name = self.info().name;
-        Box::pin(async move { Err(unsupported(name, "a session")) })
+        Box::pin(async move { Err(unsupported(name)) })
     }
 }
 
-fn unsupported(driver: &str, what: &str) -> DbError {
-    DbError::Config(format!("the {driver} driver can't open {what} yet"))
+fn unsupported(driver: &str) -> DbError {
+    DbError::Config(format!("the {driver} driver can't open a session yet"))
 }
 
 /// The drivers an app was built with.
@@ -169,19 +156,6 @@ impl Drivers {
     /// The driver for `db_type`, if the build has one.
     pub fn get(&self, db_type: DbType) -> Option<&Arc<dyn Driver>> {
         self.0.iter().find(|d| d.db_type() == db_type)
-    }
-
-    /// Connects with the driver for `db_type`, or says that this build has
-    /// none.
-    pub async fn connect(
-        &self,
-        db_type: DbType,
-        params: &ConnectionParams,
-    ) -> Result<Box<dyn DbClient>, DbError> {
-        let driver = self.get(db_type).ok_or_else(|| {
-            DbError::Config(format!("this build of dfox has no {db_type:?} driver"))
-        })?;
-        driver.connect(params).await
     }
 }
 
@@ -238,32 +212,21 @@ mod tests {
     #[tokio::test]
     async fn a_driver_says_what_it_can_not_open() {
         let params = ConnectionParams::default();
-        let client = Nothing.connect(&params).await.err().expect("an error");
-        assert_eq!(
-            client.to_string(),
-            "Configuration error: the Nothing driver can't open a client yet"
-        );
         let session = Nothing.open(&params).await.err().expect("an error");
-        assert!(session.to_string().contains("can't open a session"));
+        assert_eq!(
+            session.to_string(),
+            "Configuration error: the Nothing driver can't open a session yet"
+        );
         assert_eq!(Nothing.connection_form(), FormSpec::default());
         let form = server_form(5432);
         assert_eq!(form.fields[1].default.as_deref(), Some("5432"));
         assert!(form.fields[0].required);
     }
 
-    #[tokio::test]
-    async fn a_missing_driver_is_an_error() {
+    #[test]
+    fn a_build_without_a_driver_has_none() {
         let drivers = Drivers::default();
         assert!(drivers.get(DbType::Postgres).is_none());
-        let err = drivers
-            .connect(DbType::Postgres, &ConnectionParams::default())
-            .await
-            .err()
-            .expect("an error");
-        assert_eq!(
-            err.to_string(),
-            "Configuration error: this build of dfox has no Postgres driver"
-        );
         assert_eq!(format!("{drivers:?}"), "[]");
     }
 

@@ -1,25 +1,25 @@
 use super::*;
-use dfox_core::result::{ColumnMeta, OwnedCell, RowStore};
+use dfox_core::result::{ColumnMeta, OwnedCell};
 use ratatui::{backend::TestBackend, Terminal};
 
-use crate::testing::TestCtx;
+use crate::testing::{Cells, TestCtx};
 
-fn store(rows: usize, columns: usize) -> RowStore {
-    let mut store = RowStore::new(
-        (0..columns)
+fn store(rows: usize, columns: usize) -> Cells {
+    Cells {
+        columns: (0..columns)
             .map(|c| ColumnMeta::new(format!("column_{c}"), "text"))
             .collect(),
-    );
-    store.extend((0..rows).map(|r| {
-        (0..columns)
-            .map(|c| OwnedCell::Text(format!("r{r}c{c}").into()))
-            .collect::<Vec<_>>()
-    }));
-    store.finish();
-    store
+        rows: (0..rows)
+            .map(|r| {
+                (0..columns)
+                    .map(|c| OwnedCell::Text(format!("r{r}c{c}").into()))
+                    .collect()
+            })
+            .collect(),
+    }
 }
 
-fn draw(grid: &Grid, result: &RowStore, width: u16, height: u16) -> String {
+fn draw(grid: &Grid, result: &Cells, width: u16, height: u16) -> String {
     let test = TestCtx::new();
     let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("terminal");
     let ctx = test.render_ctx();
@@ -152,13 +152,12 @@ fn columns_widen_and_narrow_within_limits() {
 
 #[test]
 fn widths_follow_the_widest_sampled_value() {
-    let mut result = RowStore::new(vec![ColumnMeta::new("id", ""), ColumnMeta::new("note", "")]);
+    let mut result = Cells::new(vec![ColumnMeta::new("id", ""), ColumnMeta::new("note", "")]);
     result.push(vec![
         OwnedCell::Int(1),
         OwnedCell::Text("x".repeat(100).into()),
     ]);
     result.push(vec![OwnedCell::Int(123_456), OwnedCell::Null]);
-    result.finish();
     let grid = Grid::default();
     assert_eq!(grid.widths(&result, &Icons::unicode()), [7, MAX_AUTO_WIDTH]);
 }

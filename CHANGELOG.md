@@ -7,8 +7,17 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Removed
+
+- sqlx, and with it the `DbClient` interface, the cell storage (`RowStore`)
+  and `async-trait`: every database runs on its native session. The release
+  binary is 13.2 MB (from 14.4 MB with both, and 10.6 MB in v0.2.0 on sqlx
+  alone, which had no Arrow, SSH or TLS verification)
+
 ### Changed
 
+- SQLite 3.51.3 (was 3.46) through rusqlite 0.40, which no longer has to share
+  sqlx's SQLite build
 - The app runs on the native sessions: rows arrive as Arrow batches, the
   explorer walks each driver's catalog tree (so MySQL shows every database,
   with tables right under it, and SQLite shows `main` and attached

@@ -1,5 +1,5 @@
-//! Shared data for the benchmarks: results of a given size in both storages,
-//! and the queries that produce a million rows on each database.
+//! Shared data for the benchmarks: Arrow results of a given size, and the
+//! queries that produce a million rows on each database.
 //!
 //! The benchmarks:
 //!
@@ -14,10 +14,7 @@ use std::sync::Arc;
 
 use arrow_array::{ArrayRef, Float64Array, Int64Array, RecordBatch, StringArray};
 use arrow_schema::DataType;
-use dfox_core::{
-    arrow::{field, schema, ArrowResultSet},
-    result::{ColumnMeta, OwnedCell, RowStore},
-};
+use dfox_core::arrow::{field, schema, ArrowResultSet};
 
 /// Rows the decode and memory benchmarks read.
 pub const ROWS: usize = 1_000_000;
@@ -27,24 +24,8 @@ fn text(i: usize, c: usize) -> String {
     format!("row {i} col {c}")
 }
 
-/// A `rows`×`columns` result kept as cells: an integer, a float, then text.
-pub fn row_store(rows: usize, columns: usize) -> RowStore {
-    let mut meta = vec![
-        ColumnMeta::new("id", "int8"),
-        ColumnMeta::new("score", "float8"),
-    ];
-    meta.extend((2..columns).map(|c| ColumnMeta::new(format!("text_{c}"), "text")));
-    let mut store = RowStore::new(meta);
-    store.extend((0..rows).map(|i| {
-        let mut row = vec![OwnedCell::Int(i as i64), OwnedCell::Float(i as f64 * 1.5)];
-        row.extend((2..columns).map(|c| OwnedCell::Text(text(i, c).into())));
-        row
-    }));
-    store.finish();
-    store
-}
-
-/// The same result kept as Arrow batches of 8192 rows.
+/// A `rows`×`columns` result as Arrow batches of 8192 rows: an integer, a
+/// float, then text.
 pub fn arrow_result(rows: usize, columns: usize) -> ArrowResultSet {
     let mut fields = vec![
         field("id", DataType::Int64, "int8"),
@@ -119,17 +100,17 @@ pub const SQLITE_SETUP: &[&str] = &[
 
 #[cfg(test)]
 mod tests {
-    use dfox_core::result::ResultSet;
+    use dfox_core::result::{Cell, ResultSet};
 
     use super::*;
 
     #[test]
-    fn both_storages_hold_the_same_values() {
-        let store = row_store(10_000, 4);
+    fn results_hold_the_values_they_describe() {
         let arrow = arrow_result(10_000, 4);
-        assert_eq!(store.row_count(), arrow.row_count());
-        for (row, col) in [(0, 0), (9_999, 1), (8_192, 3), (5_000, 2)] {
-            assert_eq!(store.cell(row, col), arrow.cell(row, col), "{row},{col}");
-        }
+        assert_eq!(arrow.row_count(), 10_000);
+        assert_eq!(arrow.batches().len(), 2);
+        assert_eq!(arrow.cell(9_999, 0), Some(Cell::Int(9_999)));
+        assert_eq!(arrow.cell(2, 1), Some(Cell::Float(3.0)));
+        assert_eq!(arrow.cell(8_192, 3), Some(Cell::Text("row 8192 col 3")));
     }
 }
