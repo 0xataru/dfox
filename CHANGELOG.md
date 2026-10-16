@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-16
+
 ### Added
 
 - Enter on a table or view opens a menu, as in pgAdmin: its first 100 rows,
