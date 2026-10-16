@@ -21,7 +21,7 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx)
                  │ V                 Select whole rows         │
                  │ Ctrl+Z            Undo                      │
                  │ Ctrl+Y            Redo                      │
-                 │ i                 Inspect the row           │
+                 │ i                 Inspect / insert name     │
                  │ >                 Widen column              │
                  │ <                 Narrow column             │
                  │                                             │

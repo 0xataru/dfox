@@ -280,18 +280,26 @@ impl Workspace {
 
     /// Runs `sql` in the current tab without checking it again.
     pub fn run_checked(&mut self, sql: String, ctx: &mut Ctx) {
-        if let Some(i) = self.running_tab() {
-            let message = if i == self.active {
-                "A query is already running".to_string()
-            } else {
-                format!("A query is already running in {}", self.title(i))
-            };
-            ctx.toast(Level::Warning, message);
+        if self.busy(ctx) {
             return;
         }
         self.next_query += 1;
         let id = self.next_query;
         self.tab_mut().results.run(id, &sql, ctx);
+    }
+
+    /// True, after saying so, while a query runs: one runs at a time.
+    fn busy(&self, ctx: &mut Ctx) -> bool {
+        let Some(i) = self.running_tab() else {
+            return false;
+        };
+        let message = if i == self.active {
+            "A query is already running".to_string()
+        } else {
+            format!("A query is already running in {}", self.title(i))
+        };
+        ctx.toast(Level::Warning, message);
+        true
     }
 
     fn title(&self, i: usize) -> String {
@@ -331,11 +339,15 @@ impl Workspace {
                 else {
                     return false;
                 };
+                // A table's rows aren't a query to keep.
+                let Some(sql) = &finished.sql else {
+                    return false;
+                };
                 let entry = Entry {
                     ok: finished.ok,
                     rows: finished.rows,
                     ms: finished.elapsed.as_millis() as u64,
-                    ..Entry::now(&self.connection, &self.explorer.active, &finished.sql)
+                    ..Entry::now(&self.connection, &self.explorer.active, sql)
                 };
                 if let Err(err) = ctx.history.push(entry) {
                     if !self.history_failed {
@@ -358,9 +370,44 @@ impl Workspace {
         self.delegate(Action::Copy, ctx)
     }
 
+    /// Shows the rows of the table at `path` in the current tab.
+    fn browse(&mut self, path: NodePath, name: &[String], ctx: &mut Ctx) {
+        if self.busy(ctx) {
+            return;
+        }
+        self.next_query += 1;
+        let id = self.next_query;
+        let table = self.quote(name);
+        self.tab_mut().results.browse(id, path, table, ctx);
+    }
+
+    /// A name in parts, quoted for the dialect.
+    fn quote(&self, name: &[String]) -> String {
+        name.iter()
+            .map(|part| sql::quote_ident(part, self.dialect))
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+
+    /// What the explorer asked for that the workspace does itself.
+    pub fn explorer_command(&mut self, command: Command, ctx: &mut Ctx) -> Option<Command> {
+        match command {
+            Command::Browse { path, name } => self.browse(path, &name, ctx),
+            Command::InsertName(name) => {
+                let text = self.quote(&name);
+                self.editor_mut().paste(&text);
+            }
+            command => return Some(command),
+        }
+        None
+    }
+
     fn delegate(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
         match self.focus.get() {
-            Panel::Explorer => self.explorer.handle(action, ctx),
+            Panel::Explorer => {
+                let command = self.explorer.handle(action, ctx)?;
+                self.explorer_command(command, ctx)
+            }
             Panel::Editor => self.tab_mut().editor.handle(action, ctx),
             Panel::Results => self.tab_mut().results.handle(action, ctx),
         }

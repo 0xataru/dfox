@@ -202,3 +202,58 @@ fn queries_refresh_the_loaded_schemas() {
     explorer.refresh_loaded(&mut harness.ctx());
     assert_eq!(harness.sent(), [children(&["shop", "public"])]);
 }
+
+#[test]
+fn enter_browses_objects_with_rows_and_opens_the_rest() {
+    let mut harness = Harness::new();
+    let mut explorer = loaded(&mut harness, &["public"]);
+    objects(&mut explorer, &mut harness, "public");
+    harness.sent();
+
+    explorer.select(&["d/shop", "g/View", "o/active_customers"].map(String::from));
+    assert_eq!(
+        explorer.handle(Action::Confirm, &mut harness.ctx()),
+        Some(Command::Browse {
+            path: path(&["shop", "public", "active_customers"]),
+            name: vec!["active_customers".into()],
+        })
+    );
+
+    // A group opens and closes.
+    let group = ["d/shop", "g/Function"].map(String::from);
+    explorer.select(&group);
+    assert_eq!(explorer.handle(Action::Confirm, &mut harness.ctx()), None);
+    assert!(explorer.state.borrow().opened().contains(&group.to_vec()));
+    assert!(harness.sent().is_empty());
+}
+
+#[test]
+fn names_leave_out_the_schema_and_database_in_use() {
+    let mut harness = Harness::new();
+    let mut explorer = loaded(&mut harness, &["public", "audit"]);
+    objects(&mut explorer, &mut harness, "public");
+    objects(&mut explorer, &mut harness, "audit");
+    let mut name = |ids: &[&str]| {
+        explorer.select(&ids.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        match explorer.handle(Action::Inspect, &mut harness.ctx()) {
+            Some(Command::InsertName(name)) => Some(name),
+            None => None,
+            other => panic!("expected a name, got {other:?}"),
+        }
+    };
+
+    let public = ["d/shop", "s/public", "g/Table", "o/orders"];
+    assert_eq!(name(&public), Some(vec!["orders".to_string()]));
+    let audit = ["d/shop", "s/audit", "g/Table", "o/orders"];
+    assert_eq!(
+        name(&audit),
+        Some(vec!["audit".to_string(), "orders".to_string()])
+    );
+    let column = ["d/shop", "s/audit", "g/Table", "o/orders", "c/total"];
+    assert_eq!(name(&column), Some(vec!["total".to_string()]));
+    assert_eq!(
+        name(&["d/shop", "s/audit"]),
+        Some(vec!["audit".to_string()])
+    );
+    assert_eq!(name(&["d/shop", "s/audit", "g/Table"]), None);
+}

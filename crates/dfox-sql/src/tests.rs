@@ -142,4 +142,23 @@ fn every_dialect_reads_scripts() {
 #[test]
 fn the_keyword_list_is_sorted() {
     assert!(KEYWORDS.windows(2).all(|w| w[0] < w[1]));
+    assert!(RESERVED.windows(2).all(|w| w[0] < w[1]));
+}
+
+#[test]
+fn names_are_quoted_only_when_they_must_be() {
+    let cases = [
+        ("orders", Dialect::Postgres, "orders"),
+        ("order_items", Dialect::MySql, "order_items"),
+        ("order", Dialect::Postgres, "\"order\""),
+        ("user", Dialect::MySql, "`user`"),
+        ("key", Dialect::Sqlite, "\"key\""),
+        ("Orders", Dialect::Postgres, "\"Orders\""),
+        ("my table", Dialect::MySql, "`my table`"),
+        ("a`b", Dialect::MySql, "`a``b`"),
+        ("1st", Dialect::Postgres, "\"1st\""),
+    ];
+    for (name, dialect, quoted) in cases {
+        assert_eq!(quote_ident(name, dialect), quoted, "{name}");
+    }
 }

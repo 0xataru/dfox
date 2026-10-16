@@ -26,7 +26,7 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
                │ V                 Select whole rows        PgDn              Page down                 │
                │ Ctrl+Z            Undo                     Home              First row / line start    │
                │ Ctrl+Y            Redo                     End               Last row / line end       │
-               │ i                 Inspect the row          Backspace         Delete back               │
+               │ i                 Inspect / insert name    Backspace         Delete back               │
                │ >                 Widen column             Alt+Backspace     Delete a word             │
                │ <                 Narrow column            Alt+B Alt+←       Previous word             │
                │ Tab               Next panel               Alt+F Alt+→       Next word                 │

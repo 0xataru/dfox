@@ -238,7 +238,7 @@ impl Action {
             Action::Wider => "Widen column",
             Action::Narrower => "Narrow column",
             Action::Complete => "Suggest names",
-            Action::Inspect => "Inspect the row",
+            Action::Inspect => "Inspect / insert name",
             Action::Palette => "Command palette",
             Action::Connections => "Connection list",
             Action::New => "New connection",

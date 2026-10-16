@@ -275,6 +275,12 @@ impl Explorer {
         found.map(|entry| (path, entry))
     }
 
+    /// Selects the tree node with identifiers `ids`.
+    #[cfg(test)]
+    pub fn select(&mut self, ids: &[String]) {
+        self.state.borrow_mut().select(ids.to_vec());
+    }
+
     /// Asks for the children of the container at `path`, unless they are
     /// loaded or loading.
     fn open_container(&mut self, path: &NodePath, ctx: &mut Ctx) {
@@ -436,6 +442,57 @@ impl Explorer {
         None
     }
 
+    /// Enter: a table's rows, or else opening or closing the node.
+    fn confirm(&mut self, ctx: &mut Ctx) -> Option<Command> {
+        let ids = self.state.borrow().selected().to_vec();
+        let on_object = ids.last().is_some_and(|id| id.starts_with("o/"));
+        if let Some((path, entry)) = self.resolve(&ids).filter(|_| on_object) {
+            if entry.node.kind.has_rows() {
+                let name = self.sql_name(&path);
+                return Some(Command::Browse { path, name });
+            }
+        }
+        self.open_selected(true, ctx)
+    }
+
+    /// How SQL names the selected node, in parts to quote: a column by its
+    /// own name, an object without the database and schema it is in when
+    /// those are the ones in use.
+    fn selected_name(&self) -> Option<Vec<String>> {
+        let ids = self.state.borrow().selected().to_vec();
+        let last = ids.last()?;
+        if let Some(column) = last.strip_prefix("c/") {
+            return Some(vec![column.to_string()]);
+        }
+        if last.starts_with("g/") {
+            return None;
+        }
+        let (path, entry) = self.resolve(&ids)?;
+        Some(match entry.node.kind {
+            kind if is_object(kind) => self.sql_name(&path),
+            _ => vec![entry.node.name.clone()],
+        })
+    }
+
+    /// The SQL name of the object at `path`.
+    fn sql_name(&self, path: &NodePath) -> Vec<String> {
+        match path.parts() {
+            [database, object] if *database == self.active => vec![object.clone()],
+            [database, schema, object] => {
+                let only = self
+                    .entry(&NodePath::root().child(database.clone()))
+                    .and_then(Entry::only_schema)
+                    .is_some();
+                if only || schema == "public" {
+                    vec![object.clone()]
+                } else {
+                    vec![schema.clone(), object.clone()]
+                }
+            }
+            parts => parts.to_vec(),
+        }
+    }
+
     /// Opens or closes the selected node, loading what it needs.
     fn open_selected(&mut self, toggle: bool, ctx: &mut Ctx) -> Option<Command> {
         let ids = self.state.borrow().selected().to_vec();
@@ -514,7 +571,11 @@ impl Component for Explorer {
             }
             Action::Confirm => {
                 drop(state);
-                return self.open_selected(true, ctx);
+                return self.confirm(ctx);
+            }
+            Action::Inspect => {
+                drop(state);
+                return self.selected_name().map(Command::InsertName);
             }
             Action::Filter => {
                 drop(state);

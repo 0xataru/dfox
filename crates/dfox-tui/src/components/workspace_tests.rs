@@ -513,3 +513,75 @@ fn enter_in_the_results_opens_the_inspector() {
     w.handle(Action::Back, &mut harness.ctx());
     assert!(!w.results().takes_back());
 }
+
+#[test]
+fn enter_on_a_table_shows_its_rows() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    answer_catalog(&mut w, &mut harness);
+    harness.sent();
+    w.set_focus(Panel::Explorer);
+    w.explorer
+        .select(&["d/shop", "g/Table", "o/orders"].map(String::from));
+
+    w.handle(Action::Confirm, &mut harness.ctx());
+    let id = match harness.sent().as_slice() {
+        [DbCommand::Browse {
+            id,
+            path,
+            row_limit: 100_000,
+        }] if path.parts() == ["shop", "public", "orders"] => *id,
+        other => panic!("expected a browse, got {other:?}"),
+    };
+    assert_eq!(w.focused(), Panel::Explorer);
+
+    let mut ctx = harness.ctx();
+    let (schema, batch) = crate::testing::ints(&[1, 2]);
+    w.on_query_event(EngineEvent::Schema { id, schema }, &mut ctx);
+    w.on_query_event(EngineEvent::Batch { id, batch }, &mut ctx);
+    let changed = w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats {
+                rows: 2,
+                ..Default::default()
+            }),
+        },
+        &mut ctx,
+    );
+    // Reading a table changes nothing and isn't kept in the history.
+    assert!(!changed);
+    assert_eq!(w.results().store.row_count(), 2);
+    assert!(harness.history.search("", 10).is_empty());
+
+    // One query at a time.
+    w.editor_mut().set_text("select 1");
+    w.handle(Action::NextFocus, &mut harness.ctx());
+    w.handle(Action::Execute, &mut harness.ctx());
+    harness.sent();
+    w.set_focus(Panel::Explorer);
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(harness.sent().is_empty());
+    assert_eq!(harness.toast_texts(), ["A query is already running"]);
+}
+
+#[test]
+fn names_from_the_explorer_go_into_the_editor_quoted() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    answer_catalog(&mut w, &mut harness);
+    w.on_children(
+        &["shop", "public"].into_iter().collect(),
+        Ok(vec![Node::new(NodeKind::Table, "order", true)]),
+        &mut harness.ctx(),
+    );
+    w.editor_mut().set_text("select * from ");
+    w.editor_mut().handle(Action::End, &mut harness.ctx());
+    w.set_focus(Panel::Explorer);
+    w.explorer
+        .select(&["d/shop", "g/Table", "o/order"].map(String::from));
+
+    w.handle(Action::Inspect, &mut harness.ctx());
+    assert_eq!(w.editor().text(), "select * from \"order\"");
+    assert_eq!(w.focused(), Panel::Explorer);
+}

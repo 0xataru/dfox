@@ -10,6 +10,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::{Schema, SchemaRef};
 use dfox_core::{
     arrow::ArrowResultSet,
+    catalog::NodePath,
     engine::{Command as DbCommand, QueryId, QueryStats},
     errors::DbError,
     result::{ColumnMeta, OwnedCell, ResultSet},
@@ -45,7 +46,8 @@ pub struct RunningQuery {
 /// A query that ended, for the history.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Finished {
-    pub sql: String,
+    /// The query; `None` for a table's rows.
+    pub sql: Option<String>,
     pub ok: bool,
     pub rows: Option<u64>,
     pub elapsed: Duration,
@@ -69,8 +71,11 @@ pub struct ResultsPanel {
     pub grid: Grid,
     pub focused: bool,
     dialect: Dialect,
-    /// The query the results came from, for INSERT statements.
+    /// The query the results came from.
     sql: String,
+    /// The table the rows came from, as SQL, when it was browsed: for
+    /// INSERT statements.
+    table: Option<String>,
     /// The copy-as menu is open.
     picker: bool,
     /// The record inspector is open.
@@ -91,6 +96,7 @@ impl ResultsPanel {
             focused: false,
             dialect,
             sql: String::new(),
+            table: None,
             picker: false,
             inspecting: false,
             inspect_scroll: Cell::new(0),
@@ -105,12 +111,30 @@ impl ResultsPanel {
             sql: sql.to_string(),
             row_limit: ctx.config.row_limit,
         });
+        self.start(id, ctx);
+        self.sql = sql.to_string();
+    }
+
+    /// Starts showing the rows of the table at `path` as query `id`;
+    /// `table` is its name as SQL.
+    pub fn browse(&mut self, id: QueryId, path: NodePath, table: String, ctx: &mut Ctx) {
+        ctx.engine.send(DbCommand::Browse {
+            id,
+            path,
+            row_limit: ctx.config.row_limit,
+        });
+        self.start(id, ctx);
+        self.table = Some(table);
+    }
+
+    fn start(&mut self, id: QueryId, ctx: &Ctx) {
         self.running = Some(RunningQuery {
             id,
             started: ctx.now,
             cancelling: false,
         });
-        self.sql = sql.to_string();
+        self.sql.clear();
+        self.table = None;
         self.show(empty());
     }
 
@@ -168,8 +192,9 @@ impl ResultsPanel {
         }
         let started = self.running.take().map(|q| q.started);
         self.store.finish();
+        let browsed = self.table.is_some();
         let mut finished = Finished {
-            sql: self.sql.clone(),
+            sql: (!browsed).then(|| self.sql.clone()),
             ok: false,
             rows: None,
             elapsed: started.map_or(Duration::ZERO, |s| ctx.now.saturating_duration_since(s)),
@@ -180,7 +205,7 @@ impl ResultsPanel {
                 let has_columns = !self.store.columns().is_empty();
                 self.message = Some(query_message(&stats, has_columns));
                 finished.ok = true;
-                finished.changed = true;
+                finished.changed = !browsed;
                 finished.elapsed = stats.elapsed;
                 finished.rows = Some(if has_columns {
                     stats.rows
@@ -261,8 +286,11 @@ impl ResultsPanel {
 
     fn copy_as(&mut self, format: Format, name: &str, ctx: &mut Ctx) {
         let region = self.export_region();
-        let table =
-            sql::single_table(&self.sql, self.dialect).unwrap_or_else(|| "table_name".into());
+        let table = self
+            .table
+            .clone()
+            .or_else(|| sql::single_table(&self.sql, self.dialect))
+            .unwrap_or_else(|| "table_name".into());
         let target = Target {
             table: &table,
             dialect: self.dialect,
