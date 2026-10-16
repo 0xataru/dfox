@@ -1,12 +1,33 @@
 use super::*;
 use crate::testing::{render, Harness, TestCtx};
 use dfox_core::{
+    catalog::{Node, NodeKind, NodePath},
     engine::{Command as DbCommand, QueryStats},
-    result::{ColumnMeta, OwnedCell, ResultSet},
+    result::ResultSet,
 };
 
 fn workspace() -> Workspace {
     Workspace::new("local", DbType::Postgres, "shop")
+}
+
+/// Answers the explorer as Postgres would: `postgres` and `shop`, which
+/// holds `public` and its objects.
+fn answer_catalog(w: &mut Workspace, harness: &mut Harness) {
+    let databases = vec![
+        Node::new(NodeKind::Database, "postgres", false),
+        Node::new(NodeKind::Database, "shop", true),
+    ];
+    w.on_children(&NodePath::root(), Ok(databases), &mut harness.ctx());
+    w.on_children(
+        &["shop"].into_iter().collect(),
+        Ok(vec![Node::new(NodeKind::Schema, "public", true)]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["shop", "public"].into_iter().collect(),
+        Ok(crate::testing::sample_objects()),
+        &mut harness.ctx(),
+    );
 }
 
 /// The id of the query the workspace just sent.
@@ -96,20 +117,9 @@ fn results_go_to_the_tab_that_ran_the_query() {
     );
 
     let mut ctx = harness.ctx();
-    w.on_query_event(
-        EngineEvent::Columns {
-            id,
-            columns: vec![ColumnMeta::new("n", "int4")],
-        },
-        &mut ctx,
-    );
-    w.on_query_event(
-        EngineEvent::Rows {
-            id,
-            rows: vec![vec![OwnedCell::Int(1)]],
-        },
-        &mut ctx,
-    );
+    let (schema, batch) = crate::testing::ints(&[1]);
+    w.on_query_event(EngineEvent::Schema { id, schema }, &mut ctx);
+    w.on_query_event(EngineEvent::Batch { id, batch }, &mut ctx);
     let changed = w.on_query_event(
         EngineEvent::QueryDone {
             id,
@@ -381,14 +391,7 @@ fn workspace_wide() {
     let test = TestCtx::new();
     let mut w = workspace();
     let mut harness = Harness::new();
-    w.explorer.on_databases(
-        Ok(vec!["postgres".into(), "shop".into()]),
-        &mut harness.ctx(),
-    );
-    w.explorer
-        .on_schemas(Ok(vec!["public".into()]), &mut harness.ctx());
-    w.explorer
-        .on_objects("public", Ok(crate::testing::sample_objects()));
+    answer_catalog(&mut w, &mut harness);
     w.editor_mut().set_text("SELECT * FROM customers");
     insta::assert_snapshot!(render(&test, 120, 40, |f, area, ctx| w.render(f, area, ctx)));
 }
@@ -450,21 +453,14 @@ fn read_only_connections_refuse_writes() {
 fn loaded_tables_feed_autocomplete() {
     let mut harness = Harness::new();
     let mut w = workspace();
-    w.catalog.on_schemas(&["public".into()]);
-    w.on_objects(
-        "public",
-        Ok(crate::testing::sample_objects()),
-        &mut harness.ctx(),
-    );
-    assert_eq!(
-        harness.sent(),
-        [DbCommand::ListColumns {
-            schema: "public".into()
-        }]
-    );
+    answer_catalog(&mut w, &mut harness);
+    assert!(harness.sent().contains(&DbCommand::AllColumns {
+        path: ["shop", "public"].into_iter().collect()
+    }));
+    assert_eq!(w.catalog.schemas(), ["public"]);
     // A failed load asks for nothing.
-    w.on_objects(
-        "other",
+    w.on_children(
+        &["shop", "other"].into_iter().collect(),
         Err(dfox_core::errors::DbError::General("x".into())),
         &mut harness.ctx(),
     );

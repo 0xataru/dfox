@@ -4,10 +4,13 @@ use std::{
 };
 
 use dfox_core::{
+    arrow::ArrowResultSet,
+    catalog::{NodeKind, NodePath},
     driver::Drivers,
     engine::{self, Command, EngineEvent, EngineHandle, QueryId, QueryStats},
     errors::DbError,
     models::connections::{ConnectionParams, DbType},
+    result::{Cell, ResultSet},
 };
 use dfox_testkit::{params_from_url, server_url, unique};
 use tokio::sync::mpsc;
@@ -32,7 +35,8 @@ struct Driver {
 struct Finished {
     columns: Vec<String>,
     rows: Vec<Vec<Option<String>>>,
-    chunks: usize,
+    batches: usize,
+    notices: Vec<String>,
     outcome: Result<QueryStats, DbError>,
 }
 
@@ -50,7 +54,7 @@ impl Driver {
         let mut driver = Self::new();
         driver.engine.send(Command::Connect { db_type, params });
         match driver.next().await {
-            EngineEvent::Connected(result) => result.expect("connect"),
+            EngineEvent::Connected(result) => drop(result.expect("connect")),
             other => panic!("expected Connected, got {other:?}"),
         }
         driver
@@ -74,32 +78,52 @@ impl Driver {
     }
 
     async fn finish(&mut self, id: QueryId) -> Finished {
-        let mut finished = Finished {
-            columns: Vec::new(),
-            rows: Vec::new(),
-            chunks: 0,
-            outcome: Ok(QueryStats::default()),
-        };
-        loop {
+        let mut result: Option<ArrowResultSet> = None;
+        let mut batches = 0;
+        let mut notices = Vec::new();
+        let outcome = loop {
             match self.next().await {
-                EngineEvent::Columns { id: got, columns } if got == id => {
-                    finished.columns = columns.into_iter().map(|c| c.name).collect();
-                    finished.rows.clear();
+                EngineEvent::Schema { id: got, schema } if got == id => {
+                    result = Some(ArrowResultSet::new(schema));
                 }
-                EngineEvent::Rows { id: got, rows } if got == id => {
-                    finished.chunks += 1;
-                    finished.rows.extend(
-                        rows.into_iter()
-                            .map(|row| row.into_iter().map(|cell| cell.into_text()).collect()),
-                    );
+                EngineEvent::Batch { id: got, batch } if got == id => {
+                    batches += 1;
+                    result.as_mut().expect("a schema first").push(batch);
                 }
-                EngineEvent::QueryDone { id: got, outcome } if got == id => {
-                    finished.outcome = outcome;
-                    return finished;
-                }
+                EngineEvent::Notice { id: got, message } if got == id => notices.push(message),
+                EngineEvent::QueryDone { id: got, outcome } if got == id => break outcome,
                 other => panic!("unexpected event {other:?}"),
             }
+        };
+        let (columns, rows) = match &result {
+            Some(result) => (
+                result.columns().iter().map(|c| c.name.clone()).collect(),
+                (0..result.row_count())
+                    .map(|row| {
+                        (0..result.columns().len())
+                            .map(|col| match result.cell(row, col) {
+                                Some(Cell::Null) | None => None,
+                                Some(cell) => Some(cell.to_string()),
+                            })
+                            .collect()
+                    })
+                    .collect(),
+            ),
+            None => (Vec::new(), Vec::new()),
+        };
+        Finished {
+            columns,
+            rows,
+            batches,
+            notices,
+            outcome,
         }
+    }
+
+    /// Asks for `command` and returns the first event.
+    async fn ask(&mut self, command: Command) -> EngineEvent {
+        self.engine.send(command);
+        self.next().await
     }
 
     async fn query(&mut self, sql: &str, row_limit: usize) -> Finished {
@@ -157,26 +181,27 @@ impl Drop for TempDb {
 }
 
 #[tokio::test]
-async fn sqlite_rows_stream_in_chunks() {
+async fn sqlite_rows_stream_in_batches() {
     let db = TempDb::new();
     let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;
 
     let finished = engine
         .query(
             "CREATE TABLE t (n INTEGER);
-             INSERT INTO t WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 2500)
+             INSERT INTO t WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 25000)
                  SELECT n FROM s;
              SELECT n, 'row ' || n FROM t ORDER BY n",
-            10_000,
+            100_000,
         )
         .await;
 
     let stats = finished.outcome.expect("query");
     assert_eq!(finished.columns.len(), 2);
-    assert_eq!(finished.rows.len(), 2500);
-    assert_eq!(finished.rows[2499][1].as_deref(), Some("row 2500"));
-    assert!(finished.chunks >= 3, "{} chunks", finished.chunks);
-    assert_eq!(stats.rows, 2500);
+    assert_eq!(finished.rows.len(), 25_000);
+    assert_eq!(finished.rows[24_999][1].as_deref(), Some("row 25000"));
+    assert!(finished.batches >= 3, "{} batches", finished.batches);
+    assert_eq!(stats.rows, 25_000);
+    assert_eq!(stats.rows_affected, 25_000);
     assert!(!stats.truncated);
     assert!(stats.first_row.is_some());
 }
@@ -201,61 +226,59 @@ async fn sqlite_row_limit_truncates() {
 }
 
 #[tokio::test]
-async fn sqlite_metadata_and_errors() {
+async fn sqlite_catalog_and_errors() {
     let db = TempDb::new();
     let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;
     engine
-        .query("CREATE TABLE people (id INTEGER, name TEXT)", 0)
+        .query("CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT)", 0)
         .await
         .outcome
         .expect("create");
 
-    engine.engine.send(Command::ListSchemas);
-    match engine.next().await {
-        EngineEvent::Schemas(schemas) => assert_eq!(schemas.expect("schemas"), ["main"]),
-        other => panic!("expected Schemas, got {other:?}"),
-    }
-
-    engine.engine.send(Command::ListObjects {
-        schema: "main".to_string(),
-    });
-    match engine.next().await {
-        EngineEvent::Objects { schema, result } => {
-            assert_eq!(schema, "main");
-            let names: Vec<_> = result
-                .expect("objects")
-                .into_iter()
-                .map(|o| o.name)
-                .collect();
-            assert_eq!(names, ["people"]);
+    match engine
+        .ask(Command::Children {
+            path: NodePath::root(),
+        })
+        .await
+    {
+        EngineEvent::Children { path, result } => {
+            assert_eq!(path, NodePath::root());
+            assert_eq!(result.expect("databases")[0].name, "main");
         }
-        other => panic!("expected Objects, got {other:?}"),
+        other => panic!("expected Children, got {other:?}"),
     }
 
-    engine.engine.send(Command::Describe {
-        schema: "main".to_string(),
-        table: "people".to_string(),
-    });
-    match engine.next().await {
-        EngineEvent::Described { table, result, .. } => {
-            assert_eq!(table, "people");
-            let names: Vec<_> = result
-                .expect("schema")
-                .columns
+    let main = NodePath::root().child("main");
+    match engine.ask(Command::Children { path: main.clone() }).await {
+        EngineEvent::Children { result, .. } => {
+            let tables: Vec<_> = result
+                .expect("tables")
                 .into_iter()
-                .map(|c| c.name)
+                .map(|n| (n.name, n.kind))
                 .collect();
+            assert_eq!(tables, [("people".to_string(), NodeKind::Table)]);
+        }
+        other => panic!("expected Children, got {other:?}"),
+    }
+
+    match engine
+        .ask(Command::Describe {
+            path: main.child("people"),
+        })
+        .await
+    {
+        EngineEvent::Described { path, result } => {
+            assert_eq!(path.name(), Some("people"));
+            let info = result.expect("describe");
+            let names: Vec<_> = info.columns.iter().map(|c| c.name.as_str()).collect();
             assert_eq!(names, ["id", "name"]);
+            assert!(info.columns[0].primary_key);
         }
         other => panic!("expected Described, got {other:?}"),
     }
 
-    engine.engine.send(Command::ListColumns {
-        schema: "main".to_string(),
-    });
-    match engine.next().await {
-        EngineEvent::TableColumns { schema, result } => {
-            assert_eq!(schema, "main");
+    match engine.ask(Command::AllColumns { path: main }).await {
+        EngineEvent::AllColumns { result, .. } => {
             let columns: Vec<_> = result
                 .expect("columns")
                 .into_iter()
@@ -263,11 +286,12 @@ async fn sqlite_metadata_and_errors() {
                 .collect();
             assert_eq!(columns, ["people.id", "people.name"]);
         }
-        other => panic!("expected TableColumns, got {other:?}"),
+        other => panic!("expected AllColumns, got {other:?}"),
     }
 
     let bad = engine.query("SELECT * FROM no_such_table", 10).await;
-    assert!(matches!(bad.outcome, Err(DbError::Sqlx(_))));
+    let err = bad.outcome.expect_err("an error");
+    assert!(err.to_string().contains("no such table"), "{err}");
     assert_eq!(engine.scalar("SELECT 1").await.as_deref(), Some("1"));
 }
 
@@ -294,8 +318,15 @@ async fn commands_without_a_connection_fail() {
     let finished = engine.query("SELECT 1", 10).await;
     assert!(matches!(finished.outcome, Err(DbError::Connection(_))));
 
-    engine.engine.send(Command::ListSchemas);
-    assert!(matches!(engine.next().await, EngineEvent::Schemas(Err(_))));
+    let event = engine
+        .ask(Command::Children {
+            path: NodePath::root(),
+        })
+        .await;
+    assert!(matches!(
+        event,
+        EngineEvent::Children { result: Err(_), .. }
+    ));
 }
 
 #[tokio::test]
@@ -329,7 +360,7 @@ async fn postgres_streams_and_cancels() {
     assert_eq!(finished.rows.len(), 100_000);
     assert_eq!(stats.rows, 100_000);
     assert!(stats.truncated);
-    assert!(finished.chunks >= 100, "{} chunks", finished.chunks);
+    assert!(finished.batches >= 10, "{} batches", finished.batches);
     let first_row = stats.first_row.expect("first row");
     assert!(
         first_row < Duration::from_millis(500),
@@ -339,6 +370,56 @@ async fn postgres_streams_and_cancels() {
     let took = engine.cancel_after_start("SELECT pg_sleep(30)").await;
     assert!(took < Duration::from_millis(300), "took {took:?}");
     assert_eq!(engine.scalar("SELECT 1").await.as_deref(), Some("1"));
+}
+
+/// The catalog answers while a query runs: browsing never waits behind it.
+#[tokio::test]
+async fn postgres_catalog_answers_during_a_query() {
+    let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
+        return;
+    };
+    let mut engine = Driver::connect(DbType::Postgres, params_from_url(&url)).await;
+    let id = engine.start("SELECT pg_sleep(2)", 10);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let asked = Instant::now();
+    engine.engine.send(Command::Children {
+        path: NodePath::root(),
+    });
+    loop {
+        match engine.next().await {
+            EngineEvent::Children { result, .. } => {
+                assert!(!result.expect("databases").is_empty());
+                break;
+            }
+            EngineEvent::QueryDone { .. } => panic!("the catalog waited for the query"),
+            _ => {}
+        }
+    }
+    assert!(
+        asked.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        asked.elapsed()
+    );
+    loop {
+        if let EngineEvent::QueryDone { id: done, outcome } = engine.next().await {
+            assert_eq!(done, id);
+            outcome.expect("the query");
+            break;
+        }
+    }
+}
+
+#[tokio::test]
+async fn postgres_notices_reach_the_ui() {
+    let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
+        return;
+    };
+    let mut engine = Driver::connect(DbType::Postgres, params_from_url(&url)).await;
+    let finished = engine
+        .query("DO $$ BEGIN RAISE NOTICE 'hello %', 7; END $$", 10)
+        .await;
+    finished.outcome.expect("query");
+    assert_eq!(finished.notices, ["NOTICE: hello 7"]);
 }
 
 #[tokio::test]
@@ -351,6 +432,39 @@ async fn mysql_cancels() {
     let took = engine.cancel_after_start("SELECT SLEEP(30)").await;
     assert!(took < Duration::from_millis(300), "took {took:?}");
     assert_eq!(engine.scalar("SELECT 1").await.as_deref(), Some("1"));
+}
+
+/// Sessions open through the opener the app passes, such as one that
+/// tunnels through SSH.
+#[tokio::test]
+async fn sessions_open_through_the_opener() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let opened = Arc::new(AtomicUsize::new(0));
+    let counted = opened.clone();
+    let opener: engine::Opener = Arc::new(move |driver, params| {
+        counted.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move { driver.open(&params).await })
+    });
+    let (handle, events) = engine::spawn_with(drivers(), opener);
+    let mut engine = Driver {
+        engine: handle,
+        events,
+        next_id: 0,
+    };
+    let db = TempDb::new();
+    let event = engine
+        .ask(Command::Connect {
+            db_type: DbType::Sqlite,
+            params: db.params(),
+        })
+        .await;
+    let info = match event {
+        EngineEvent::Connected(result) => result.expect("connect"),
+        other => panic!("expected Connected, got {other:?}"),
+    };
+    assert!(info.caps.contains(dfox_core::session::Capabilities::CANCEL));
+    assert_eq!(opened.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

@@ -13,6 +13,7 @@ use dfox_core::{
         NodePath, Order,
     },
     errors::DbError,
+    models::schema::TableColumn,
     result::OwnedCell,
     session::{ApplyReport, Change, ChangeSet},
 };
@@ -409,6 +410,38 @@ impl Catalog for MyCatalog {
                     .map_err(db_error)?;
                 stream_result(result, usize::MAX, &tx).await
             }))
+        })
+    }
+    fn all_columns<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+    ) -> BoxFuture<'a, Result<Vec<TableColumn>, DbError>> {
+        Box::pin(async move {
+            let [database] = node.parts() else {
+                return Err(DbError::General(format!(
+                    "not a database: {:?}",
+                    node.parts()
+                )));
+            };
+            let rows: Vec<(String, String, String)> = self
+                .conn
+                .lock()
+                .await
+                .exec(
+                    "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS \
+                     WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME, ORDINAL_POSITION",
+                    (database,),
+                )
+                .await
+                .map_err(db_error)?;
+            Ok(rows
+                .into_iter()
+                .map(|(table, name, data_type)| TableColumn {
+                    table,
+                    name,
+                    data_type,
+                })
+                .collect())
         })
     }
 }

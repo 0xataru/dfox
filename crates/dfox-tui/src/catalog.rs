@@ -4,10 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use dfox_core::{
-    errors::DbError,
-    models::schema::{DbObject, TableColumn},
-};
+use dfox_core::{errors::DbError, models::schema::TableColumn};
 
 #[derive(Debug, Default)]
 pub struct Catalog {
@@ -23,13 +20,8 @@ impl Catalog {
         self.schemas = schemas.to_vec();
     }
 
-    /// Records the tables of `schema`.
-    pub fn on_objects(&mut self, schema: &str, objects: &[DbObject]) {
-        let tables = objects
-            .iter()
-            .filter(|o| o.kind.has_rows())
-            .map(|o| o.name.clone())
-            .collect();
+    /// Records the tables and views of `schema`.
+    pub fn on_tables(&mut self, schema: &str, tables: Vec<String>) {
         self.tables.insert(schema.to_string(), tables);
     }
 

@@ -1562,6 +1562,7 @@ dependencies = [
  "dfox-driver-postgres",
  "dfox-driver-sqlite",
  "dfox-sql",
+ "dfox-ssh",
  "directories",
  "dotenvy",
  "env_logger",

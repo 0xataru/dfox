@@ -186,7 +186,8 @@ impl Drivers {
 }
 
 /// How long it takes to reach the database, without logging in: a TCP
-/// connect to a server, or opening a SQLite file's metadata. Needs no
+/// connect to the server (or its SSH jump host), or reading a SQLite file's
+/// metadata. Needs no
 /// password and no driver.
 pub async fn ping(db_type: DbType, params: &ConnectionParams) -> Result<Duration, DbError> {
     const TIMEOUT: Duration = Duration::from_secs(3);
@@ -199,7 +200,11 @@ pub async fn ping(db_type: DbType, params: &ConnectionParams) -> Result<Duration
                 .map_err(|err| DbError::Connection(format!("{path}: {err}")))?;
         }
         _ => {
-            let address = (params.host.as_str(), params.port);
+            // Through a tunnel, the jump host is what has to be reachable.
+            let address = match &params.ssh {
+                Some(ssh) => (ssh.host.as_str(), ssh.port.unwrap_or(22)),
+                None => (params.host.as_str(), params.port),
+            };
             tokio::time::timeout(TIMEOUT, tokio::net::TcpStream::connect(address))
                 .await
                 .map_err(|_| DbError::Connection("timed out".to_string()))?

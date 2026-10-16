@@ -3,7 +3,7 @@
 
 use futures_util::future::BoxFuture;
 
-use crate::{arrow::ResultStream, errors::DbError};
+use crate::{arrow::ResultStream, errors::DbError, models::schema::TableColumn};
 
 /// What a node in the tree is. The explorer picks icons and actions from it
 /// without knowing the database.
@@ -232,6 +232,18 @@ pub trait Catalog: Send {
         node: &'a NodePath,
         query: BrowseQuery,
     ) -> BoxFuture<'a, Result<ResultStream, DbError>>;
+
+    /// Every column of every table and view directly under `node` (a schema,
+    /// or a database that has no schemas), by table and then position, in
+    /// one go. For autocomplete; a catalog that can't list them cheaply
+    /// returns none.
+    fn all_columns<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+    ) -> BoxFuture<'a, Result<Vec<TableColumn>, DbError>> {
+        let _ = node;
+        Box::pin(async { Ok(Vec::new()) })
+    }
 }
 
 #[cfg(test)]

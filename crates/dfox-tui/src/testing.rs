@@ -121,20 +121,22 @@ impl Harness {
 }
 
 /// Tables, views and routines for explorer tests and snapshots.
-pub fn sample_objects() -> Vec<dfox_core::models::schema::DbObject> {
-    use dfox_core::models::schema::{DbObject, ObjectKind};
-    let object = |name: &str, kind, rows| DbObject {
-        name: name.to_string(),
-        kind,
-        rows,
+pub fn sample_objects() -> Vec<dfox_core::catalog::Node> {
+    use dfox_core::catalog::{Node, NodeKind};
+    let object = |name: &str, kind: NodeKind, rows: Option<&str>| {
+        let node = Node::new(kind, name, kind.has_rows());
+        match rows {
+            Some(rows) => node.with_detail(rows),
+            None => node,
+        }
     };
     vec![
-        object("active_customers", ObjectKind::View, None),
-        object("customers", ObjectKind::Table, Some(1_250)),
-        object("order_items", ObjectKind::Table, Some(48_200)),
-        object("orders", ObjectKind::Table, Some(12_400)),
-        object("place_order", ObjectKind::Procedure, None),
-        object("total_spent", ObjectKind::Function, None),
+        object("active_customers", NodeKind::View, None),
+        object("customers", NodeKind::Table, Some("~1.2k")),
+        object("order_items", NodeKind::Table, Some("~48.2k")),
+        object("orders", NodeKind::Table, Some("~12.4k")),
+        object("place_order", NodeKind::Procedure, None),
+        object("total_spent", NodeKind::Function, None),
     ]
 }
 
@@ -142,26 +144,8 @@ pub fn sample_objects() -> Vec<dfox_core::models::schema::DbObject> {
 pub fn sample_catalog() -> crate::catalog::Catalog {
     let mut catalog = crate::catalog::Catalog::default();
     catalog.on_schemas(&["public".into(), "audit".into()]);
-    let object = |name: &str, kind| dfox_core::models::schema::DbObject {
-        name: name.into(),
-        kind,
-        rows: None,
-    };
-    catalog.on_objects(
-        "audit",
-        &[
-            object("log", dfox_core::models::schema::ObjectKind::Table),
-            object("orders", dfox_core::models::schema::ObjectKind::Table),
-        ],
-    );
-    catalog.on_objects(
-        "public",
-        &[
-            object("customers", dfox_core::models::schema::ObjectKind::Table),
-            object("orders", dfox_core::models::schema::ObjectKind::Table),
-            object("total", dfox_core::models::schema::ObjectKind::Function),
-        ],
-    );
+    catalog.on_tables("audit", vec!["log".into(), "orders".into()]);
+    catalog.on_tables("public", vec!["customers".into(), "orders".into()]);
     let column = |table: &str, name: &str| dfox_core::models::schema::TableColumn {
         table: table.into(),
         name: name.into(),
@@ -178,4 +162,29 @@ pub fn sample_catalog() -> crate::catalog::Catalog {
     );
     catalog.on_columns("audit", Ok(vec![column("orders", "at")]));
     catalog
+}
+
+/// The schema and batch a driver would send for `rows`: what the engine
+/// passes on as a query's `Schema` and `Batch` events.
+pub fn frames(
+    columns: Vec<dfox_core::result::ColumnMeta>,
+    rows: Vec<Vec<dfox_core::result::OwnedCell>>,
+) -> (arrow_schema::SchemaRef, arrow_array::RecordBatch) {
+    let result = dfox_core::arrow::ArrowResultSet::from_cells(columns, rows);
+    let schema = result.schema().clone();
+    let batch = result
+        .batches()
+        .first()
+        .cloned()
+        .unwrap_or_else(|| arrow_array::RecordBatch::new_empty(schema.clone()));
+    (schema, batch)
+}
+
+/// One column `n` of integers, as a query's schema and batch.
+pub fn ints(values: &[i64]) -> (arrow_schema::SchemaRef, arrow_array::RecordBatch) {
+    use dfox_core::result::{ColumnMeta, OwnedCell};
+    frames(
+        vec![ColumnMeta::new("n", "int4")],
+        values.iter().map(|v| vec![OwnedCell::Int(*v)]).collect(),
+    )
 }

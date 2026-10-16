@@ -1,20 +1,47 @@
+use dfox_core::catalog::{ColumnInfo, EntityInfo};
+
 use super::*;
 use crate::testing::{render, Harness, TestCtx};
 
-/// An explorer on `shop`, with the database list and `schemas` answered.
+fn path(parts: &[&str]) -> NodePath {
+    parts.iter().copied().collect()
+}
+
+fn children(parts: &[&str]) -> DbCommand {
+    DbCommand::Children { path: path(parts) }
+}
+
+/// An explorer on `shop`, with the database list and `schemas` answered,
+/// as Postgres would: only the connected database can be browsed.
 fn loaded(harness: &mut Harness, schemas: &[&str]) -> Explorer {
     let mut explorer = Explorer::new("shop");
     explorer.focused = true;
     explorer.load(&mut harness.ctx());
-    explorer.on_databases(
-        Ok(vec!["postgres".into(), "shop".into()]),
+    explorer.on_children(
+        &NodePath::root(),
+        Ok(vec![
+            Node::new(NodeKind::Database, "postgres", false),
+            Node::new(NodeKind::Database, "shop", true),
+        ]),
         &mut harness.ctx(),
     );
-    explorer.on_schemas(
-        Ok(schemas.iter().map(|s| s.to_string()).collect()),
+    explorer.on_children(
+        &path(&["shop"]),
+        Ok(schemas
+            .iter()
+            .map(|s| Node::new(NodeKind::Schema, *s, true))
+            .collect()),
         &mut harness.ctx(),
     );
     explorer
+}
+
+fn objects(explorer: &mut Explorer, harness: &mut Harness, schema: &str) {
+    explorer.on_children(
+        &path(&["shop", schema]),
+        Ok(crate::testing::sample_objects()),
+        &mut harness.ctx(),
+    );
 }
 
 fn snapshot(explorer: &Explorer, height: u16) -> String {
@@ -31,14 +58,12 @@ fn loading_opens_the_active_database_and_its_only_schema() {
     assert_eq!(
         harness.sent(),
         [
-            DbCommand::ListDatabases,
-            DbCommand::ListSchemas,
-            DbCommand::ListObjects {
-                schema: "public".into()
-            }
+            children(&[]),
+            children(&["shop"]),
+            children(&["shop", "public"])
         ]
     );
-    explorer.on_objects("public", Ok(crate::testing::sample_objects()));
+    objects(&mut explorer, &mut harness, "public");
     insta::assert_snapshot!(snapshot(&explorer, 16));
 }
 
@@ -46,7 +71,7 @@ fn loading_opens_the_active_database_and_its_only_schema() {
 fn several_schemas_show_a_schema_level() {
     let mut harness = Harness::new();
     let mut explorer = loaded(&mut harness, &["public", "audit"]);
-    explorer.on_objects("public", Ok(crate::testing::sample_objects()));
+    objects(&mut explorer, &mut harness, "public");
     insta::assert_snapshot!(snapshot(&explorer, 14));
 }
 
@@ -66,51 +91,81 @@ fn another_database_is_opened_by_switching_to_it() {
     harness.sent();
     explorer.set_active("postgres", &mut harness.ctx());
     assert_eq!(explorer.active, "postgres");
-    assert_eq!(harness.sent(), [DbCommand::ListSchemas]);
+    assert_eq!(harness.sent(), [children(&["postgres"])]);
 }
 
 #[test]
 fn opening_a_table_describes_it() {
     let mut harness = Harness::new();
     let mut explorer = loaded(&mut harness, &["public"]);
-    explorer.on_objects("public", Ok(crate::testing::sample_objects()));
+    objects(&mut explorer, &mut harness, "public");
     harness.sent();
 
-    let path: Vec<String> = ["d/shop", "g/Table", "o/orders"].map(String::from).to_vec();
-    explorer.state.borrow_mut().open(path[..2].to_vec());
-    explorer.state.borrow_mut().select(path);
+    let ids: Vec<String> = ["d/shop", "g/Table", "o/orders"].map(String::from).to_vec();
+    explorer.state.borrow_mut().open(ids[..2].to_vec());
+    explorer.state.borrow_mut().select(ids);
     explorer.handle(Action::Right, &mut harness.ctx());
+    let table = path(&["shop", "public", "orders"]);
     assert_eq!(
         harness.sent(),
         [DbCommand::Describe {
-            schema: "public".into(),
-            table: "orders".into()
+            path: table.clone()
         }]
     );
 
     explorer.on_described(
-        "public",
-        "orders",
-        Ok(TableSchema {
-            schema: "public".into(),
-            table_name: "orders".into(),
-            columns: vec![ColumnSchema {
+        &table,
+        Ok(EntityInfo {
+            columns: vec![ColumnInfo {
                 name: "id".into(),
-                data_type: "integer".into(),
-                is_nullable: false,
+                type_name: "integer".into(),
+                nullable: false,
                 default: None,
+                primary_key: true,
             }],
-            indexes: Vec::new(),
+            ..Default::default()
         }),
     );
     insta::assert_snapshot!(snapshot(&explorer, 14));
+}
+
+/// MySQL and SQLite have no schemas: tables sit right under the database,
+/// and every database can be opened without switching.
+#[test]
+fn databases_without_schemas_hold_their_tables() {
+    let mut harness = Harness::new();
+    let mut explorer = Explorer::new("shop");
+    explorer.load(&mut harness.ctx());
+    explorer.on_children(
+        &NodePath::root(),
+        Ok(vec![
+            Node::new(NodeKind::Database, "mysql", true),
+            Node::new(NodeKind::Database, "shop", true),
+        ]),
+        &mut harness.ctx(),
+    );
+    explorer.on_children(
+        &path(&["shop"]),
+        Ok(crate::testing::sample_objects()),
+        &mut harness.ctx(),
+    );
+    assert_eq!(harness.sent(), [children(&[]), children(&["shop"])]);
+    assert!(explorer
+        .state
+        .borrow()
+        .opened()
+        .contains(&vec!["d/shop".to_string(), "g/Table".to_string()]));
+
+    explorer.state.borrow_mut().select(vec!["d/mysql".into()]);
+    assert_eq!(explorer.handle(Action::Confirm, &mut harness.ctx()), None);
+    assert_eq!(harness.sent(), [children(&["mysql"])]);
 }
 
 #[test]
 fn filter_finds_and_jumps_to_an_object() {
     let mut harness = Harness::new();
     let mut explorer = loaded(&mut harness, &["public"]);
-    explorer.on_objects("public", Ok(crate::testing::sample_objects()));
+    objects(&mut explorer, &mut harness, "public");
 
     explorer.handle(Action::Filter, &mut harness.ctx());
     assert!(explorer.wants_text());
@@ -118,7 +173,7 @@ fn filter_finds_and_jumps_to_an_object() {
         explorer.handle(Action::Input(c), &mut harness.ctx());
     }
     insta::assert_snapshot!(snapshot(&explorer, 8));
-    assert_eq!(explorer.matches[0].object.name, "orders");
+    assert_eq!(explorer.matches[0].node.name, "orders");
 
     explorer.handle(Action::Confirm, &mut harness.ctx());
     assert!(!explorer.wants_text());
@@ -141,21 +196,9 @@ fn escape_leaves_the_filter() {
 fn queries_refresh_the_loaded_schemas() {
     let mut harness = Harness::new();
     let mut explorer = loaded(&mut harness, &["public", "audit"]);
-    explorer.on_objects("public", Ok(crate::testing::sample_objects()));
+    objects(&mut explorer, &mut harness, "public");
     harness.sent();
 
     explorer.refresh_loaded(&mut harness.ctx());
-    assert_eq!(
-        harness.sent(),
-        [DbCommand::ListObjects {
-            schema: "public".into()
-        }]
-    );
-}
-
-#[test]
-fn row_counts_are_compact() {
-    assert_eq!(render::compact(950), "950");
-    assert_eq!(render::compact(12_400), "12.4k");
-    assert_eq!(render::compact(3_400_000), "3.4M");
+    assert_eq!(harness.sent(), [children(&["shop", "public"])]);
 }

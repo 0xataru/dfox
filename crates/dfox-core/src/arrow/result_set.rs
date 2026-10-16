@@ -13,8 +13,12 @@ use arrow_array::{
 use arrow_cast::display::{ArrayFormatter, FormatOptions};
 use arrow_schema::{DataType, IntervalUnit, SchemaRef, TimeUnit};
 
-use super::{DECIMAL, JSON, TYPE_NAME};
-use crate::result::{Cell, ColumnMeta, ResultSet};
+use super::{decimal_field, field, json_field, schema, DECIMAL, JSON, TYPE_NAME};
+use crate::result::{Cell, ColumnMeta, OwnedCell, ResultSet};
+
+fn present(cell: &OwnedCell) -> bool {
+    !matches!(cell, OwnedCell::Null)
+}
 
 /// Text of the values of one batch column that have no borrowable form, such
 /// as decimals and dates, made the first time each is read.
@@ -98,6 +102,92 @@ impl ArrowResultSet {
     /// The columns' names and types.
     pub fn schema(&self) -> &SchemaRef {
         &self.schema
+    }
+
+    /// A complete result from rows of cells, such as one the app makes up
+    /// itself. A column takes the type its cells share, or text when they
+    /// differ.
+    pub fn from_cells(columns: Vec<ColumnMeta>, rows: Vec<Vec<OwnedCell>>) -> Self {
+        use std::sync::Arc;
+
+        use arrow_array::{
+            ArrayRef, BinaryArray, BooleanArray, Float64Array, Int64Array, StringArray, UInt64Array,
+        };
+
+        let mut fields = Vec::new();
+        let mut arrays: Vec<ArrayRef> = Vec::new();
+        for (i, column) in columns.iter().enumerate() {
+            let cells: Vec<&OwnedCell> = rows.iter().map(|row| &row[i]).collect();
+            let kinds: Vec<std::mem::Discriminant<OwnedCell>> = cells
+                .iter()
+                .filter(|c| present(c))
+                .map(|c| std::mem::discriminant(*c))
+                .collect();
+            let shared = kinds.windows(2).all(|w| w[0] == w[1]);
+            let first = cells.iter().copied().find(|c| present(c));
+            let (name, type_name) = (column.name.as_str(), column.type_name.as_str());
+            let (f, array): (_, ArrayRef) = match first {
+                Some(OwnedCell::Bool(_)) if shared => (
+                    field(name, DataType::Boolean, type_name),
+                    Arc::new(BooleanArray::from_iter(cells.iter().map(|c| match c {
+                        OwnedCell::Bool(b) => Some(*b),
+                        _ => None,
+                    }))),
+                ),
+                Some(OwnedCell::Int(_)) if shared => (
+                    field(name, DataType::Int64, type_name),
+                    Arc::new(Int64Array::from_iter(cells.iter().map(|c| match c {
+                        OwnedCell::Int(n) => Some(*n),
+                        _ => None,
+                    }))),
+                ),
+                Some(OwnedCell::UInt(_)) if shared => (
+                    field(name, DataType::UInt64, type_name),
+                    Arc::new(UInt64Array::from_iter(cells.iter().map(|c| match c {
+                        OwnedCell::UInt(n) => Some(*n),
+                        _ => None,
+                    }))),
+                ),
+                Some(OwnedCell::Float(_)) if shared => (
+                    field(name, DataType::Float64, type_name),
+                    Arc::new(Float64Array::from_iter(cells.iter().map(|c| match c {
+                        OwnedCell::Float(f) => Some(*f),
+                        _ => None,
+                    }))),
+                ),
+                Some(OwnedCell::Bytes(_)) if shared => (
+                    field(name, DataType::Binary, type_name),
+                    Arc::new(BinaryArray::from_iter(cells.iter().map(|c| match c {
+                        OwnedCell::Bytes(b) => Some(b.as_ref()),
+                        _ => None,
+                    }))),
+                ),
+                first => {
+                    let f = match first {
+                        Some(OwnedCell::Decimal(_)) if shared => decimal_field(name, type_name),
+                        Some(OwnedCell::Json(_)) if shared => json_field(name, type_name),
+                        _ => field(name, DataType::Utf8, type_name),
+                    };
+                    let text = StringArray::from_iter(
+                        cells
+                            .iter()
+                            .map(|c| present(c).then(|| c.as_cell().to_string())),
+                    );
+                    (f, Arc::new(text))
+                }
+            };
+            fields.push(f);
+            arrays.push(array);
+        }
+        let schema = schema(fields);
+        let mut result = Self::new(schema.clone());
+        if !rows.is_empty() {
+            if let Ok(batch) = RecordBatch::try_new(schema, arrays) {
+                result.push(batch);
+            }
+        }
+        result.finish();
+        result
     }
 
     /// Adds rows. Empty batches are skipped.
@@ -272,6 +362,44 @@ pub(crate) fn interval(months: i32, days: i32, micros: i64) -> String {
         parts.push(time);
     }
     parts.join(" ")
+}
+
+#[cfg(test)]
+mod from_cells_tests {
+    use super::*;
+
+    #[test]
+    fn cells_become_typed_columns_or_text_when_mixed() {
+        let result = ArrowResultSet::from_cells(
+            vec![
+                ColumnMeta::new("n", "int"),
+                ColumnMeta::new("mixed", ""),
+                ColumnMeta::new("price", "numeric"),
+            ],
+            vec![
+                vec![
+                    OwnedCell::Int(1),
+                    OwnedCell::Int(1),
+                    OwnedCell::Decimal("1.50".into()),
+                ],
+                vec![
+                    OwnedCell::Null,
+                    OwnedCell::Text("x".into()),
+                    OwnedCell::Null,
+                ],
+            ],
+        );
+        assert!(result.is_complete());
+        assert_eq!(result.row_count(), 2);
+        assert!(matches!(result.cell(0, 0), Some(Cell::Int(1))));
+        assert!(matches!(result.cell(1, 0), Some(Cell::Null)));
+        assert!(matches!(result.cell(0, 1), Some(Cell::Text("1"))));
+        assert!(matches!(result.cell(0, 2), Some(Cell::Decimal("1.50"))));
+        assert_eq!(result.columns()[2].type_name, "numeric");
+        let empty = ArrowResultSet::from_cells(vec![ColumnMeta::new("a", "")], Vec::new());
+        assert_eq!(empty.row_count(), 0);
+        assert_eq!(empty.columns().len(), 1);
+    }
 }
 
 #[cfg(test)]

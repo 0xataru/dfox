@@ -7,6 +7,17 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Changed
+
+- The app runs on the native sessions: rows arrive as Arrow batches, the
+  explorer walks each driver's catalog tree (so MySQL shows every database,
+  with tables right under it, and SQLite shows `main` and attached
+  databases), and the SQL dialect comes from the session. Sessions open
+  through `dfox-ssh`, so a connection with SSH details goes through a
+  tunnel; the connection form gets the fields next. Server notices and
+  MySQL warnings show as toasts. The explorer keeps browsing while a query
+  runs
+
 ### Added
 
 - A native SQLite session on `rusqlite`, with the connection on a thread of

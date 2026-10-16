@@ -5,7 +5,9 @@ use nucleo_matcher::{
     Config, Matcher, Utf32Str,
 };
 
-use super::{Explorer, Load, Match};
+use dfox_core::catalog::NodePath;
+
+use super::{Entry, Explorer, Match};
 use crate::action::Action;
 
 /// Scores `names` against `query`, best first. Only matches are returned, as
@@ -38,21 +40,26 @@ pub fn matcher() -> Matcher {
 /// Typing a filter, and jumping to what it found.
 impl Explorer {
     pub(super) fn update_matches(&mut self, query: &str) {
-        let mut candidates = Vec::new();
-        if let Some(Load::Loaded(schemas)) = self.active_db().map(|db| &db.schemas) {
-            for schema in schemas {
-                if let Load::Loaded(objects) = &schema.objects {
-                    candidates.extend(objects.iter().map(|o| Match {
-                        schema: schema.name.clone(),
-                        object: o.object.clone(),
-                    }));
+        fn walk(list: &[Entry], path: &NodePath, out: &mut Vec<Match>) {
+            for entry in list {
+                if entry.is_object() {
+                    out.push(Match {
+                        parent: path.clone(),
+                        node: entry.node.clone(),
+                    });
+                } else if let Some(children) = entry.children.loaded() {
+                    walk(children, &path.child(entry.node.name.clone()), out);
                 }
             }
+        }
+        let mut candidates = Vec::new();
+        if let Some(list) = self.root.loaded() {
+            walk(list, &NodePath::root(), &mut candidates);
         }
         let ranked = rank(
             &mut self.matcher.borrow_mut(),
             query,
-            candidates.iter().map(|m| m.object.name.as_str()),
+            candidates.iter().map(|m| m.node.name.as_str()),
         );
         self.matches = ranked.into_iter().map(|i| candidates[i].clone()).collect();
         self.selected_match = 0;
@@ -63,18 +70,14 @@ impl Explorer {
         let Some(found) = self.matches.get(self.selected_match).cloned() else {
             return;
         };
-        let mut path = vec![Self::db_id(&self.active)];
-        if self.only_schema().is_none() {
-            path.push(format!("s/{}", found.schema));
+        let path = found.parent.child(found.node.name.clone());
+        if let Some(ids) = self.ids(&path) {
+            let mut state = self.state.borrow_mut();
+            for depth in 1..ids.len() {
+                state.open(ids[..depth].to_vec());
+            }
+            state.select(ids);
         }
-        path.push(format!("g/{:?}", found.object.kind));
-        let mut state = self.state.borrow_mut();
-        for depth in 1..=path.len() {
-            state.open(path[..depth].to_vec());
-        }
-        path.push(format!("o/{}", found.object.name));
-        state.select(path);
-        drop(state);
         self.filter = None;
     }
 

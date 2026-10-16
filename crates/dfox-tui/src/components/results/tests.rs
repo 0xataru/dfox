@@ -1,36 +1,44 @@
 use super::*;
-use crate::testing::{render, Harness, TestCtx};
+use crate::testing::{ints, render, Harness, TestCtx};
 
 fn panel() -> ResultsPanel {
     ResultsPanel::new(Dialect::Postgres)
 }
 
 /// A panel showing `store`, as if a query had returned it.
-fn showing(store: RowStore) -> ResultsPanel {
+fn showing(store: ArrowResultSet) -> ResultsPanel {
     ResultsPanel { store, ..panel() }
 }
 
-fn store(rows: usize) -> RowStore {
-    let mut store = RowStore::new(vec![
+fn store(rows: usize) -> ArrowResultSet {
+    let columns = vec![
         ColumnMeta::new("id", "int4"),
         ColumnMeta::new("name", "text"),
         ColumnMeta::new("price", "numeric"),
         ColumnMeta::new("note", "text"),
-    ]);
-    store.extend((1..=rows).map(|i| {
-        vec![
-            OwnedCell::Int(i as i64),
-            OwnedCell::Text(format!("item {i}").into()),
-            OwnedCell::Decimal(format!("{}.50", i * 3).into()),
-            if i % 2 == 0 {
-                OwnedCell::Null
-            } else {
-                OwnedCell::Text("tab\there".into())
-            },
-        ]
-    }));
-    store.finish();
-    store
+    ];
+    let rows = (1..=rows)
+        .map(|i| {
+            vec![
+                OwnedCell::Int(i as i64),
+                OwnedCell::Text(format!("item {i}").into()),
+                OwnedCell::Decimal(format!("{}.50", i * 3).into()),
+                if i % 2 == 0 {
+                    OwnedCell::Null
+                } else {
+                    OwnedCell::Text("tab\there".into())
+                },
+            ]
+        })
+        .collect();
+    ArrowResultSet::from_cells(columns, rows)
+}
+
+/// Sends query `id` the integers `values`, as the engine would.
+fn send_ints(results: &mut ResultsPanel, id: QueryId, values: &[i64]) {
+    let (schema, batch) = ints(values);
+    results.on_schema(id, schema);
+    results.on_batch(id, batch);
 }
 
 #[test]
@@ -44,8 +52,7 @@ fn rows_stream_in_and_finish_with_a_message() {
         [DbCommand::Run { id: 7, sql, row_limit: 100_000 }] if sql == "SELECT 1"
     ));
 
-    results.on_columns(id, vec![ColumnMeta::new("n", "int4")]);
-    results.on_rows(id, vec![vec![OwnedCell::Int(1)], vec![OwnedCell::Int(2)]]);
+    send_ints(&mut results, id, &[1, 2]);
     assert_eq!(results.store.row_count(), 2);
     let stats = QueryStats {
         elapsed: Duration::from_millis(5),
@@ -76,7 +83,7 @@ fn errors_replace_the_rows() {
     let mut harness = Harness::new();
     let mut results = panel();
     results.run(1, "SELECT", &mut harness.ctx());
-    results.on_rows(1, vec![vec![OwnedCell::Int(1)]]);
+    send_ints(&mut results, 1, &[1]);
 
     let finished = results
         .on_done(1, Err(DbError::General("boom".into())), &mut harness.ctx())
@@ -111,7 +118,7 @@ fn an_abandoned_query_is_ignored() {
     results.abandon(&mut harness.ctx());
     results.run(2, "SELECT 2", &mut harness.ctx());
 
-    results.on_columns(1, vec![ColumnMeta::new("stale", "")]);
+    results.on_schema(1, ints(&[]).0);
     assert_eq!(
         results.on_done(1, Ok(QueryStats::default()), &mut harness.ctx()),
         None
@@ -145,8 +152,12 @@ fn copy_as_inserts_into_the_queried_table() {
     let mut harness = Harness::new();
     let mut results = panel();
     results.run(1, "select * from shop.items", &mut harness.ctx());
-    results.on_columns(1, vec![ColumnMeta::new("id", "int4")]);
-    results.on_rows(1, vec![vec![OwnedCell::Int(1)], vec![OwnedCell::Int(2)]]);
+    let (schema, batch) = crate::testing::frames(
+        vec![ColumnMeta::new("id", "int4")],
+        vec![vec![OwnedCell::Int(1)], vec![OwnedCell::Int(2)]],
+    );
+    results.on_schema(1, schema);
+    results.on_batch(1, batch);
     results.on_done(1, Ok(QueryStats::default()), &mut harness.ctx());
 
     results.handle(Action::CopyAs, &mut harness.ctx());
@@ -287,17 +298,18 @@ fn inspector_beside_the_grid() {
 #[test]
 fn inspector_over_a_narrow_grid() {
     let test = TestCtx::new();
-    let mut store = RowStore::new(vec![
-        ColumnMeta::new("doc", "jsonb"),
-        ColumnMeta::new("blob", "bytea"),
-        ColumnMeta::new("gone", "text"),
-    ]);
-    store.push(vec![
-        OwnedCell::Json("{\"a\":[1,2],\"b\":\"x\"}".into()),
-        OwnedCell::Bytes(b"\x00\x01dfox".to_vec().into()),
-        OwnedCell::Null,
-    ]);
-    store.finish();
+    let store = ArrowResultSet::from_cells(
+        vec![
+            ColumnMeta::new("doc", "jsonb"),
+            ColumnMeta::new("blob", "bytea"),
+            ColumnMeta::new("gone", "text"),
+        ],
+        vec![vec![
+            OwnedCell::Json("{\"a\":[1,2],\"b\":\"x\"}".into()),
+            OwnedCell::Bytes(b"\x00\x01dfox".to_vec().into()),
+            OwnedCell::Null,
+        ]],
+    );
     let mut results = showing(store);
     results.handle(Action::Inspect, &mut Harness::new().ctx());
     insta::assert_snapshot!(render(&test, 60, 20, |f, area, ctx| results.render(f, area, ctx)));
