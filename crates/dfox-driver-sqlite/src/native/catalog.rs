@@ -10,6 +10,7 @@ use dfox_core::{
         NodePath, Order,
     },
     errors::DbError,
+    models::schema::TableColumn,
     result::OwnedCell,
     session::{ApplyReport, Change, ChangeSet},
 };
@@ -149,6 +150,29 @@ fn describe(conn: &Connection, database: &str, table: &str) -> Result<EntityInfo
         indexes,
         row_estimate: None,
     })
+}
+
+fn all_columns(conn: &Connection, database: &str) -> Result<Vec<TableColumn>, DbError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.name, c.name, c.type \
+             FROM pragma_table_list AS t \
+             JOIN pragma_table_info(t.name, t.schema) AS c \
+             WHERE t.schema = ?1 AND t.type IN ('table', 'view', 'virtual') \
+               AND t.name NOT LIKE 'sqlite\\_%' ESCAPE '\\' \
+             ORDER BY t.name, c.cid",
+        )
+        .map_err(db_error)?;
+    let rows = stmt
+        .query_map([database], |row| {
+            Ok(TableColumn {
+                table: row.get(0)?,
+                name: row.get(1)?,
+                data_type: row.get(2)?,
+            })
+        })
+        .map_err(db_error)?;
+    rows.map(|row| row.map_err(db_error)).collect()
 }
 
 /// Fails unless every name in `names` is a column of the table, so a wrong
@@ -379,6 +403,21 @@ impl Catalog for SqliteCatalog {
                 })
                 .await?;
             self.worker.query(sql, params)
+        })
+    }
+    fn all_columns<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+    ) -> BoxFuture<'a, Result<Vec<TableColumn>, DbError>> {
+        let parts = node.parts().to_vec();
+        Box::pin(async move {
+            let [database] = parts.as_slice() else {
+                return Err(DbError::General(format!("not a database: {parts:?}")));
+            };
+            let database = database.clone();
+            self.worker
+                .call(move |conn| all_columns(conn, &database))
+                .await
         })
     }
 }

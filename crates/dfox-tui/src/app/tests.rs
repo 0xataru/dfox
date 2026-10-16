@@ -7,6 +7,7 @@ use crate::{
 };
 use crossterm::event::MouseButton;
 use dfox_core::{
+    catalog::{Node, NodeKind, NodePath},
     engine::{Command as DbCommand, QueryStats},
     errors::DbError,
     models::connections::DbType,
@@ -106,20 +107,36 @@ impl Test {
     fn open_prod(&mut self) {
         self.key(KeyCode::Enter);
         self.sent();
-        self.app.apply(EngineEvent::Connected(Ok(())));
+        self.app.apply(EngineEvent::Connected(Ok(session_info())));
         assert_eq!(self.app.screen, Screen::Workspace);
-        assert_eq!(self.sent(), [DbCommand::ListDatabases]);
-        self.app.apply(EngineEvent::Databases(Ok(vec![
-            "postgres".into(),
-            "shop".into(),
-        ])));
-        self.app
-            .apply(EngineEvent::Schemas(Ok(vec!["public".into()])));
-        self.app.apply(EngineEvent::Objects {
-            schema: "public".into(),
+        assert_eq!(
+            self.sent(),
+            [DbCommand::Children {
+                path: NodePath::root()
+            }]
+        );
+        self.answer_catalog();
+        self.sent();
+    }
+
+    /// Answers the explorer as Postgres would: `postgres` and `shop`, which
+    /// holds `public` and its objects.
+    fn answer_catalog(&mut self) {
+        self.app.apply(EngineEvent::Children {
+            path: NodePath::root(),
+            result: Ok(vec![
+                Node::new(NodeKind::Database, "postgres", false),
+                Node::new(NodeKind::Database, "shop", true),
+            ]),
+        });
+        self.app.apply(EngineEvent::Children {
+            path: path(&["shop"]),
+            result: Ok(vec![Node::new(NodeKind::Schema, "public", true)]),
+        });
+        self.app.apply(EngineEvent::Children {
+            path: path(&["shop", "public"]),
             result: Ok(crate::testing::sample_objects()),
         });
-        self.sent();
     }
 }
 
@@ -274,10 +291,15 @@ fn switching_database_reconnects_with_the_same_login() {
         }
         other => panic!("expected a connect, got {other:?}"),
     }
-    test.app.apply(EngineEvent::Connected(Ok(())));
+    test.app.apply(EngineEvent::Connected(Ok(session_info())));
     let workspace = test.app.workspace.as_ref().expect("workspace");
     assert_eq!(workspace.explorer.active, "postgres");
-    assert_eq!(test.sent(), [DbCommand::ListSchemas]);
+    assert_eq!(
+        test.sent(),
+        [DbCommand::Children {
+            path: path(&["postgres"])
+        }]
+    );
 }
 
 #[test]
@@ -328,20 +350,18 @@ fn running_a_query_in_the_workspace() {
         }
         other => panic!("expected a run, got {other:?}"),
     };
-    test.app.apply(EngineEvent::Columns {
-        id,
-        columns: vec![
+    let (schema, batch) = crate::testing::frames(
+        vec![
             ColumnMeta::new("id", "int4"),
             ColumnMeta::new("name", "text"),
         ],
-    });
-    test.app.apply(EngineEvent::Rows {
-        id,
-        rows: vec![
+        vec![
             vec![OwnedCell::Int(1), OwnedCell::Text("Ada".into())],
             vec![OwnedCell::Int(2), OwnedCell::Null],
         ],
-    });
+    );
+    test.app.apply(EngineEvent::Schema { id, schema });
+    test.app.apply(EngineEvent::Batch { id, batch });
     test.app.apply(EngineEvent::QueryDone {
         id,
         outcome: Ok(QueryStats {
@@ -352,8 +372,8 @@ fn running_a_query_in_the_workspace() {
     });
     assert_eq!(
         test.sent(),
-        [DbCommand::ListObjects {
-            schema: "public".into()
+        [DbCommand::Children {
+            path: path(&["shop", "public"])
         }]
     );
     insta::assert_snapshot!("workspace_wide", test.snapshot(120, 32));
@@ -580,18 +600,14 @@ fn columns_arrive_for_autocomplete() {
     let mut test = test_app("columns", Some("pw"), "");
     test.key(KeyCode::Enter);
     test.sent();
-    test.app.apply(EngineEvent::Connected(Ok(())));
-    test.app
-        .apply(EngineEvent::Schemas(Ok(vec!["public".into()])));
-    test.app.apply(EngineEvent::Objects {
-        schema: "public".into(),
-        result: Ok(crate::testing::sample_objects()),
-    });
-    assert!(test.sent().contains(&DbCommand::ListColumns {
-        schema: "public".into()
+    test.app.apply(EngineEvent::Connected(Ok(session_info())));
+    test.answer_catalog();
+    let public = path(&["shop", "public"]);
+    assert!(test.sent().contains(&DbCommand::AllColumns {
+        path: public.clone()
     }));
-    test.app.apply(EngineEvent::TableColumns {
-        schema: "public".into(),
+    test.app.apply(EngineEvent::AllColumns {
+        path: public,
         result: Ok(vec![dfox_core::models::schema::TableColumn {
             table: "customers".into(),
             name: "email".into(),
@@ -609,8 +625,8 @@ fn columns_arrive_for_autocomplete() {
 fn tab_accepts_a_suggestion() {
     let mut test = test_app("accept", Some("pw"), "");
     test.open_prod();
-    test.app.apply(EngineEvent::TableColumns {
-        schema: "public".into(),
+    test.app.apply(EngineEvent::AllColumns {
+        path: path(&["shop", "public"]),
         result: Ok(vec![dfox_core::models::schema::TableColumn {
             table: "customers".into(),
             name: "email".into(),
@@ -744,7 +760,8 @@ fn changes_start_effects() {
     // A new screen fades in; a new toast slides in.
     test.key(KeyCode::Enter);
     let before = test.app.seen();
-    test.app.on_engine_event(EngineEvent::Connected(Ok(())));
+    test.app
+        .on_engine_event(EngineEvent::Connected(Ok(session_info())));
     test.app
         .toasts
         .push(Level::Info, "hi".into(), Instant::now());
@@ -801,4 +818,15 @@ fn finished_queries_flash_the_results() {
         outcome: Ok(QueryStats::default()),
     });
     assert!(!test.app.motion.is_running());
+}
+
+fn session_info() -> dfox_core::engine::SessionInfo {
+    dfox_core::engine::SessionInfo {
+        caps: dfox_core::session::Capabilities::all(),
+        language: dfox_core::session::QueryLanguage::Sql(dfox_core::session::SqlDialect::Postgres),
+    }
+}
+
+fn path(parts: &[&str]) -> NodePath {
+    parts.iter().copied().collect()
 }

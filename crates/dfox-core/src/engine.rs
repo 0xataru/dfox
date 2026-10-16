@@ -1,8 +1,9 @@
 //! Runs database work in the background, so a UI never waits on a database.
 //!
 //! The UI sends [`Command`]s through an [`EngineHandle`] and receives
-//! [`EngineEvent`]s on a channel. Every command runs in its own task, so a slow
-//! query never holds up listing tables or cancelling it.
+//! [`EngineEvent`]s on a channel. The engine holds one [`Session`]; every
+//! command runs in its own task, so a slow query never holds up browsing the
+//! catalog or cancelling it.
 
 use std::{
     collections::HashMap,
@@ -13,21 +14,25 @@ use std::{
     time::Duration,
 };
 
+use arrow_array::RecordBatch;
+use arrow_schema::SchemaRef;
+use futures_util::{future::BoxFuture, StreamExt};
 use tokio::{
-    sync::mpsc,
+    sync::{mpsc, Mutex},
     task::{AbortHandle, JoinError},
     time::Instant,
 };
 
 use crate::{
-    db::{Chunk, DbClient},
-    driver::{ping, Drivers},
+    arrow::Frame,
+    catalog::{Catalog, EntityInfo, Node, NodePath},
+    driver::{ping, Driver, Drivers},
     errors::DbError,
     models::{
         connections::{ConnectionParams, DbType},
-        schema::{DbObject, TableColumn, TableSchema},
+        schema::TableColumn,
     },
-    result::{ColumnMeta, OwnedCell},
+    session::{CancelHandle, Capabilities, QueryLanguage, Request, Session},
 };
 
 /// Chosen by the caller to tell its queries' events apart.
@@ -37,35 +42,50 @@ pub type QueryId = u64;
 /// before the engine drops it.
 const CANCEL_GRACE: Duration = Duration::from_secs(2);
 
+/// Opens a session with a driver. The app passes one that goes through an
+/// SSH tunnel when the connection has one.
+pub type Opener = Arc<
+    dyn Fn(
+            Arc<dyn Driver>,
+            ConnectionParams,
+        ) -> BoxFuture<'static, Result<Box<dyn Session>, DbError>>
+        + Send
+        + Sync,
+>;
+
+/// Opens the driver's session directly.
+pub fn direct() -> Opener {
+    Arc::new(|driver, params| Box::pin(async move { driver.open(&params).await }))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    /// Connects, replacing the current connection. Queries still running on
-    /// the old connection are dropped.
+    /// Connects, replacing the current session. Queries still running on the
+    /// old one are dropped.
     Connect {
         db_type: DbType,
         params: ConnectionParams,
     },
-    ListDatabases,
-    ListSchemas,
-    ListObjects {
-        schema: String,
+    /// The nodes under `path` in the catalog tree.
+    Children {
+        path: NodePath,
     },
+    /// The columns, keys and indexes of the table at `path`.
     Describe {
-        schema: String,
-        table: String,
+        path: NodePath,
     },
-    /// Every column of every table in `schema`, for autocomplete.
-    ListColumns {
-        schema: String,
+    /// Every column of every table under `path`, for autocomplete.
+    AllColumns {
+        path: NodePath,
     },
     /// Measures how long it takes to reach a database, without logging in
-    /// and without touching the current connection. See [`ping`].
+    /// and without touching the session. See [`ping`].
     Ping {
         id: u64,
         db_type: DbType,
         params: ConnectionParams,
     },
-    /// Runs SQL on the session connection. Each result set keeps at most
+    /// Runs a script on the session. Each result set keeps at most
     /// `row_limit` rows.
     Run {
         id: QueryId,
@@ -77,37 +97,46 @@ pub enum Command {
     },
 }
 
+/// What a new session can do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionInfo {
+    pub caps: Capabilities,
+    pub language: QueryLanguage,
+}
+
 #[derive(Debug)]
 pub enum EngineEvent {
-    Connected(Result<(), DbError>),
-    Databases(Result<Vec<String>, DbError>),
-    Schemas(Result<Vec<String>, DbError>),
-    Objects {
-        schema: String,
-        result: Result<Vec<DbObject>, DbError>,
+    Connected(Result<SessionInfo, DbError>),
+    Children {
+        path: NodePath,
+        result: Result<Vec<Node>, DbError>,
     },
     Described {
-        schema: String,
-        table: String,
-        result: Result<TableSchema, DbError>,
+        path: NodePath,
+        result: Result<EntityInfo, DbError>,
     },
-    TableColumns {
-        schema: String,
+    AllColumns {
+        path: NodePath,
         result: Result<Vec<TableColumn>, DbError>,
     },
     Pong {
         id: u64,
         result: Result<Duration, DbError>,
     },
-    /// A statement of query `id` returned rows. Its rows follow, and replace
-    /// those of any earlier statement in the same query.
-    Columns {
+    /// A statement of query `id` returned rows with this schema. Its batches
+    /// follow, and replace those of any earlier result set in the same query.
+    Schema {
         id: QueryId,
-        columns: Vec<ColumnMeta>,
+        schema: SchemaRef,
     },
-    Rows {
+    Batch {
         id: QueryId,
-        rows: Vec<Vec<OwnedCell>>,
+        batch: RecordBatch,
+    },
+    /// A message the server sent while running query `id`.
+    Notice {
+        id: QueryId,
+        message: String,
     },
     /// Always the last event of query `id`. A cancelled query ends with
     /// [`DbError::Cancelled`].
@@ -125,7 +154,8 @@ pub struct QueryStats {
     /// Rows kept from the last result set.
     pub rows: u64,
     pub rows_affected: u64,
-    /// True when rows past the row limit were dropped.
+    /// True when the last result set filled the row limit, so rows past it
+    /// may have been dropped.
     pub truncated: bool,
 }
 
@@ -149,24 +179,36 @@ impl EngineHandle {
     }
 }
 
-/// Starts the engine on the current tokio runtime. It stops once every
-/// [`EngineHandle`] is dropped.
-/// [`Command::Connect`] uses the driver in `drivers` for the database type.
+/// Starts the engine on the current tokio runtime, opening sessions directly.
+/// It stops once every [`EngineHandle`] is dropped.
 pub fn spawn(drivers: Drivers) -> (EngineHandle, mpsc::Receiver<EngineEvent>) {
+    spawn_with(drivers, direct())
+}
+
+/// Starts the engine, opening sessions with `open`.
+pub fn spawn_with(drivers: Drivers, open: Opener) -> (EngineHandle, mpsc::Receiver<EngineEvent>) {
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     // Bounded, so a query can't outrun a slow consumer and fill memory.
     let (event_tx, event_rx) = mpsc::channel(64);
-    tokio::spawn(Engine::new(event_tx, drivers).run(command_rx));
+    tokio::spawn(Engine::new(event_tx, drivers, open).run(command_rx));
     (EngineHandle::new(command_tx), event_rx)
 }
 
-type Client = Arc<dyn DbClient>;
+/// The session, shared by the tasks that use it in turn.
+type Shared = Arc<Mutex<Box<dyn Session>>>;
+
+/// A connected session and the way to stop what it runs.
+#[derive(Clone)]
+struct Live {
+    session: Shared,
+    cancel: CancelHandle,
+}
 
 /// Results of background tasks that change the engine's own state.
 enum Internal {
     Connected {
         generation: u64,
-        result: Result<Client, DbError>,
+        result: Result<Live, DbError>,
     },
     QueryFinished(QueryId),
 }
@@ -176,26 +218,32 @@ struct RunningQuery {
     cancelled: Arc<AtomicBool>,
 }
 
+/// A catalog call made on the session.
+type CatalogCall<T> =
+    for<'a> fn(&'a mut dyn Catalog, &'a NodePath) -> BoxFuture<'a, Result<T, DbError>>;
+
 struct Engine {
     drivers: Drivers,
+    open: Opener,
     events: mpsc::Sender<EngineEvent>,
     internal_tx: mpsc::UnboundedSender<Internal>,
     internal_rx: mpsc::UnboundedReceiver<Internal>,
-    client: Option<Client>,
+    live: Option<Live>,
     /// Bumped by every connect, so only the latest one is kept.
     generation: u64,
     queries: HashMap<QueryId, RunningQuery>,
 }
 
 impl Engine {
-    fn new(events: mpsc::Sender<EngineEvent>, drivers: Drivers) -> Self {
+    fn new(events: mpsc::Sender<EngineEvent>, drivers: Drivers, open: Opener) -> Self {
         let (internal_tx, internal_rx) = mpsc::unbounded_channel();
         Self {
             drivers,
+            open,
             events,
             internal_tx,
             internal_rx,
-            client: None,
+            live: None,
             generation: 0,
             queries: HashMap::new(),
         }
@@ -216,53 +264,22 @@ impl Engine {
 
     fn handle(&mut self, command: Command) {
         match command {
-            Command::Connect { db_type, params } => {
-                self.generation += 1;
-                let generation = self.generation;
-                let internal = self.internal_tx.clone();
-                let drivers = self.drivers.clone();
-                tokio::spawn(async move {
-                    let result = drivers.connect(db_type, &params).await.map(Client::from);
-                    let _ = internal.send(Internal::Connected { generation, result });
-                });
-            }
-            Command::ListDatabases => self.metadata(EngineEvent::Databases, |client| async move {
-                client.list_databases().await
-            }),
-            Command::ListSchemas => self.metadata(EngineEvent::Schemas, |client| async move {
-                client.list_schemas().await
-            }),
-            Command::ListObjects { schema } => {
-                let event_schema = schema.clone();
-                self.metadata(
-                    move |result| EngineEvent::Objects {
-                        schema: event_schema,
-                        result,
-                    },
-                    |client| async move { client.list_objects(&schema).await },
-                )
-            }
-            Command::Describe { schema, table } => {
-                let (event_schema, event_table) = (schema.clone(), table.clone());
-                self.metadata(
-                    move |result| EngineEvent::Described {
-                        schema: event_schema,
-                        table: event_table,
-                        result,
-                    },
-                    |client| async move { client.describe_table(&schema, &table).await },
-                )
-            }
-            Command::ListColumns { schema } => {
-                let event_schema = schema.clone();
-                self.metadata(
-                    move |result| EngineEvent::TableColumns {
-                        schema: event_schema,
-                        result,
-                    },
-                    |client| async move { client.list_columns(&schema).await },
-                )
-            }
+            Command::Connect { db_type, params } => self.connect(db_type, params),
+            Command::Children { path } => self.catalog(
+                path,
+                |path, result| EngineEvent::Children { path, result },
+                |catalog, path| catalog.children(path),
+            ),
+            Command::Describe { path } => self.catalog(
+                path,
+                |path, result| EngineEvent::Described { path, result },
+                |catalog, path| catalog.describe(path),
+            ),
+            Command::AllColumns { path } => self.catalog(
+                path,
+                |path, result| EngineEvent::AllColumns { path, result },
+                |catalog, path| catalog.all_columns(path),
+            ),
             Command::Ping {
                 id,
                 db_type,
@@ -279,16 +296,47 @@ impl Engine {
         }
     }
 
+    fn connect(&mut self, db_type: DbType, params: ConnectionParams) {
+        self.generation += 1;
+        let generation = self.generation;
+        let internal = self.internal_tx.clone();
+        let driver = self.drivers.get(db_type).cloned();
+        let open = self.open.clone();
+        tokio::spawn(async move {
+            let result = match driver {
+                Some(driver) => open(driver, params).await.map(|session| Live {
+                    cancel: session.cancel_handle(),
+                    session: Arc::new(Mutex::new(session)),
+                }),
+                None => Err(DbError::Config(format!(
+                    "this build of dfox has no {db_type:?} driver"
+                ))),
+            };
+            let _ = internal.send(Internal::Connected { generation, result });
+        });
+    }
+
     async fn update(&mut self, internal: Internal) {
         match internal {
             Internal::Connected { generation, result } => {
                 if generation != self.generation {
                     return;
                 }
-                let result = result.map(|client| {
-                    self.drop_queries();
-                    self.client = Some(client);
-                });
+                let result = match result {
+                    Ok(live) => {
+                        self.drop_queries();
+                        let info = {
+                            let session = live.session.lock().await;
+                            SessionInfo {
+                                caps: session.caps(),
+                                language: session.language(),
+                            }
+                        };
+                        self.live = Some(live);
+                        Ok(info)
+                    }
+                    Err(err) => Err(err),
+                };
                 let _ = self.events.send(EngineEvent::Connected(result)).await;
             }
             Internal::QueryFinished(id) => {
@@ -301,29 +349,31 @@ impl Engine {
         DbError::Connection("Not connected to a database".to_string())
     }
 
-    /// Runs a metadata call in the background and sends its result as an event.
-    fn metadata<T, F>(
+    /// Runs a catalog call in the background and sends its result as an
+    /// event.
+    fn catalog<T: Send + 'static>(
         &self,
-        event: impl FnOnce(Result<T, DbError>) -> EngineEvent + Send + 'static,
-        call: impl FnOnce(Client) -> F + Send + 'static,
-    ) where
-        T: Send + 'static,
-        F: std::future::Future<Output = Result<T, DbError>> + Send,
-    {
-        let client = self.client.clone();
+        path: NodePath,
+        event: fn(NodePath, Result<T, DbError>) -> EngineEvent,
+        call: CatalogCall<T>,
+    ) {
+        let session = self.live.as_ref().map(|live| live.session.clone());
         let events = self.events.clone();
         tokio::spawn(async move {
-            let result = match client {
-                Some(client) => call(client).await,
+            let result = match session {
+                Some(session) => {
+                    let mut session = session.lock().await;
+                    call(session.catalog(), &path).await
+                }
                 None => Err(Self::not_connected()),
             };
-            let _ = events.send(event(result)).await;
+            let _ = events.send(event(path, result)).await;
         });
     }
 
     fn run_query(&mut self, id: QueryId, sql: String, row_limit: usize) {
         let events = self.events.clone();
-        let Some(client) = self.client.clone() else {
+        let Some(live) = self.live.clone() else {
             tokio::spawn(async move {
                 let outcome = Err(Self::not_connected());
                 let _ = events.send(EngineEvent::QueryDone { id, outcome }).await;
@@ -333,7 +383,8 @@ impl Engine {
 
         // The query runs in its own task so it can be aborted; the outer task
         // always reports how it ended.
-        let query = tokio::spawn(stream_query(client, id, sql, row_limit, events.clone()));
+        let request = Request::new(sql).with_row_limit(row_limit);
+        let query = tokio::spawn(stream_query(live.session, id, request, events.clone()));
         let cancelled = Arc::new(AtomicBool::new(false));
         self.queries.insert(
             id,
@@ -364,10 +415,10 @@ impl Engine {
         };
         query.cancelled.store(true, Ordering::Relaxed);
         let abort = query.abort.clone();
-        let client = self.client.clone();
+        let cancel = self.live.as_ref().map(|live| live.cancel.clone());
         tokio::spawn(async move {
-            let sent = match client {
-                Some(client) => client.cancel().await.unwrap_or_else(|err| {
+            let sent = match cancel {
+                Some(cancel) => cancel.cancel().await.unwrap_or_else(|err| {
                     log::warn!("could not cancel query {id} on the server: {err}");
                     false
                 }),
@@ -388,50 +439,46 @@ impl Engine {
     }
 }
 
-/// Streams one query's rows to `events` and measures it.
+/// Streams one query's results to `events` and measures it.
 async fn stream_query(
-    client: Client,
+    session: Shared,
     id: QueryId,
-    sql: String,
-    row_limit: usize,
+    request: Request,
     events: mpsc::Sender<EngineEvent>,
 ) -> Result<QueryStats, DbError> {
     let started = Instant::now();
-    let (tx, mut rx) = mpsc::channel(2);
-
-    let forward = async {
-        let mut rows = 0;
-        let mut first_row = None;
-        while let Some(chunk) = rx.recv().await {
-            let event = match chunk {
-                Chunk::Columns(columns) => {
-                    rows = 0;
-                    EngineEvent::Columns { id, columns }
-                }
-                Chunk::Rows(chunk) => {
-                    first_row.get_or_insert_with(|| started.elapsed());
-                    rows += chunk.len() as u64;
-                    EngineEvent::Rows { id, rows: chunk }
-                }
-            };
-            // Nobody is listening any more: stop reading rows.
-            if events.send(event).await.is_err() {
-                break;
+    let limit = request.row_limit;
+    // The session is needed only to start the run; the stream lives on its
+    // own, so the catalog can be browsed meanwhile.
+    let mut frames = session.lock().await.run(request).await?;
+    let mut stats = QueryStats::default();
+    let mut has_rows = false;
+    while let Some(frame) = frames.next().await {
+        let event = match frame? {
+            Frame::Schema(schema) => {
+                has_rows = true;
+                stats.rows = 0;
+                EngineEvent::Schema { id, schema }
             }
+            Frame::Batch(batch) => {
+                stats.first_row.get_or_insert_with(|| started.elapsed());
+                stats.rows += batch.num_rows() as u64;
+                EngineEvent::Batch { id, batch }
+            }
+            Frame::Affected(rows) => {
+                stats.rows_affected += rows;
+                continue;
+            }
+            Frame::Notice(message) => EngineEvent::Notice { id, message },
+        };
+        // Nobody is listening any more: stop reading.
+        if events.send(event).await.is_err() {
+            break;
         }
-        (rows, first_row)
-    };
-
-    let (summary, (rows, first_row)) =
-        futures_util::future::join(client.stream(&sql, row_limit, tx), forward).await;
-    let summary = summary?;
-    Ok(QueryStats {
-        elapsed: started.elapsed(),
-        first_row,
-        rows,
-        rows_affected: summary.rows_affected,
-        truncated: summary.truncated,
-    })
+    }
+    stats.elapsed = started.elapsed();
+    stats.truncated = has_rows && limit.is_some_and(|l| l > 0 && stats.rows >= l as u64);
+    Ok(stats)
 }
 
 fn finished(joined: Result<Result<QueryStats, DbError>, JoinError>) -> Result<QueryStats, DbError> {

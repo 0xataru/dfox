@@ -1,6 +1,9 @@
 //! Engine answers, applied to the screens.
 
-use dfox_core::{engine::EngineEvent, models::connections::DbType};
+use dfox_core::{
+    engine::{EngineEvent, SessionInfo},
+    models::connections::DbType,
+};
 
 use super::{App, Screen, Session};
 use crate::{components::workspace::Workspace, widgets::toast::Level};
@@ -15,47 +18,31 @@ impl App {
                 };
                 let name = connecting.connection.name.clone();
                 match result {
-                    Ok(()) => self.connected(connecting),
+                    Ok(info) => self.connected(connecting, info),
                     Err(err) => self.with_ctx(|_, ctx| {
                         ctx.toast(Level::Error, format!("Couldn't connect to {name}: {err}"))
                     }),
                 }
             }
             EngineEvent::Pong { id, result } => self.manager.on_pong(id, result),
-            EngineEvent::TableColumns { schema, result } => {
-                if let Some(w) = &mut self.workspace {
-                    w.catalog.on_columns(&schema, result);
+            EngineEvent::AllColumns { path, result } => {
+                if let (Some(w), Some(name)) = (&mut self.workspace, path.name()) {
+                    w.catalog.on_columns(name, result);
                 }
             }
-            EngineEvent::Databases(result) => self.with_ctx(|app, ctx| {
+            EngineEvent::Children { path, result } => self.with_ctx(|app, ctx| {
                 if let Some(w) = app.workspace {
-                    w.explorer.on_databases(result, ctx);
+                    w.on_children(&path, result, ctx);
                 }
             }),
-            EngineEvent::Schemas(result) => self.with_ctx(|app, ctx| {
-                if let Some(w) = app.workspace {
-                    if let Ok(schemas) = &result {
-                        w.catalog.on_schemas(schemas);
-                    }
-                    w.explorer.on_schemas(result, ctx);
-                }
-            }),
-            EngineEvent::Objects { schema, result } => self.with_ctx(|app, ctx| {
-                if let Some(w) = app.workspace {
-                    w.on_objects(&schema, result, ctx);
-                }
-            }),
-            EngineEvent::Described {
-                schema,
-                table,
-                result,
-            } => {
+            EngineEvent::Described { path, result } => {
                 if let Some(w) = &mut self.workspace {
-                    w.explorer.on_described(&schema, &table, result);
+                    w.explorer.on_described(&path, result);
                 }
             }
-            event @ (EngineEvent::Columns { .. }
-            | EngineEvent::Rows { .. }
+            event @ (EngineEvent::Schema { .. }
+            | EngineEvent::Batch { .. }
+            | EngineEvent::Notice { .. }
             | EngineEvent::QueryDone { .. }) => self.with_ctx(|app, ctx| {
                 if let Some(w) = app.workspace {
                     if w.on_query_event(event, ctx) {
@@ -66,7 +53,7 @@ impl App {
         }
     }
 
-    fn connected(&mut self, connecting: super::Connecting) {
+    fn connected(&mut self, connecting: super::Connecting, info: SessionInfo) {
         let connection = connecting.connection;
         let (name, driver, read_only) = (
             connection.name.clone(),
@@ -96,6 +83,9 @@ impl App {
             });
         } else {
             let mut workspace = Workspace::new(&name, driver, &database).with_read_only(read_only);
+            if let Some(dialect) = crate::sql::session_dialect(info.language) {
+                workspace = workspace.with_dialect(dialect);
+            }
             self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
             self.workspace = Some(workspace);
         }

@@ -1,6 +1,7 @@
-//! The explorer: the server's databases, then schemas, then tables, views and
-//! routines, each loaded the first time it is opened. `/` filters loaded
-//! objects by fuzzy match.
+//! The explorer: the session's catalog as a tree — databases, schemas,
+//! tables, views and routines, columns — each level loaded the first time it
+//! is opened. It knows no particular database: drivers say what each node
+//! is. `/` filters loaded objects by fuzzy match.
 
 mod filter;
 mod render;
@@ -10,9 +11,9 @@ mod tests;
 use std::cell::{Cell, RefCell};
 
 use dfox_core::{
+    catalog::{ColumnInfo, EntityInfo, Node, NodeKind, NodePath},
     engine::Command as DbCommand,
     errors::DbError,
-    models::schema::{ColumnSchema, DbObject, ObjectKind, TableSchema},
 };
 use nucleo_matcher::Matcher;
 use tui_tree_widget::TreeState;
@@ -44,60 +45,94 @@ impl<T> Load<T> {
     fn from_result(result: Result<T, DbError>) -> Self {
         result.map_or_else(|err| Load::Failed(err.to_string()), Load::Loaded)
     }
+
+    /// True when opening should ask for it.
+    fn wanted(&self) -> bool {
+        matches!(self, Load::NotLoaded | Load::Failed(_))
+    }
 }
 
+/// A node of the catalog and what has been loaded under it.
 #[derive(Debug)]
-struct Database {
-    name: String,
-    schemas: Load<Vec<Schema>>,
+struct Entry {
+    node: Node,
+    children: Load<Vec<Entry>>,
+    /// For nodes with rows: their columns, from describing them.
+    columns: Load<Vec<ColumnInfo>>,
 }
 
-#[derive(Debug)]
-struct Schema {
-    name: String,
-    objects: Load<Vec<Object>>,
+impl Entry {
+    fn new(node: Node) -> Self {
+        Self {
+            node,
+            children: Load::NotLoaded,
+            columns: Load::NotLoaded,
+        }
+    }
+
+    /// The tree identifier: what it is and its name.
+    fn id(&self) -> String {
+        format!("{}/{}", tag(self.node.kind), self.node.name)
+    }
+
+    fn is_object(&self) -> bool {
+        is_object(self.node.kind)
+    }
+
+    /// The one schema a database holds, shown in its place.
+    fn only_schema(&self) -> Option<&Entry> {
+        match self.children.loaded()?.as_slice() {
+            [only] if only.node.kind == NodeKind::Schema => Some(only),
+            _ => None,
+        }
+    }
+
+    /// The entries shown under this one: a lone schema's, or its own.
+    fn shown(&self) -> &Load<Vec<Entry>> {
+        self.only_schema().map_or(&self.children, |s| &s.children)
+    }
 }
 
-#[derive(Debug)]
-struct Object {
-    object: DbObject,
-    columns: Load<Vec<ColumnSchema>>,
+/// Things the explorer groups by kind under their schema or database.
+fn is_object(kind: NodeKind) -> bool {
+    kind.has_rows() || matches!(kind, NodeKind::Function | NodeKind::Procedure)
 }
 
-/// A node of the tree, found from its path of identifiers.
-#[derive(Debug, Clone, PartialEq)]
-enum Node {
-    Database(String),
-    Schema(String),
-    Group,
-    Object {
-        schema: String,
-        name: String,
-        kind: ObjectKind,
-    },
-    Column,
-}
-
-/// One filter result.
-#[derive(Debug, Clone, PartialEq)]
-struct Match {
-    schema: String,
-    object: DbObject,
+fn tag(kind: NodeKind) -> &'static str {
+    match kind {
+        NodeKind::Database => "d",
+        NodeKind::Schema | NodeKind::Keyspace => "s",
+        NodeKind::Column => "c",
+        kind if is_object(kind) => "o",
+        _ => "n",
+    }
 }
 
 /// Groups under a schema, in display order.
-const GROUPS: [ObjectKind; 6] = [
-    ObjectKind::Table,
-    ObjectKind::View,
-    ObjectKind::MaterializedView,
-    ObjectKind::ForeignTable,
-    ObjectKind::Function,
-    ObjectKind::Procedure,
+const GROUPS: [NodeKind; 7] = [
+    NodeKind::Table,
+    NodeKind::View,
+    NodeKind::MaterializedView,
+    NodeKind::ForeignTable,
+    NodeKind::Collection,
+    NodeKind::Function,
+    NodeKind::Procedure,
 ];
 
+fn group_id(kind: NodeKind) -> String {
+    format!("g/{kind:?}")
+}
+
+/// One filter result: an object and the node it is under.
+#[derive(Debug, Clone, PartialEq)]
+struct Match {
+    parent: NodePath,
+    node: Node,
+}
+
 pub struct Explorer {
-    databases: Load<Vec<Database>>,
-    /// The database the session is connected to. Only it can be opened.
+    root: Load<Vec<Entry>>,
+    /// The database the session is connected to.
     pub active: String,
     state: RefCell<TreeState<String>>,
     /// The filter text while filtering; `None` shows the tree.
@@ -105,8 +140,9 @@ pub struct Explorer {
     matches: Vec<Match>,
     selected_match: usize,
     matcher: RefCell<Matcher>,
-    /// The schema whose tables open by themselves once loaded.
-    open_tables_of: Option<String>,
+    /// Being opened by itself after connecting: the active database, then
+    /// its default schema, whose tables open once loaded.
+    auto_open: Option<NodePath>,
     pub focused: bool,
     visible: Cell<usize>,
 }
@@ -123,248 +159,260 @@ impl std::fmt::Debug for Explorer {
 impl Explorer {
     pub fn new(active: &str) -> Self {
         Self {
-            databases: Load::NotLoaded,
+            root: Load::NotLoaded,
             active: active.to_string(),
             state: RefCell::new(TreeState::default()),
             filter: None,
             matches: Vec::new(),
             selected_match: 0,
             matcher: RefCell::new(filter::matcher()),
-            open_tables_of: None,
+            auto_open: None,
             focused: false,
             visible: Cell::new(0),
         }
     }
 
-    fn db_id(name: &str) -> String {
-        format!("d/{name}")
-    }
-
-    fn active_db(&mut self) -> Option<&mut Database> {
-        let active = self.active.clone();
-        match &mut self.databases {
-            Load::Loaded(databases) => databases.iter_mut().find(|db| db.name == active),
-            _ => None,
-        }
-    }
-
-    /// Loads the database list and the active database's schemas.
+    /// Loads the tree from the top, opening the active database.
     pub fn load(&mut self, ctx: &mut Ctx) {
-        self.databases = Load::Loading;
-        ctx.engine.send(DbCommand::ListDatabases);
+        self.root = Load::Loading;
+        ctx.engine.send(DbCommand::Children {
+            path: NodePath::root(),
+        });
     }
 
     /// The session now uses `name`: forget what was loaded for the old one.
     pub fn set_active(&mut self, name: &str, ctx: &mut Ctx) {
         let old = std::mem::replace(&mut self.active, name.to_string());
-        self.state.borrow_mut().close(&[Self::db_id(&old)]);
-        if let Load::Loaded(databases) = &mut self.databases {
+        self.state
+            .borrow_mut()
+            .close(&[Entry::new(Node::new(NodeKind::Database, old, true)).id()]);
+        if let Load::Loaded(databases) = &mut self.root {
             for db in databases.iter_mut() {
-                db.schemas = Load::NotLoaded;
+                db.children = Load::NotLoaded;
             }
         }
-        self.load_schemas(ctx);
+        let path = NodePath::root().child(name);
+        self.auto_open = Some(path.clone());
+        self.open_container(&path, ctx);
     }
 
-    fn load_schemas(&mut self, ctx: &mut Ctx) {
-        let id = Self::db_id(&self.active);
-        if let Some(db) = self.active_db() {
-            db.schemas = Load::Loading;
-            ctx.engine.send(DbCommand::ListSchemas);
+    /// The entry at `path`.
+    fn entry(&self, path: &NodePath) -> Option<&Entry> {
+        let mut list: &[Entry] = self.root.loaded()?;
+        let mut found = None;
+        for name in path.parts() {
+            let entry = list.iter().find(|e| &e.node.name == name)?;
+            found = Some(entry);
+            list = entry.children.loaded().map_or(&[], Vec::as_slice);
+        }
+        found
+    }
+
+    fn entry_mut(&mut self, path: &NodePath) -> Option<&mut Entry> {
+        let Load::Loaded(list) = &mut self.root else {
+            return None;
+        };
+        let mut list: &mut [Entry] = list;
+        let (last, parents) = path.parts().split_last()?;
+        for name in parents {
+            let entry = list.iter_mut().find(|e| &e.node.name == name)?;
+            list = match &mut entry.children {
+                Load::Loaded(children) => children,
+                _ => return None,
+            };
+        }
+        list.iter_mut().find(|e| &e.node.name == last)
+    }
+
+    /// The tree identifiers of the node at `path`: groups added, a lone
+    /// schema left out.
+    fn ids(&self, path: &NodePath) -> Option<Vec<String>> {
+        let mut ids = Vec::new();
+        let mut list = self.root.loaded()?.as_slice();
+        let mut parts = path.parts().iter().peekable();
+        while let Some(name) = parts.next() {
+            let entry = list.iter().find(|e| &e.node.name == name)?;
+            if entry.is_object() {
+                ids.push(group_id(entry.node.kind));
+            }
+            ids.push(entry.id());
+            if let Some(schema) = entry.only_schema() {
+                // The lone schema is shown in the database's place.
+                if parts.peek() == Some(&&schema.node.name) {
+                    parts.next();
+                }
+            }
+            list = match entry.shown().loaded() {
+                Some(children) => children,
+                None => &[],
+            };
+        }
+        Some(ids)
+    }
+
+    /// The node path and entry of the tree node with identifiers `ids`.
+    /// Groups and columns have no entry of their own.
+    fn resolve(&self, ids: &[String]) -> Option<(NodePath, &Entry)> {
+        let mut path = NodePath::root();
+        let mut list = self.root.loaded()?.as_slice();
+        let mut found = None;
+        for id in ids {
+            if id.starts_with("g/") {
+                continue;
+            }
+            let entry = list.iter().find(|e| &e.id() == id)?;
+            path = path.child(entry.node.name.clone());
+            found = Some(entry);
+            if let Some(schema) = entry.only_schema() {
+                path = path.child(schema.node.name.clone());
+                found = Some(schema);
+            }
+            list = match found?.children.loaded() {
+                Some(children) => children,
+                None => &[],
+            };
+        }
+        found.map(|entry| (path, entry))
+    }
+
+    /// Asks for the children of the container at `path`, unless they are
+    /// loaded or loading.
+    fn open_container(&mut self, path: &NodePath, ctx: &mut Ctx) {
+        let Some(entry) = self.entry_mut(path) else {
+            return;
+        };
+        if entry.children.wanted() {
+            entry.children = Load::Loading;
+            ctx.engine.send(DbCommand::Children { path: path.clone() });
+        }
+        if let Some(ids) = self.ids(path) {
             let mut state = self.state.borrow_mut();
-            state.open(vec![id.clone()]);
+            state.open(ids.clone());
             if state.selected().is_empty() {
-                state.select(vec![id]);
+                state.select(ids);
             }
         }
     }
 
-    /// Reloads the objects of every schema that was loaded, after a query
-    /// that may have changed them.
-    pub fn refresh_loaded(&mut self, ctx: &mut Ctx) {
-        if let Some(Load::Loaded(schemas)) = self.active_db().map(|db| &mut db.schemas) {
-            for schema in schemas.iter_mut() {
-                if matches!(schema.objects, Load::Loaded(_)) {
-                    ctx.engine.send(DbCommand::ListObjects {
-                        schema: schema.name.clone(),
-                    });
-                }
+    /// Children of `path` arrived.
+    pub fn on_children(
+        &mut self,
+        path: &NodePath,
+        result: Result<Vec<Node>, DbError>,
+        ctx: &mut Ctx,
+    ) {
+        if path.parts().is_empty() {
+            self.on_databases(result, ctx);
+        } else if let Some(entry) = self.entry_mut(path) {
+            // Keep what was loaded under nodes that are still there.
+            let mut old = match std::mem::replace(&mut entry.children, Load::NotLoaded) {
+                Load::Loaded(entries) => entries,
+                _ => Vec::new(),
+            };
+            entry.children = Load::from_result(result.map(|nodes| {
+                nodes
+                    .into_iter()
+                    .map(|node| {
+                        match old
+                            .iter()
+                            .position(|e| e.node.name == node.name && e.node.kind == node.kind)
+                        {
+                            Some(i) => Entry {
+                                node,
+                                ..old.swap_remove(i)
+                            },
+                            None => Entry::new(node),
+                        }
+                    })
+                    .collect()
+            }));
+            if self.auto_open.as_ref() == Some(path) {
+                self.continue_auto_open(path, ctx);
             }
-        }
-    }
-
-    pub fn on_databases(&mut self, result: Result<Vec<String>, DbError>, ctx: &mut Ctx) {
-        let mut names = match result {
-            Ok(names) => names,
-            Err(err) => {
-                ctx.toast(Level::Error, format!("Couldn't list databases: {err}"));
-                Vec::new()
-            }
-        };
-        // A user who can't list databases still has the one they're using.
-        if !names.contains(&self.active) {
-            names.insert(0, self.active.clone());
-        }
-        self.databases = Load::Loaded(
-            names
-                .into_iter()
-                .map(|name| Database {
-                    name,
-                    schemas: Load::NotLoaded,
-                })
-                .collect(),
-        );
-        self.load_schemas(ctx);
-    }
-
-    pub fn on_schemas(&mut self, result: Result<Vec<String>, DbError>, ctx: &mut Ctx) {
-        let db_id = Self::db_id(&self.active);
-        let Some(db) = self.active_db() else {
-            return;
-        };
-        db.schemas = Load::from_result(result.map(|names| {
-            names
-                .into_iter()
-                .map(|name| Schema {
-                    name,
-                    objects: Load::NotLoaded,
-                })
-                .collect()
-        }));
-        // Open the only schema, or `public`, or the first.
-        let Some(schemas) = db.schemas.loaded() else {
-            return;
-        };
-        let Some(first) = schemas
-            .iter()
-            .find(|s| schemas.len() == 1 || s.name == "public")
-            .or(schemas.first())
-            .map(|s| s.name.clone())
-        else {
-            return;
-        };
-        let flattened = schemas.len() == 1;
-        self.open_tables_of = Some(first.clone());
-        self.open_schema(&first, ctx);
-        if !flattened {
-            self.state
-                .borrow_mut()
-                .open(vec![db_id, format!("s/{first}")]);
-        }
-    }
-
-    fn open_schema(&mut self, name: &str, ctx: &mut Ctx) {
-        if let Some(Load::Loaded(schemas)) = self.active_db().map(|db| &mut db.schemas) {
-            if let Some(schema) = schemas.iter_mut().find(|s| s.name == name) {
-                if matches!(schema.objects, Load::NotLoaded | Load::Failed(_)) {
-                    schema.objects = Load::Loading;
-                    ctx.engine.send(DbCommand::ListObjects {
-                        schema: name.to_string(),
-                    });
-                }
-            }
-        }
-    }
-
-    pub fn on_objects(&mut self, schema: &str, result: Result<Vec<DbObject>, DbError>) {
-        let Some(Load::Loaded(schemas)) = self.active_db().map(|db| &mut db.schemas) else {
-            return;
-        };
-        let Some(node) = schemas.iter_mut().find(|s| s.name == schema) else {
-            return;
-        };
-        // Keep columns already loaded for objects that are still there.
-        let mut old = match std::mem::replace(&mut node.objects, Load::NotLoaded) {
-            Load::Loaded(objects) => objects,
-            _ => Vec::new(),
-        };
-        node.objects = Load::from_result(result.map(|objects| {
-            objects
-                .into_iter()
-                .map(|object| {
-                    let columns = old
-                        .iter()
-                        .position(|o| o.object.name == object.name && o.object.kind == object.kind)
-                        .map(|i| old.swap_remove(i).columns)
-                        .unwrap_or(Load::NotLoaded);
-                    Object { object, columns }
-                })
-                .collect()
-        }));
-        if self.open_tables_of.as_deref() == Some(schema) {
-            self.open_tables_of = None;
-            let mut path = vec![Self::db_id(&self.active)];
-            if self.only_schema().is_none() {
-                path.push(format!("s/{schema}"));
-            }
-            path.push(format!("g/{:?}", ObjectKind::Table));
-            self.state.borrow_mut().open(path);
         }
         if let Some(filter) = self.filter.clone() {
             self.update_matches(&filter);
         }
     }
 
-    pub fn on_described(
-        &mut self,
-        schema: &str,
-        table: &str,
-        result: Result<TableSchema, DbError>,
-    ) {
-        if let Some(object) = self.object_mut(schema, table) {
-            object.columns = Load::from_result(result.map(|t| t.columns));
-        }
-    }
-
-    fn object_mut(&mut self, schema: &str, name: &str) -> Option<&mut Object> {
-        let Some(Load::Loaded(schemas)) = self.active_db().map(|db| &mut db.schemas) else {
-            return None;
-        };
-        let schema = schemas.iter_mut().find(|s| s.name == schema)?;
-        match &mut schema.objects {
-            Load::Loaded(objects) => objects
-                .iter_mut()
-                .find(|o| o.object.name == name && o.object.kind.has_rows()),
-            _ => None,
-        }
-    }
-
-    /// The node at `path`, decoded from its identifiers.
-    fn node(&self, path: &[String]) -> Option<Node> {
-        let last = path.last()?;
-        let (kind, name) = last.split_once('/')?;
-        Some(match kind {
-            "d" => Node::Database(name.to_string()),
-            "s" => Node::Schema(name.to_string()),
-            "g" => Node::Group,
-            "c" => Node::Column,
-            "o" => {
-                let schema = match path.iter().find_map(|id| id.strip_prefix("s/")) {
-                    Some(schema) => schema.to_string(),
-                    // A flattened tree has one schema and no schema level.
-                    None => self.only_schema()?,
-                };
-                let group = path.iter().rev().find_map(|id| id.strip_prefix("g/"))?;
-                let kind = GROUPS.into_iter().find(|k| format!("{k:?}") == group)?;
-                Node::Object {
-                    schema,
-                    name: name.to_string(),
-                    kind,
-                }
+    fn on_databases(&mut self, result: Result<Vec<Node>, DbError>, ctx: &mut Ctx) {
+        let mut nodes = match result {
+            Ok(nodes) => nodes,
+            Err(err) => {
+                ctx.toast(Level::Error, format!("Couldn't list databases: {err}"));
+                Vec::new()
             }
-            _ => return None,
-        })
+        };
+        // A user who can't list databases still has the one they're using.
+        if !nodes.iter().any(|n| n.name == self.active) {
+            nodes.insert(0, Node::new(NodeKind::Database, self.active.clone(), true));
+        }
+        self.root = Load::Loaded(nodes.into_iter().map(Entry::new).collect());
+        let active = NodePath::root().child(self.active.clone());
+        self.auto_open = Some(active.clone());
+        self.open_container(&active, ctx);
     }
 
-    fn only_schema(&self) -> Option<String> {
-        let db = self
-            .databases
-            .loaded()?
+    /// The default schema's tables open by themselves after connecting.
+    fn continue_auto_open(&mut self, path: &NodePath, ctx: &mut Ctx) {
+        let Some(entry) = self.entry(path) else {
+            return;
+        };
+        let Some(children) = entry.children.loaded() else {
+            self.auto_open = None;
+            return;
+        };
+        let schemas: Vec<&str> = children
             .iter()
-            .find(|db| db.name == self.active)?;
-        match db.schemas.loaded()?.as_slice() {
-            [only] => Some(only.name.clone()),
-            _ => None,
+            .filter(|e| matches!(e.node.kind, NodeKind::Schema | NodeKind::Keyspace))
+            .map(|e| e.node.name.as_str())
+            .collect();
+        if !schemas.is_empty() && schemas.len() == children.len() {
+            // Open `public`, or the first schema.
+            let name = schemas
+                .iter()
+                .find(|s| **s == "public")
+                .unwrap_or(&schemas[0])
+                .to_string();
+            let schema = path.child(name);
+            self.auto_open = Some(schema.clone());
+            self.open_container(&schema, ctx);
+            return;
+        }
+        self.auto_open = None;
+        if let Some(mut ids) = self.ids(path) {
+            ids.push(group_id(NodeKind::Table));
+            self.state.borrow_mut().open(ids);
+        }
+    }
+
+    pub fn on_described(&mut self, path: &NodePath, result: Result<EntityInfo, DbError>) {
+        if let Some(entry) = self.entry_mut(path) {
+            entry.columns = Load::from_result(result.map(|info| info.columns));
+        }
+    }
+
+    /// Reloads every loaded list of objects, after a query that may have
+    /// changed them.
+    pub fn refresh_loaded(&mut self, ctx: &mut Ctx) {
+        fn walk(list: &[Entry], path: &NodePath, out: &mut Vec<NodePath>) {
+            for entry in list {
+                let Some(children) = entry.children.loaded() else {
+                    continue;
+                };
+                let here = path.child(entry.node.name.clone());
+                if children.iter().any(Entry::is_object) {
+                    out.push(here.clone());
+                }
+                walk(children, &here, out);
+            }
+        }
+        let mut paths = Vec::new();
+        if let Some(list) = self.root.loaded() {
+            walk(list, &NodePath::root(), &mut paths);
+        }
+        for path in paths {
+            ctx.engine.send(DbCommand::Children { path });
         }
     }
 
@@ -390,47 +438,41 @@ impl Explorer {
 
     /// Opens or closes the selected node, loading what it needs.
     fn open_selected(&mut self, toggle: bool, ctx: &mut Ctx) -> Option<Command> {
-        let path = self.state.borrow().selected().to_vec();
-        let node = self.node(&path)?;
-        if let Node::Database(name) = &node {
-            if *name != self.active {
-                return Some(Command::UseDatabase(name.clone()));
+        let ids = self.state.borrow().selected().to_vec();
+        let resolved = self
+            .resolve(&ids)
+            .map(|(path, entry)| (path, entry.node.clone()));
+        if let Some((_, node)) = &resolved {
+            // A database the session can't browse: switch to it.
+            if node.kind == NodeKind::Database && node.name != self.active && !node.has_children {
+                return Some(Command::UseDatabase(node.name.clone()));
             }
         }
         let opened = {
             let mut state = self.state.borrow_mut();
             if toggle {
-                state.toggle(path.clone());
+                state.toggle(ids.clone());
             } else {
-                state.open(path.clone());
+                state.open(ids.clone());
             }
-            state.opened().contains(&path)
+            state.opened().contains(&ids)
         };
-        if !opened {
+        // Groups and columns load nothing; neither does closing.
+        let (true, Some((path, node))) = (opened, resolved) else {
+            return None;
+        };
+        if ids.last().is_some_and(|id| id.starts_with("g/")) {
             return None;
         }
-        match node {
-            Node::Database(_) => {
-                if self
-                    .active_db()
-                    .is_some_and(|db| matches!(db.schemas, Load::NotLoaded | Load::Failed(_)))
-                {
-                    self.load_schemas(ctx);
+        if node.kind.has_rows() {
+            if let Some(entry) = self.entry_mut(&path) {
+                if entry.columns.wanted() {
+                    entry.columns = Load::Loading;
+                    ctx.engine.send(DbCommand::Describe { path });
                 }
             }
-            Node::Schema(name) => self.open_schema(&name, ctx),
-            Node::Object { schema, name, kind } if kind.has_rows() => {
-                if let Some(object) = self.object_mut(&schema, &name) {
-                    if matches!(object.columns, Load::NotLoaded | Load::Failed(_)) {
-                        object.columns = Load::Loading;
-                        ctx.engine.send(DbCommand::Describe {
-                            schema,
-                            table: name,
-                        });
-                    }
-                }
-            }
-            _ => {}
+        } else if node.has_children && !is_object(node.kind) {
+            self.open_container(&path, ctx);
         }
         None
     }

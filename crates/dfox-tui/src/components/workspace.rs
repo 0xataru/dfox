@@ -5,9 +5,10 @@ use std::cell::Cell;
 
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use dfox_core::{
+    catalog::{Node, NodeKind, NodePath},
     engine::{Command as DbCommand, EngineEvent, QueryId},
     errors::DbError,
-    models::{connections::DbType, schema::DbObject},
+    models::connections::DbType,
 };
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
@@ -91,25 +92,56 @@ impl Workspace {
         workspace
     }
 
+    /// The dialect the session reported, for the editor, autocomplete and
+    /// the guard. The first tab starts over in it.
+    pub fn with_dialect(mut self, dialect: Dialect) -> Self {
+        self.dialect = dialect;
+        self.tabs.clear();
+        self.next_tab = 0;
+        self.new_tab();
+        self.set_focus(Panel::Editor);
+        self
+    }
+
     pub fn with_read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
         self
     }
 
-    /// Records a schema's tables, and asks for their columns.
-    pub fn on_objects(
+    /// Children of a catalog node arrived. Tables under it go to
+    /// autocomplete, which then asks for their columns.
+    pub fn on_children(
         &mut self,
-        schema: &str,
-        result: Result<Vec<DbObject>, DbError>,
+        path: &NodePath,
+        result: Result<Vec<Node>, DbError>,
         ctx: &mut Ctx,
     ) {
-        if let Ok(objects) = &result {
-            self.catalog.on_objects(schema, objects);
-            ctx.engine.send(DbCommand::ListColumns {
-                schema: schema.to_string(),
-            });
+        if let (Ok(nodes), Some(name)) = (&result, path.name()) {
+            let tables: Vec<String> = nodes
+                .iter()
+                .filter(|n| n.kind.has_rows())
+                .map(|n| n.name.clone())
+                .collect();
+            let schemas: Vec<String> = nodes
+                .iter()
+                .filter(|n| n.kind == NodeKind::Schema)
+                .map(|n| n.name.clone())
+                .collect();
+            let active = path.parts() == [self.explorer.active.as_str()];
+            // The active database's schemas, the default first; a database
+            // without schemas is its own.
+            if active && !schemas.is_empty() {
+                self.catalog.on_schemas(&schemas);
+            } else if active {
+                self.catalog.on_schemas(&[name.to_string()]);
+            }
+            if !tables.is_empty() {
+                self.catalog.on_tables(name, tables);
+                ctx.engine
+                    .send(DbCommand::AllColumns { path: path.clone() });
+            }
         }
-        self.explorer.on_objects(schema, result);
+        self.explorer.on_children(path, result, ctx);
     }
 
     pub fn focused(&self) -> Panel {
@@ -277,14 +309,19 @@ impl Workspace {
     /// explorer should reload, as the query may have changed tables.
     pub fn on_query_event(&mut self, event: EngineEvent, ctx: &mut Ctx) -> bool {
         match event {
-            EngineEvent::Columns { id, columns } => {
+            EngineEvent::Schema { id, schema } => {
                 if let Some(results) = self.results_for(id) {
-                    results.on_columns(id, columns);
+                    results.on_schema(id, schema);
                 }
             }
-            EngineEvent::Rows { id, rows } => {
+            EngineEvent::Batch { id, batch } => {
                 if let Some(results) = self.results_for(id) {
-                    results.on_rows(id, rows);
+                    results.on_batch(id, batch);
+                }
+            }
+            EngineEvent::Notice { id, message } => {
+                if self.results_for(id).is_some() {
+                    ctx.toast(Level::Info, message);
                 }
             }
             EngineEvent::QueryDone { id, outcome } => {

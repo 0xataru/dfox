@@ -10,6 +10,9 @@ ratatui = "0.30.2"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 dfox-core = { path = "../dfox-core" }
 dfox-sql = { path = "../dfox-sql" }
+dfox-ssh = { path = "../dfox-ssh" }
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"
 dfox-driver-postgres = { path = "../dfox-driver-postgres", optional = true }
 dfox-driver-mysql = { path = "../dfox-driver-mysql", optional = true }
 dfox-driver-sqlite = { path = "../dfox-driver-sqlite", optional = true }
@@ -43,8 +46,6 @@ mysql = ["dep:dfox-driver-mysql"]
 sqlite = ["dep:dfox-driver-sqlite"]
 
 [dev-dependencies]
-arrow-array = "60.0.0"
-arrow-schema = "60.0.0"
 insta = "1.49.0"
 
 

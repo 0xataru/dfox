@@ -389,14 +389,7 @@ mod tests {
     fn names_are_quoted_when_needed() {
         let mut catalog = Catalog::default();
         catalog.on_schemas(&["public".into()]);
-        catalog.on_objects(
-            "public",
-            &[dfox_core::models::schema::DbObject {
-                name: "Order Items".into(),
-                kind: dfox_core::models::schema::ObjectKind::Table,
-                rows: None,
-            }],
-        );
+        catalog.on_tables("public", vec!["Order Items".into()]);
         let c = suggest(
             "select * from ord",
             (0, 17),
@@ -426,14 +419,8 @@ mod tests {
     fn suggestions_are_quick_on_a_big_schema() {
         let mut catalog = Catalog::default();
         catalog.on_schemas(&["public".into()]);
-        let objects: Vec<_> = (0..2000)
-            .map(|i| dfox_core::models::schema::DbObject {
-                name: format!("table_{i:04}"),
-                kind: dfox_core::models::schema::ObjectKind::Table,
-                rows: None,
-            })
-            .collect();
-        catalog.on_objects("public", &objects);
+        let objects: Vec<_> = (0..2000).map(|i| format!("table_{i:04}")).collect();
+        catalog.on_tables("public", objects);
         let start = std::time::Instant::now();
         let c = suggest(
             "select * from tab",

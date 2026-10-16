@@ -140,7 +140,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mouse = config.mouse;
-    let (engine, events) = dfox_core::engine::spawn(drivers());
+    // Sessions go through an SSH tunnel when the connection has one.
+    let open: dfox_core::engine::Opener = std::sync::Arc::new(|driver, params| {
+        Box::pin(async move { dfox_ssh::open(driver.as_ref(), &params).await })
+    });
+    let (engine, events) = dfox_core::engine::spawn_with(drivers(), open);
     let mut app = App::new(
         engine,
         Setup {

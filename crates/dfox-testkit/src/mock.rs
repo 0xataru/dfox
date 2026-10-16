@@ -33,7 +33,10 @@ use dfox_core::{
     },
     driver::{Driver, DriverInfo},
     errors::DbError,
-    models::connections::{ConnectionParams, DbType},
+    models::{
+        connections::{ConnectionParams, DbType},
+        schema::TableColumn,
+    },
     result::OwnedCell,
     session::{
         ApplyReport, CancelHandle, Capabilities, Change, ChangeSet, QueryLanguage, Request,
@@ -472,5 +475,22 @@ impl Catalog for MockCatalog {
             .collect();
         let stream: ResultStream = Box::pin(stream::iter(people_frames(rows)));
         Box::pin(async move { Ok(stream) })
+    }
+
+    fn all_columns<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+    ) -> BoxFuture<'a, Result<Vec<TableColumn>, DbError>> {
+        let result = if node.parts() == ["mock", "main"] {
+            let column = |name: &str, data_type: &str| TableColumn {
+                table: "people".into(),
+                name: name.into(),
+                data_type: data_type.into(),
+            };
+            Ok(vec![column("id", "INTEGER"), column("name", "TEXT")])
+        } else {
+            Err(not_found(node))
+        };
+        Box::pin(async move { result })
     }
 }

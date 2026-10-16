@@ -20,10 +20,11 @@ DFox is a Cargo workspace; every crate lives in `crates/`:
 
 - **`dfox-core`**: the driver interfaces, query results, connection models,
   and the engine that runs database work in the background. It knows no
-  particular database. Two generations live side by side while the drivers
-  move to native clients: `DbClient` (rows as cells, used by the app today)
-  and `Session` + `Catalog` (Arrow batches, a catalog tree, edits by primary
-  key), which the app switches to once every driver has one.
+  particular database. The app runs on `Session` + `Catalog`: Arrow
+  batches, a catalog tree, edits by primary key. The engine holds one
+  session and opens it through an `Opener`, which the app points at
+  `dfox_ssh::open` for tunnels. The older `DbClient` (rows as cells, on
+  sqlx) is left only for the benchmarks' comparison and goes in C4.
 - **`dfox-driver-postgres`**, **`dfox-driver-mysql`**, **`dfox-driver-sqlite`**:
   one crate per database, each with its integration tests.
 - **`dfox-ssh`**: SSH tunnels on `russh`, for any driver: `dfox_ssh::open`

@@ -4,12 +4,15 @@ pub mod export;
 pub mod grid;
 mod inspector;
 
-use std::{cell::Cell, time::Duration};
+use std::{cell::Cell, sync::Arc, time::Duration};
 
+use arrow_array::RecordBatch;
+use arrow_schema::{Schema, SchemaRef};
 use dfox_core::{
+    arrow::ArrowResultSet,
     engine::{Command as DbCommand, QueryId, QueryStats},
     errors::DbError,
-    result::{ColumnMeta, OwnedCell, ResultSet, RowStore},
+    result::{ColumnMeta, OwnedCell, ResultSet},
 };
 use ratatui::{
     layout::{Position, Rect},
@@ -50,9 +53,16 @@ pub struct Finished {
     pub changed: bool,
 }
 
+/// A result with no columns and no rows.
+fn empty() -> ArrowResultSet {
+    let mut result = ArrowResultSet::new(Arc::new(Schema::empty()));
+    result.finish();
+    result
+}
+
 #[derive(Debug)]
 pub struct ResultsPanel {
-    pub store: RowStore,
+    pub store: ArrowResultSet,
     pub error: Option<String>,
     pub message: Option<String>,
     pub running: Option<RunningQuery>,
@@ -73,7 +83,7 @@ pub struct ResultsPanel {
 impl ResultsPanel {
     pub fn new(dialect: Dialect) -> Self {
         Self {
-            store: RowStore::default(),
+            store: empty(),
             error: None,
             message: None,
             running: None,
@@ -101,7 +111,7 @@ impl ResultsPanel {
             cancelling: false,
         });
         self.sql = sql.to_string();
-        self.show(RowStore::default());
+        self.show(empty());
     }
 
     pub fn cancel(&mut self, ctx: &mut Ctx) {
@@ -123,7 +133,7 @@ impl ResultsPanel {
         self.running.as_ref().is_some_and(|q| q.id == id)
     }
 
-    fn show(&mut self, store: RowStore) {
+    pub(crate) fn show(&mut self, store: ArrowResultSet) {
         self.store = store;
         self.error = None;
         self.message = None;
@@ -132,15 +142,16 @@ impl ResultsPanel {
         self.inspect_scroll.set(0);
     }
 
-    pub fn on_columns(&mut self, id: QueryId, columns: Vec<ColumnMeta>) {
+    /// A result set of query `id` starts, replacing any earlier one.
+    pub fn on_schema(&mut self, id: QueryId, schema: SchemaRef) {
         if self.is_current(id) {
-            self.show(RowStore::new(columns));
+            self.show(ArrowResultSet::new(schema));
         }
     }
 
-    pub fn on_rows(&mut self, id: QueryId, rows: Vec<Vec<OwnedCell>>) {
+    pub fn on_batch(&mut self, id: QueryId, batch: RecordBatch) {
         if self.is_current(id) {
-            self.store.extend(rows);
+            self.store.push(batch);
         }
     }
 
@@ -182,7 +193,7 @@ impl ResultsPanel {
                 ctx.toast(Level::Info, "Query cancelled");
             }
             Err(err) => {
-                self.show(RowStore::default());
+                self.show(empty());
                 self.error = Some(err.to_string());
             }
         }
@@ -191,15 +202,18 @@ impl ResultsPanel {
 
     /// Shows the event log in the grid.
     pub fn show_log(&mut self, entries: &[String]) {
-        let mut store = RowStore::new(vec![ColumnMeta::new("#", ""), ColumnMeta::new("Event", "")]);
-        store.extend(entries.iter().enumerate().map(|(i, entry)| {
-            vec![
-                OwnedCell::Int(i as i64 + 1),
-                OwnedCell::Text(entry.as_str().into()),
-            ]
-        }));
-        store.finish();
-        self.show(store);
+        let rows = entries
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                vec![
+                    OwnedCell::Int(i as i64 + 1),
+                    OwnedCell::Text(entry.as_str().into()),
+                ]
+            })
+            .collect();
+        let columns = vec![ColumnMeta::new("#", ""), ColumnMeta::new("Event", "")];
+        self.show(ArrowResultSet::from_cells(columns, rows));
         self.message = Some(format!("Event log ({} entries)", entries.len()));
     }
 

@@ -12,6 +12,7 @@ use dfox_core::{
         NodePath, Order,
     },
     errors::DbError,
+    models::schema::TableColumn,
     result::OwnedCell,
     session::{ApplyReport, Change, ChangeSet},
 };
@@ -423,6 +424,41 @@ impl Catalog for PgCatalog {
             Ok(spawn_run(move |tx| async move {
                 execute(&client, &sql, &params, usize::MAX, &tx).await
             }))
+        })
+    }
+
+    fn all_columns<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+    ) -> BoxFuture<'a, Result<Vec<TableColumn>, DbError>> {
+        Box::pin(async move {
+            let schema = match node.parts() {
+                [database, schema] if *database == self.database => schema,
+                parts => return Err(DbError::General(format!("not a schema: {parts:?}"))),
+            };
+            let rows = self
+                .client
+                .query(
+                    "SELECT c.relname::text, a.attname::text, \
+                            format_type(a.atttypid, a.atttypmod) \
+                     FROM pg_attribute a \
+                     JOIN pg_class c ON c.oid = a.attrelid \
+                     JOIN pg_namespace n ON n.oid = c.relnamespace \
+                     WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p', 'v', 'm', 'f') \
+                       AND a.attnum > 0 AND NOT a.attisdropped \
+                     ORDER BY c.relname, a.attnum",
+                    &[&schema],
+                )
+                .await
+                .map_err(db_error)?;
+            Ok(rows
+                .iter()
+                .map(|row| TableColumn {
+                    table: row.get(0),
+                    name: row.get(1),
+                    data_type: row.get(2),
+                })
+                .collect())
         })
     }
 }
