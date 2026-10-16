@@ -98,6 +98,7 @@ async fn the_native_session_passes_the_driver_suite() {
 
     let fixture = Fixture {
         table: ["main", "people"].into_iter().collect::<NodePath>(),
+        key: "id",
         select_all: "SELECT * FROM people ORDER BY id".into(),
         count: "SELECT count(*) FROM people".into(),
         generate: |n| {

@@ -9,6 +9,7 @@ use dfox_core::{
     engine::{Command as DbCommand, EngineEvent, QueryId},
     errors::DbError,
     models::connections::DbType,
+    session::{QueryLanguage, SqlDialect},
 };
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
@@ -67,6 +68,46 @@ fn kind_or_table(kind: NodeKind) -> NodeKind {
     }
 }
 
+/// Which rows of a table to show.
+enum Rows {
+    First,
+    All,
+    /// The last, by these key columns.
+    Last(Vec<String>),
+    /// Those meeting a condition: SQL after WHERE, or a find filter.
+    Matching(String),
+}
+
+/// `db.users`, or `db.getCollection("odd name")`.
+fn mongo_handle(name: &str) -> String {
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if plain {
+        format!("db.{name}")
+    } else {
+        format!("db.getCollection({})", serde_json::Value::from(name))
+    }
+}
+
+/// A field name as an object key: bare when it can be.
+fn mongo_key(name: &str) -> String {
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if plain {
+        name.to_string()
+    } else {
+        serde_json::Value::from(name).to_string()
+    }
+}
+
 /// A menu choice waiting for its table to be described.
 #[derive(Debug)]
 struct Pending {
@@ -83,6 +124,8 @@ pub struct Workspace {
     tabs: Vec<Tab>,
     active: usize,
     dialect: Dialect,
+    /// What the session speaks: SQL, or mongo shell commands and the like.
+    language: QueryLanguage,
     connection: String,
     next_query: QueryId,
     next_tab: usize,
@@ -112,6 +155,7 @@ impl Workspace {
             tabs: Vec::new(),
             active: 0,
             dialect: sql::dialect(driver),
+            language: QueryLanguage::Sql(SqlDialect::Generic),
             connection: connection.to_string(),
             next_query: 0,
             next_tab: 0,
@@ -131,6 +175,21 @@ impl Workspace {
 
     /// The dialect the session reported, for the editor, autocomplete and
     /// the guard. The first tab starts over in it.
+    /// The language the session reported. SQL starts the first tab over in
+    /// its dialect.
+    pub fn with_language(mut self, language: QueryLanguage) -> Self {
+        self.language = language;
+        match sql::session_dialect(language) {
+            Some(dialect) => self.with_dialect(dialect),
+            None => {
+                for tab in &mut self.tabs {
+                    tab.editor.holds = "commands";
+                }
+                self
+            }
+        }
+    }
+
     pub fn with_dialect(mut self, dialect: Dialect) -> Self {
         self.dialect = dialect;
         self.tabs.clear();
@@ -259,7 +318,11 @@ impl Workspace {
     fn new_tab(&mut self) {
         self.next_tab += 1;
         self.tabs.push(Tab {
-            editor: EditorPanel::new(self.dialect),
+            editor: EditorPanel::new(self.dialect).holding(if self.speaks_sql() {
+                "SQL"
+            } else {
+                "commands"
+            }),
             results: ResultsPanel::new(self.dialect),
             number: self.next_tab,
             source: None,
@@ -300,7 +363,13 @@ impl Workspace {
             ctx.toast(Level::Info, "Nothing to run");
             return None;
         };
-        let findings = guard::check(&sql, self.dialect);
+        // Other languages' drivers refuse writes on read-only connections
+        // themselves.
+        let findings = if self.speaks_sql() {
+            guard::check(&sql, self.dialect)
+        } else {
+            guard::Findings::default()
+        };
         if self.read_only && findings.writes {
             ctx.toast(
                 Level::Error,
@@ -525,21 +594,19 @@ impl Workspace {
         let quoted = self.quote(&name);
         match choice {
             Choice::FirstRows => {
-                return self.show_rows(
-                    table,
-                    format!("SELECT * FROM {quoted} LIMIT {FEW_ROWS}"),
-                    ctx,
-                )
+                let query = self.rows_query(&name, Rows::First);
+                return self.show_rows(table, query, ctx);
             }
             Choice::AllRows => {
-                return self.show_rows(table, format!("SELECT * FROM {quoted}"), ctx)
+                let query = self.rows_query(&name, Rows::All);
+                return self.show_rows(table, query, ctx);
             }
             Choice::LastRows => {
                 let key: Vec<String> = info
                     .iter()
                     .flat_map(|info| &info.columns)
                     .filter(|c| c.primary_key)
-                    .map(|c| format!("{} DESC", sql::quote_ident(&c.name, self.dialect)))
+                    .map(|c| c.name.clone())
                     .collect();
                 if key.is_empty() {
                     ctx.toast(
@@ -548,15 +615,12 @@ impl Workspace {
                     );
                     return None;
                 }
-                let sql = format!(
-                    "SELECT * FROM {quoted} ORDER BY {} LIMIT {FEW_ROWS}",
-                    key.join(", ")
-                );
-                return self.show_rows(table, sql, ctx);
+                let query = self.rows_query(&name, Rows::Last(key));
+                return self.show_rows(table, query, ctx);
             }
             Choice::Filtered(condition) => {
-                let sql = format!("SELECT * FROM {quoted} WHERE {condition}");
-                return self.show_rows(table, sql, ctx);
+                let query = self.rows_query(&name, Rows::Matching(condition));
+                return self.show_rows(table, query, ctx);
             }
             Choice::Count => ctx.engine.send(DbCommand::Count { path: table }),
             Choice::Script(Script::Create) | Choice::Definition => {
@@ -653,12 +717,61 @@ impl Workspace {
         }
     }
 
-    /// A name in parts, quoted for the dialect.
+    /// A name in parts, quoted for the dialect; as it is where no SQL is
+    /// spoken.
     fn quote(&self, name: &[String]) -> String {
+        if !self.speaks_sql() {
+            return name.join(".");
+        }
         name.iter()
             .map(|part| sql::quote_ident(part, self.dialect))
             .collect::<Vec<_>>()
             .join(".")
+    }
+
+    /// True unless the session speaks something other than SQL.
+    fn speaks_sql(&self) -> bool {
+        matches!(self.language, QueryLanguage::Sql(_))
+    }
+
+    /// The query for some rows of the table named `name`, in the session's
+    /// language.
+    fn rows_query(&self, name: &[String], rows: Rows) -> String {
+        if self.language == QueryLanguage::MongoShell {
+            let collection = name.last().map_or("", String::as_str);
+            let handle = mongo_handle(collection);
+            return match rows {
+                Rows::First => format!("{handle}.find().limit({FEW_ROWS})"),
+                Rows::All => format!("{handle}.find()"),
+                Rows::Last(key) => {
+                    let sort: Vec<String> = key
+                        .iter()
+                        .map(|k| format!("{}: -1", mongo_key(k)))
+                        .collect();
+                    format!(
+                        "{handle}.find().sort({{ {} }}).limit({FEW_ROWS})",
+                        sort.join(", ")
+                    )
+                }
+                Rows::Matching(filter) => format!("{handle}.find({filter})"),
+            };
+        }
+        let quoted = self.quote(name);
+        match rows {
+            Rows::First => format!("SELECT * FROM {quoted} LIMIT {FEW_ROWS}"),
+            Rows::All => format!("SELECT * FROM {quoted}"),
+            Rows::Last(key) => {
+                let order: Vec<String> = key
+                    .iter()
+                    .map(|k| format!("{} DESC", sql::quote_ident(k, self.dialect)))
+                    .collect();
+                format!(
+                    "SELECT * FROM {quoted} ORDER BY {} LIMIT {FEW_ROWS}",
+                    order.join(", ")
+                )
+            }
+            Rows::Matching(condition) => format!("SELECT * FROM {quoted} WHERE {condition}"),
+        }
     }
 
     /// What the explorer asked for that the workspace does itself.
@@ -670,7 +783,7 @@ impl Workspace {
                     path,
                     kind,
                     name,
-                    self.dialect,
+                    self.speaks_sql().then_some(self.dialect),
                     self.read_only,
                 ));
             }

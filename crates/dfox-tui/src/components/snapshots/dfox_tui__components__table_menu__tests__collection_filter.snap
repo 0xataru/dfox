@@ -1,0 +1,16 @@
+---
+source: dfox-tui/src/components/table_menu.rs
+expression: snapshot(&m)
+---
+
+
+
+
+
+
+ ╭ users · filter ──────────────────────────────╮
+ │ db.users.find(                               │
+ │ ▸ { a: 1 }                                   │
+ │                                              │
+ │ Enter run   Esc back                         │
+ ╰──────────────────────────────────────────────╯

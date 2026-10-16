@@ -21,3 +21,14 @@ services:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pdfox"]
       interval: 2s
       retries: 60
+
+  mongo:
+    image: mongo:8.2
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: dfox
+    ports: ["57017:27017"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 2s
+      retries: 60

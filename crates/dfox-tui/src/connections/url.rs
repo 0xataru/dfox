@@ -30,6 +30,12 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
     let driver = match url.scheme() {
         "postgres" | "postgresql" => DbType::Postgres,
         "mysql" | "mariadb" => DbType::MySql,
+        "mongodb" => DbType::Mongo,
+        "mongodb+srv" => {
+            return Err(
+                "mongodb+srv addresses aren't supported yet: use mongodb://host:port".into(),
+            )
+        }
         scheme => return Err(format!("unsupported database {scheme:?}")),
     };
     let decode = |s: &str| percent_decode_str(s).decode_utf8_lossy().into_owned();
@@ -48,6 +54,13 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
                 "require" | "required" | "verify-ca" | "verify_ca" => TlsMode::Require,
                 "verify-full" | "verify_identity" => TlsMode::VerifyFull,
                 _ => TlsMode::Prefer,
+            };
+        }
+        // MongoDB's own switch.
+        if matches!(key.as_ref(), "tls" | "ssl") {
+            connection.tls = match value.as_ref() {
+                "true" => TlsMode::VerifyFull,
+                _ => TlsMode::Disable,
             };
         }
     }
@@ -80,6 +93,23 @@ mod tests {
         let (c, password) = parse("env", "mysql://root@localhost").expect("parse");
         assert_eq!((c.driver, c.port, c.database), (DbType::MySql, None, None));
         assert_eq!(password, None);
+    }
+
+    #[test]
+    fn mongodb_urls() {
+        let (c, password) =
+            parse("env", "mongodb://root:dfox@127.0.0.1:57017/shop?tls=true").expect("parse");
+        assert_eq!(c.driver, DbType::Mongo);
+        assert_eq!(c.address(), "root@127.0.0.1:57017/shop");
+        assert_eq!(c.tls, TlsMode::VerifyFull);
+        assert_eq!(password.as_deref(), Some("dfox"));
+        // Without a database, mongosh's.
+        let (c, _) = parse("env", "mongodb://localhost").expect("parse");
+        assert_eq!(c.target().database.as_deref(), Some("test"));
+        assert_eq!(c.target().port, 27017);
+        assert!(parse("x", "mongodb+srv://cluster.example.net")
+            .unwrap_err()
+            .contains("aren't supported yet"));
     }
 
     #[test]

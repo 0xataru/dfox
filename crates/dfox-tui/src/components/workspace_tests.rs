@@ -874,3 +874,87 @@ fn run_at_cursor_sends_a_whole_mysql_procedure() {
         [DbCommand::Run { sql, .. }] if sql == "CREATE PROCEDURE p()\nBEGIN\n  SELECT 1;\nEND"
     ));
 }
+
+#[test]
+fn mongo_collections_show_their_rows_with_shell_queries() {
+    use dfox_core::{
+        catalog::{ColumnInfo, EntityInfo},
+        session::QueryLanguage,
+    };
+
+    let mut harness = Harness::new();
+    let mut w =
+        Workspace::new("local", DbType::Mongo, "shop").with_language(QueryLanguage::MongoShell);
+    assert_eq!(w.editor().holds, "commands");
+    w.on_children(
+        &NodePath::root(),
+        Ok(vec![Node::new(NodeKind::Database, "shop", true)]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["shop"].into_iter().collect(),
+        Ok(vec![
+            Node::new(NodeKind::Collection, "users", true),
+            Node::new(NodeKind::Collection, "odd name", true),
+        ]),
+        &mut harness.ctx(),
+    );
+    let users: NodePath = ["shop", "users"].into_iter().collect();
+    w.explorer.on_described(
+        &users,
+        Ok(EntityInfo {
+            columns: vec![ColumnInfo {
+                name: "_id".into(),
+                primary_key: true,
+                ..ColumnInfo::default()
+            }],
+            ..EntityInfo::default()
+        }),
+    );
+    harness.sent();
+    w.set_focus(Panel::Explorer);
+    w.explorer
+        .select(&["d/shop", "g/Collection", "o/users"].map(String::from));
+
+    // Runs what the menu picks and returns the query it sent.
+    let mut query = |w: &mut Workspace, keys: &str, condition: &str| {
+        w.handle(Action::Confirm, &mut harness.ctx());
+        for c in keys.chars().chain(condition.chars()) {
+            w.handle(Action::Input(c), &mut harness.ctx());
+        }
+        if !condition.is_empty() {
+            w.handle(Action::Confirm, &mut harness.ctx());
+        }
+        let (id, sql) = match harness.sent().as_slice() {
+            [.., DbCommand::Run { id, sql, .. }] => (*id, sql.clone()),
+            other => panic!("expected a query, got {other:?}"),
+        };
+        w.on_query_event(
+            EngineEvent::QueryDone {
+                id,
+                outcome: Ok(QueryStats::default()),
+            },
+            &mut harness.ctx(),
+        );
+        w.set_focus(Panel::Explorer);
+        sql
+    };
+    assert_eq!(query(&mut w, "f", ""), "db.users.find().limit(100)");
+    assert_eq!(
+        query(&mut w, "l", ""),
+        "db.users.find().sort({ _id: -1 }).limit(100)"
+    );
+    assert_eq!(
+        query(&mut w, "w", "{ age: 3 }"),
+        "db.users.find({ age: 3 })"
+    );
+    w.explorer
+        .select(&["d/shop", "g/Collection", "o/odd name"].map(String::from));
+    assert_eq!(
+        query(&mut w, "a", ""),
+        "db.getCollection(\"odd name\").find()"
+    );
+    // Names go into the editor as they are, at the cursor.
+    w.handle(Action::Inspect, &mut harness.ctx());
+    assert!(w.editor().text().starts_with("odd name"));
+}

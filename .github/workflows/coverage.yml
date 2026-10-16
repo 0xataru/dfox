@@ -37,8 +37,18 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 -pdfox"
           --health-interval 2s --health-retries 60
+      mongo:
+        image: mongo:8.2
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: dfox
+        ports: ["57017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
+          --health-interval 2s --health-retries 60
     env:
       DFOX_IT_REQUIRED: "1"
+      DFOX_TEST_MONGO_URL: mongodb://root:dfox@127.0.0.1:57017
       DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
       DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
       DFOX_TEST_POSTGRES_TLS_URL: postgres://postgres:dfox@localhost:55433/postgres

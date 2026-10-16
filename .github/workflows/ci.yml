@@ -33,7 +33,7 @@ jobs:
       # Each driver is a cargo feature; the app must build with any one alone.
       - name: clippy, one driver at a time
         run: |
-          for driver in postgres mysql sqlite; do
+          for driver in postgres mysql sqlite mongo; do
             cargo clippy -p dfox-tui --no-default-features --features "$driver" --locked -- -D warnings
           done
 
@@ -82,8 +82,18 @@ jobs:
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 -pdfox"
           --health-interval 2s --health-retries 60
+      mongo:
+        image: mongo:8.2
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: dfox
+        ports: ["57017:27017"]
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
+          --health-interval 2s --health-retries 60
     env:
       DFOX_IT_REQUIRED: "1"
+      DFOX_TEST_MONGO_URL: mongodb://root:dfox@127.0.0.1:57017
       DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
       DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
       DFOX_TEST_POSTGRES_TLS_URL: postgres://postgres:dfox@localhost:55433/postgres
@@ -109,7 +119,8 @@ jobs:
       - name: integration tests
         run: >-
           cargo test --locked --tests
-          -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-ssh -p dfox-testkit
+          -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-driver-mongo
+          -p dfox-ssh -p dfox-testkit
 
   # Benchmarks of main and of the change, on the same runner one after the
   # other, so they compare fairly. Fails when a benchmark is more than 10%

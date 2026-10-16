@@ -73,6 +73,7 @@ async fn the_native_session_passes_the_driver_suite() {
         table: [database.as_str(), schema.as_str(), "people"]
             .into_iter()
             .collect::<NodePath>(),
+        key: "id",
         select_all: format!("SELECT * FROM {schema}.people ORDER BY id"),
         count: format!("SELECT count(*) FROM {schema}.people"),
         generate: |n| format!("SELECT i FROM generate_series(1, {n}) AS i"),

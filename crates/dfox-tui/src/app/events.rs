@@ -107,10 +107,9 @@ impl App {
                 }
             });
         } else {
-            let mut workspace = Workspace::new(&name, driver, &database).with_read_only(read_only);
-            if let Some(dialect) = crate::sql::session_dialect(info.language) {
-                workspace = workspace.with_dialect(dialect);
-            }
+            let mut workspace = Workspace::new(&name, driver, &database)
+                .with_read_only(read_only)
+                .with_language(info.language);
             self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
             self.workspace = Some(workspace);
         }

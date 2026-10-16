@@ -16,6 +16,7 @@ arrow-schema = "60.0.0"
 dfox-driver-postgres = { path = "../dfox-driver-postgres", optional = true }
 dfox-driver-mysql = { path = "../dfox-driver-mysql", optional = true }
 dfox-driver-sqlite = { path = "../dfox-driver-sqlite", optional = true }
+dfox-driver-mongo = { path = "../dfox-driver-mongo", optional = true }
 tokio = { version = "1.40.0", features = ["full"] }
 futures-util = { version = "0.3.31", default-features = false }
 arboard = "3.3.0"
@@ -40,10 +41,11 @@ mimalloc = "0.1.52"
 [features]
 # Each database is a driver crate; build with fewer for a smaller binary, for
 # example `--no-default-features --features sqlite`.
-default = ["postgres", "mysql", "sqlite"]
+default = ["postgres", "mysql", "sqlite", "mongo"]
 postgres = ["dep:dfox-driver-postgres"]
 mysql = ["dep:dfox-driver-mysql"]
 sqlite = ["dep:dfox-driver-sqlite"]
+mongo = ["dep:dfox-driver-mongo"]
 
 [dev-dependencies]
 insta = "1.49.0"
