@@ -120,6 +120,7 @@ on `main`**.
 | `make test` | The test suite |
 | `make test-it` | The test suite against Postgres, MySQL and MongoDB in Docker, plus a second Postgres with TLS and a throwaway CA (`scripts/tls-postgres.sh`) for the `verify-full` tests, and an SSH jump host with test keys (`scripts/ssh-server.sh`) for the tunnel tests |
 | `make bench` | The benchmarks; Postgres and MySQL ones need `make test-it`'s databases |
+| `make demo` | Record the README's GIFs again with [vhs](https://github.com/charmbracelet/vhs), from the tapes in `examples/tapes/` |
 | `make fmt` | Format the workspace with rustfmt |
 | `make lint` | clippy with warnings as errors |
 | `make cover` | Line coverage with an HTML report (needs `cargo-llvm-cov`) |
