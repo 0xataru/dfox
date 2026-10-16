@@ -413,11 +413,12 @@ impl Catalog for MockCatalog {
                 nullable: !primary_key,
                 default: None,
                 primary_key,
+                ..ColumnInfo::default()
             };
             Ok(EntityInfo {
                 columns: vec![column("id", "INTEGER", true), column("name", "TEXT", false)],
-                indexes: Vec::new(),
                 row_estimate: Some(lock(&self.data).people.len() as u64),
+                ..EntityInfo::default()
             })
         } else {
             Err(not_found(node))

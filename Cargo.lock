@@ -1433,6 +1433,7 @@ version = "0.3.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "base64 0.22.1",
  "dfox-core",
  "dfox-sql",
  "dfox-testkit",
@@ -1440,6 +1441,7 @@ dependencies = [
  "log",
  "mysql_async",
  "rustls-native-certs",
+ "serde_json",
  "tokio",
 ]
 

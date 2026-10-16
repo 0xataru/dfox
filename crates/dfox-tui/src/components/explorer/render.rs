@@ -1,6 +1,6 @@
 //! Drawing the explorer: the tree, or the filter's matches.
 
-use dfox_core::catalog::NodeKind;
+use dfox_core::catalog::{EntityInfo, NodeKind, RuleInfo};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -9,7 +9,7 @@ use ratatui::{
 };
 use tui_tree_widget::{Tree, TreeItem};
 
-use super::{group_id, Entry, Explorer, Load, GROUPS};
+use super::{group_id, Entry, Explorer, Load, Part, GROUPS};
 use crate::{
     component::RenderCtx,
     components::{inner, panel},
@@ -28,7 +28,7 @@ pub fn render(explorer: &Explorer, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
 pub fn is_loading(explorer: &Explorer) -> bool {
     fn loading(list: &[Entry]) -> bool {
         list.iter().any(|e| {
-            matches!(e.columns, Load::Loading)
+            matches!(e.info, Load::Loading)
                 || match &e.children {
                     Load::Loading => true,
                     Load::Loaded(children) => loading(children),
@@ -147,26 +147,88 @@ fn object_item<'a>(entry: &'a Entry, ctx: &RenderCtx) -> TreeItem<'a, String> {
     if let Some(detail) = &entry.node.detail {
         text.push(Span::styled(format!(" {detail}"), theme.dim()));
     }
-    let children = match &entry.columns {
-        Load::Loaded(columns) => columns
-            .iter()
-            .map(|column| {
-                let null = if column.nullable { "" } else { " not null" };
-                TreeItem::new_leaf(
-                    format!("c/{}", column.name),
-                    Line::from(vec![
-                        Span::styled(format!("{} ", ctx.icons.column), theme.dim()),
-                        Span::raw(column.name.clone()),
-                        Span::styled(format!(" {}{null}", column.type_name), theme.dim()),
-                    ]),
-                )
-            })
+    let children = match &entry.info {
+        Load::Loaded(info) => Part::ALL
+            .into_iter()
+            .filter_map(|part| folder_item(part, info, ctx))
             .collect(),
         Load::Loading => vec![loading_item(ctx)],
         Load::Failed(err) => vec![error_item(err, ctx)],
+        // Something to open, so it shows that it can be.
+        Load::NotLoaded if entry.node.kind.has_rows() => vec![loading_item(ctx)],
         Load::NotLoaded => Vec::new(),
     };
     item(entry.id(), Line::from(text), children)
+}
+
+/// The folder of a table's columns, constraints, indexes, triggers or
+/// policies; only columns show when there are none.
+fn folder_item<'a>(part: Part, info: &EntityInfo, ctx: &RenderCtx) -> Option<TreeItem<'a, String>> {
+    let theme = ctx.theme;
+    let dim = |text: String| Span::styled(text, theme.dim());
+    // Each part: its name and a note beside it.
+    let parts: Vec<(String, String)> = match part {
+        Part::Column => info
+            .columns
+            .iter()
+            .map(|c| {
+                let null = if c.nullable { "" } else { " not null" };
+                (c.name.clone(), format!(" {}{null}", c.type_name))
+            })
+            .collect(),
+        Part::Constraint => info
+            .constraints
+            .iter()
+            .map(|c| (c.name.clone(), format!(" {}", c.kind.label())))
+            .collect(),
+        Part::Index => info
+            .indexes
+            .iter()
+            .map(|i| {
+                let unique = if i.unique { " unique" } else { "" };
+                (
+                    i.name.clone(),
+                    format!(" ({}){unique}", i.columns.join(", ")),
+                )
+            })
+            .collect(),
+        Part::Trigger => rules(&info.triggers),
+        Part::Policy => rules(&info.policies),
+    };
+    if parts.is_empty() && part != Part::Column {
+        return None;
+    }
+    let title = Line::from(vec![
+        Span::styled(part.title(), theme.header()),
+        dim(format!(" {}", parts.len())),
+    ]);
+    let icon = match part {
+        Part::Column => ctx.icons.column,
+        _ => "·",
+    };
+    let leaves = parts
+        .into_iter()
+        .map(|(name, note)| {
+            TreeItem::new_leaf(
+                format!("{}/{name}", part.tag()),
+                Line::from(vec![dim(format!("{icon} ")), Span::raw(name), dim(note)]),
+            )
+        })
+        .collect();
+    Some(item(part.folder_id(), title, leaves))
+}
+
+fn rules(rules: &[RuleInfo]) -> Vec<(String, String)> {
+    rules
+        .iter()
+        .map(|r| {
+            let note = r
+                .detail
+                .as_ref()
+                .map_or_else(String::new, |d| format!(" {d}"));
+            (r.name.clone(), note)
+        })
+        .collect()
 }
 
 /// A node, or a leaf if its children clash (two with the same identifier).

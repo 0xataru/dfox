@@ -1,0 +1,16 @@
+---
+source: dfox-tui/src/components/table_menu.rs
+expression: snapshot(&m)
+---
+
+
+
+
+
+
+ ╭ orders · filter ─────────────────────────────╮
+ │ SELECT * FROM orders WHERE                   │
+ │ ▸ total > 10                                 │
+ │                                              │
+ │ Enter run   Esc back                         │
+ ╰──────────────────────────────────────────────╯

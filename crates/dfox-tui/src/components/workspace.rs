@@ -5,7 +5,7 @@ use std::cell::Cell;
 
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use dfox_core::{
-    catalog::{Node, NodeKind, NodePath},
+    catalog::{EntityInfo, Node, NodeKind, NodePath},
     engine::{Command as DbCommand, EngineEvent, QueryId},
     errors::DbError,
     models::connections::DbType,
@@ -16,9 +16,11 @@ use ratatui::{
 };
 
 use super::{
+    card::{CardEvent, ColumnCard, TableCard},
     editor::{EditorPanel, TabLabel},
     explorer::Explorer,
     results::ResultsPanel,
+    table_menu::{self, Choice, MenuEvent, Script, TableMenu, FEW_ROWS},
 };
 use crate::{
     action::Action,
@@ -50,6 +52,28 @@ pub struct Tab {
     number: usize,
     /// The view or routine whose definition it was opened with.
     source: Option<(NodePath, NodeKind)>,
+    /// Its name, when it was opened with a definition, script or a
+    /// table's rows.
+    title: Option<String>,
+    /// The table whose rows it was opened to show.
+    rows_of: Option<NodePath>,
+}
+
+/// What `CREATE` makes for an object of `kind` with rows.
+fn kind_or_table(kind: NodeKind) -> NodeKind {
+    match kind {
+        NodeKind::View | NodeKind::MaterializedView => kind,
+        _ => NodeKind::Table,
+    }
+}
+
+/// A menu choice waiting for its table to be described.
+#[derive(Debug)]
+struct Pending {
+    table: NodePath,
+    kind: NodeKind,
+    name: Vec<String>,
+    choice: Choice,
 }
 
 #[derive(Debug)]
@@ -70,6 +94,13 @@ pub struct Workspace {
     pub catalog: Catalog,
     /// Where the explorer, editor and results were drawn, for the mouse.
     areas: Cell<[Rect; 3]>,
+    /// The column card, over everything while it is open.
+    card: Option<ColumnCard>,
+    /// What Enter on a table offers, while it is open.
+    menu: Option<TableMenu>,
+    /// A table's properties, while they are shown.
+    properties: Option<TableCard>,
+    pending: Option<Pending>,
 }
 
 impl Workspace {
@@ -88,6 +119,10 @@ impl Workspace {
             read_only: false,
             catalog: Catalog::default(),
             areas: Cell::new([Rect::default(); 3]),
+            card: None,
+            menu: None,
+            properties: None,
+            pending: None,
         };
         workspace.new_tab();
         workspace.set_focus(Panel::Editor);
@@ -228,6 +263,8 @@ impl Workspace {
             results: ResultsPanel::new(self.dialect),
             number: self.next_tab,
             source: None,
+            title: None,
+            rows_of: None,
         });
         self.active = self.tabs.len() - 1;
         self.sync_focus();
@@ -307,16 +344,15 @@ impl Workspace {
 
     fn title(&self, i: usize) -> String {
         let tab = &self.tabs[i];
-        match tab.source.as_ref().and_then(|(path, _)| path.name()) {
-            Some(name) => name.to_string(),
-            None => format!("Query {}", tab.number),
-        }
+        tab.title
+            .clone()
+            .unwrap_or_else(|| format!("Query {}", tab.number))
     }
 
     pub(crate) fn label(&self, i: usize) -> TabLabel {
         let tab = &self.tabs[i];
         TabLabel {
-            named: tab.source.is_some(),
+            named: tab.title.is_some(),
             title: self.title(i),
             active: i == self.active,
             running: tab.results.running.is_some(),
@@ -349,18 +385,28 @@ impl Workspace {
         };
         if let Some(i) = self.definition_tab(&path, kind) {
             self.active = i;
+            self.set_focus(Panel::Editor);
         } else {
-            let tab = self.tab();
-            let blank = tab.source.is_none()
-                && tab.editor.text().trim().is_empty()
-                && tab.results.running.is_none();
-            if !blank {
-                self.new_tab();
-            }
-            let tab = self.tab_mut();
-            tab.source = Some((path, kind));
-            tab.editor.open(&text);
+            let title = path.name().unwrap_or_default().to_string();
+            self.open_text(title, Some((path, kind)), &text);
         }
+    }
+
+    /// Opens `text` in a tab named `title`: the current one while it is
+    /// empty, or a new one.
+    fn open_text(&mut self, title: String, source: Option<(NodePath, NodeKind)>, text: &str) {
+        let tab = self.tab();
+        let blank = tab.title.is_none()
+            && tab.editor.text().trim().is_empty()
+            && tab.results.running.is_none();
+        if !blank {
+            self.new_tab();
+        }
+        let tab = self.tab_mut();
+        tab.source = source;
+        tab.rows_of = None;
+        tab.title = Some(title);
+        tab.editor.open(text);
         self.set_focus(Panel::Editor);
     }
 
@@ -428,15 +474,183 @@ impl Workspace {
         self.delegate(Action::Copy, ctx)
     }
 
-    /// Shows the rows of the table at `path` in the current tab.
-    fn browse(&mut self, path: NodePath, name: &[String], ctx: &mut Ctx) {
+    /// Puts `sql`, a query for the rows of the table at `table`, in the
+    /// table's own tab and runs it there: the query can be read, changed and
+    /// run again.
+    fn show_rows(&mut self, table: NodePath, sql: String, ctx: &mut Ctx) -> Option<Command> {
         if self.busy(ctx) {
-            return;
+            return None;
         }
-        self.next_query += 1;
-        let id = self.next_query;
-        let table = self.quote(name);
-        self.tab_mut().results.browse(id, path, table, ctx);
+        match self
+            .tabs
+            .iter()
+            .position(|t| t.rows_of.as_ref() == Some(&table))
+        {
+            Some(i) => {
+                self.active = i;
+                self.editor_mut().open(&sql);
+            }
+            None => {
+                let title = table.name().unwrap_or_default().to_string();
+                self.open_text(title, None, &sql);
+                self.tab_mut().rows_of = Some(table);
+            }
+        }
+        // Back to the explorer, to look at the next table.
+        self.set_focus(Panel::Explorer);
+        self.run(Some(sql), ctx)
+    }
+
+    /// Does what was picked in a table's menu. Choices that need the
+    /// table's columns wait for them.
+    fn choose(
+        &mut self,
+        table: NodePath,
+        kind: NodeKind,
+        name: Vec<String>,
+        choice: Choice,
+        ctx: &mut Ctx,
+    ) -> Option<Command> {
+        let info = self.explorer.described(&table).cloned();
+        if choice.needs_info() && info.is_none() {
+            self.explorer.describe(&table, ctx);
+            self.pending = Some(Pending {
+                table,
+                kind,
+                name,
+                choice,
+            });
+            return None;
+        }
+        let quoted = self.quote(&name);
+        match choice {
+            Choice::FirstRows => {
+                return self.show_rows(
+                    table,
+                    format!("SELECT * FROM {quoted} LIMIT {FEW_ROWS}"),
+                    ctx,
+                )
+            }
+            Choice::AllRows => {
+                return self.show_rows(table, format!("SELECT * FROM {quoted}"), ctx)
+            }
+            Choice::LastRows => {
+                let key: Vec<String> = info
+                    .iter()
+                    .flat_map(|info| &info.columns)
+                    .filter(|c| c.primary_key)
+                    .map(|c| format!("{} DESC", sql::quote_ident(&c.name, self.dialect)))
+                    .collect();
+                if key.is_empty() {
+                    ctx.toast(
+                        Level::Warning,
+                        format!("{quoted} has no primary key to find its last rows by"),
+                    );
+                    return None;
+                }
+                let sql = format!(
+                    "SELECT * FROM {quoted} ORDER BY {} LIMIT {FEW_ROWS}",
+                    key.join(", ")
+                );
+                return self.show_rows(table, sql, ctx);
+            }
+            Choice::Filtered(condition) => {
+                let sql = format!("SELECT * FROM {quoted} WHERE {condition}");
+                return self.show_rows(table, sql, ctx);
+            }
+            Choice::Count => ctx.engine.send(DbCommand::Count { path: table }),
+            Choice::Script(Script::Create) | Choice::Definition => {
+                let kind = if choice == Choice::Definition {
+                    kind
+                } else {
+                    kind_or_table(kind)
+                };
+                return self.explorer_command(Command::Definition { path: table, kind }, ctx);
+            }
+            Choice::Script(script) => {
+                let info = info.unwrap_or_default();
+                let text = table_menu::script(script, &quoted, &info, self.dialect);
+                let what = format!("{script:?}").to_uppercase();
+                let title = format!("{what} {}", table.name().unwrap_or_default());
+                self.open_text(title, None, &text);
+            }
+            Choice::InsertName => {
+                self.editor_mut().paste(&quoted);
+            }
+            Choice::Properties => {
+                self.properties = Some(TableCard::new(table, kind, info.unwrap_or_default()));
+            }
+            Choice::Refresh => self.explorer.refresh_table(&table, ctx),
+            Choice::Truncate => {
+                let sql = if self.dialect == Dialect::Sqlite {
+                    format!("DELETE FROM {quoted}")
+                } else {
+                    format!("TRUNCATE TABLE {quoted}")
+                };
+                return self.run(Some(sql), ctx);
+            }
+            Choice::Drop { cascade } => {
+                let what = match kind {
+                    NodeKind::View => "VIEW",
+                    NodeKind::MaterializedView => "MATERIALIZED VIEW",
+                    NodeKind::ForeignTable => "FOREIGN TABLE",
+                    _ => "TABLE",
+                };
+                let cascade = if cascade { " CASCADE" } else { "" };
+                return self.run(Some(format!("DROP {what} {quoted}{cascade}")), ctx);
+            }
+        }
+        None
+    }
+
+    /// The table's columns and keys arrived: a choice waiting for them goes
+    /// on.
+    pub fn on_described(
+        &mut self,
+        path: &NodePath,
+        result: Result<EntityInfo, DbError>,
+        ctx: &mut Ctx,
+    ) -> Option<Command> {
+        let failed = result.as_ref().err().map(ToString::to_string);
+        self.explorer.on_described(path, result);
+        let pending = self.pending.take_if(|p| p.table == *path)?;
+        if let Some(err) = failed {
+            ctx.toast(
+                Level::Error,
+                format!("Couldn't read {}: {err}", self.quote(&pending.name)),
+            );
+            return None;
+        }
+        self.choose(
+            pending.table,
+            pending.kind,
+            pending.name,
+            pending.choice,
+            ctx,
+        )
+    }
+
+    /// A table's rows were counted.
+    pub fn on_counted(&mut self, path: &NodePath, result: Result<u64, DbError>, ctx: &mut Ctx) {
+        let name = path.name().unwrap_or_default();
+        match result {
+            Ok(rows) => {
+                self.explorer.set_count(path, rows);
+                ctx.toast(Level::Info, format!("{name} holds {rows} rows"));
+            }
+            Err(err) => ctx.toast(Level::Error, format!("Couldn't count {name}: {err}")),
+        }
+    }
+
+    /// The table menu has the keys.
+    fn menu_handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        let menu = self.menu.as_mut()?;
+        let event = menu.handle(action)?;
+        let menu = self.menu.take()?;
+        match event {
+            MenuEvent::Close => None,
+            MenuEvent::Pick(choice) => self.choose(menu.table, menu.kind, menu.name, choice, ctx),
+        }
     }
 
     /// A name in parts, quoted for the dialect.
@@ -450,10 +664,35 @@ impl Workspace {
     /// What the explorer asked for that the workspace does itself.
     pub fn explorer_command(&mut self, command: Command, ctx: &mut Ctx) -> Option<Command> {
         match command {
-            Command::Browse { path, name } => self.browse(path, &name, ctx),
+            Command::TableMenu { path, kind, name } => {
+                self.explorer.describe(&path, ctx);
+                self.menu = Some(TableMenu::new(
+                    path,
+                    kind,
+                    name,
+                    self.dialect,
+                    self.read_only,
+                ));
+            }
             Command::InsertName(name) => {
                 let text = self.quote(&name);
                 self.editor_mut().paste(&text);
+            }
+            Command::ColumnCard { table, column } => {
+                let card = self
+                    .explorer
+                    .described(&table)
+                    .cloned()
+                    .and_then(|info| ColumnCard::open(table, &column, &info, ctx));
+                if card.is_none() {
+                    ctx.toast(Level::Warning, format!("No column {column} to show"));
+                }
+                self.card = card;
+            }
+            Command::ShowSql { path, kind, text } => self.on_definition(path, kind, Ok(text), ctx),
+            Command::Reveal(path) => {
+                self.explorer.reveal(&path, ctx);
+                self.set_focus(Panel::Explorer);
             }
             Command::Definition { path, kind } => match self.definition_tab(&path, kind) {
                 Some(i) => {
@@ -478,8 +717,37 @@ impl Workspace {
         }
     }
 
+    /// Statistics for a column card arrived.
+    pub fn on_column_stats(
+        &mut self,
+        table: &NodePath,
+        column: &str,
+        profile: bool,
+        result: Result<Option<dfox_core::catalog::ColumnStats>, DbError>,
+    ) {
+        if let Some(card) = &mut self.card {
+            card.on_stats(table, column, profile, result);
+        }
+    }
+
+    /// The column card has the keys.
+    fn card_handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        let card = self.card.as_mut()?;
+        match card.handle(action, ctx)? {
+            CardEvent::Close => self.card = None,
+            CardEvent::Reveal(path) => {
+                self.card = None;
+                return self.explorer_command(Command::Reveal(path), ctx);
+            }
+        }
+        None
+    }
+
     /// The focused panel has a menu or search open that takes every key.
     fn modal(&self) -> bool {
+        if self.card.is_some() || self.menu.is_some() || self.properties.is_some() {
+            return true;
+        }
         match self.focus.get() {
             Panel::Explorer => false,
             Panel::Editor => self.editor().is_modal(),
@@ -579,6 +847,18 @@ impl Workspace {
 
 impl Component for Workspace {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if self.card.is_some() {
+            return self.card_handle(action, ctx);
+        }
+        if self.menu.is_some() {
+            return self.menu_handle(action, ctx);
+        }
+        if self.properties.is_some() {
+            if TableCard::closes(action) {
+                self.properties = None;
+            }
+            return None;
+        }
         if self.modal() {
             return self.delegate(action, ctx);
         }
@@ -666,13 +946,28 @@ impl Component for Workspace {
         self.editor().render_with(f, editor, ctx, &labels);
         self.results().render(f, results, ctx);
         self.editor().render_overlay(f, area, ctx);
+        if let Some(menu) = &self.menu {
+            menu.render(f, left, ctx);
+        }
+        if let Some(properties) = &self.properties {
+            properties.render(f, area, ctx);
+        }
+        if let Some(card) = &self.card {
+            card.render(f, area, ctx);
+        }
     }
 
     fn is_animating(&self) -> bool {
-        self.explorer.is_animating() || self.running().is_some()
+        self.explorer.is_animating()
+            || self.running().is_some()
+            || self.card.as_ref().is_some_and(ColumnCard::is_loading)
     }
 
     fn wants_text(&self) -> bool {
+        // Cards and menus take letters as keys.
+        if self.card.is_some() || self.menu.is_some() || self.properties.is_some() {
+            return true;
+        }
         match self.focus.get() {
             Panel::Editor => true,
             Panel::Explorer => self.explorer.wants_text(),

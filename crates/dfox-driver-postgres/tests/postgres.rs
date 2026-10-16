@@ -5,7 +5,7 @@
 //! by the driver suite in `native.rs`.
 
 use dfox_core::{
-    catalog::{NodeKind, NodePath},
+    catalog::{ConstraintKind, Distinct, NodeKind, NodePath, StatsSource},
     driver::{ping, Driver},
     models::connections::{ConnectionParams, DbType, TlsMode},
     session::Session,
@@ -323,7 +323,7 @@ async fn schemas_hold_every_kind_of_object() {
         .is_err());
     assert!(s
         .catalog()
-        .definition(&at("t"), NodeKind::Table)
+        .definition(&at("t"), NodeKind::Column)
         .await
         .is_err());
 
@@ -361,4 +361,192 @@ async fn ping_reaches_the_server_without_logging_in() {
 
     let closed = ConnectionParams { port: 1, ..params };
     assert!(ping(DbType::Postgres, &closed).await.is_err());
+}
+
+#[tokio::test]
+async fn columns_know_their_keys_comments_and_values() {
+    let Some(mut s) = session().await else { return };
+    let url = server_url(URL).expect("url");
+    let database = params_from_url(&url).database.expect("a database");
+    let schema = unique("dfox_it_card");
+    execute(
+        s.as_mut(),
+        &format!(
+            "CREATE SCHEMA {schema};
+             CREATE TABLE {schema}.customers (id int PRIMARY KEY, region text);
+             CREATE TABLE {schema}.orders (
+                 id int PRIMARY KEY,
+                 customer int REFERENCES {schema}.customers (id),
+                 code text COLLATE \"C\",
+                 total numeric,
+                 doubled numeric GENERATED ALWAYS AS (total * 2) STORED,
+                 CONSTRAINT positive CHECK (total >= 0)
+             );
+             CREATE INDEX orders_code ON {schema}.orders (code);
+             CREATE FUNCTION {schema}.touch() RETURNS trigger LANGUAGE plpgsql
+                 AS 'BEGIN RETURN NEW; END';
+             CREATE TRIGGER touch BEFORE INSERT OR UPDATE ON {schema}.orders
+                 FOR EACH ROW EXECUTE FUNCTION {schema}.touch();
+             ALTER TABLE {schema}.orders ENABLE ROW LEVEL SECURITY;
+             CREATE POLICY mine ON {schema}.orders FOR SELECT TO public USING (customer > 0);
+             COMMENT ON TABLE {schema}.orders IS 'what people bought';
+             COMMENT ON COLUMN {schema}.orders.total IS 'in cents';
+             INSERT INTO {schema}.customers SELECT n, CASE WHEN n % 4 = 0 THEN 'eu' ELSE 'us' END
+                 FROM generate_series(1, 200) n;
+             INSERT INTO {schema}.customers VALUES (201, NULL);
+             ANALYZE {schema}.customers;"
+        ),
+    )
+    .await;
+
+    let at =
+        |table: &str| -> NodePath { [database.as_str(), &schema, table].into_iter().collect() };
+    let info = s.catalog().describe(&at("orders")).await.expect("describe");
+    assert_eq!(info.comment.as_deref(), Some("what people bought"));
+    let column = |name: &str| info.columns.iter().find(|c| c.name == name).expect(name);
+    assert_eq!(column("total").comment.as_deref(), Some("in cents"));
+    assert_eq!(column("code").collation.as_deref(), Some("C"));
+    assert_eq!(column("total").collation, None);
+    assert_eq!(
+        column("doubled").generated.as_deref(),
+        Some("(total * (2)::numeric)")
+    );
+    assert_eq!(column("doubled").default, None);
+    assert_eq!(info.foreign_keys.len(), 1);
+    let key = &info.foreign_keys[0];
+    assert_eq!(key.columns, ["customer"]);
+    assert_eq!(key.target, at("customers"));
+    assert_eq!(key.target_columns, ["id"]);
+
+    let constraints: Vec<_> = info
+        .constraints
+        .iter()
+        .map(|c| (c.name.as_str(), c.kind))
+        .collect();
+    assert_eq!(
+        constraints,
+        [
+            ("orders_pkey", ConstraintKind::PrimaryKey),
+            ("orders_customer_fkey", ConstraintKind::ForeignKey),
+            ("positive", ConstraintKind::Check),
+        ]
+    );
+    assert_eq!(
+        info.constraints[2].definition,
+        format!("ALTER TABLE {schema}.orders\n    ADD CONSTRAINT positive CHECK (total >= 0::numeric);\n")
+    );
+    let code = info
+        .indexes
+        .iter()
+        .find(|i| i.name == "orders_code")
+        .expect("index");
+    assert_eq!(
+        code.definition,
+        format!("CREATE INDEX orders_code ON {schema}.orders USING btree (code);\n")
+    );
+    assert_eq!(info.triggers.len(), 1);
+    assert_eq!(
+        info.triggers[0].detail.as_deref(),
+        Some("before insert or update")
+    );
+    assert!(info.triggers[0]
+        .definition
+        .starts_with("CREATE TRIGGER touch BEFORE INSERT OR UPDATE"));
+    assert_eq!(info.policies.len(), 1);
+    assert_eq!(info.policies[0].detail.as_deref(), Some("for select"));
+    assert_eq!(
+        info.policies[0].definition,
+        format!("CREATE POLICY mine ON {schema}.orders\n    AS PERMISSIVE FOR SELECT TO public\n    USING ((customer > 0));\n")
+    );
+
+    let stats = s
+        .catalog()
+        .column_stats(&at("customers"), "region", false)
+        .await
+        .expect("stats")
+        .expect("analyzed");
+    assert_eq!(stats.source, StatsSource::Planner);
+    assert!((stats.null_fraction.expect("nulls") - 1.0 / 201.0).abs() < 1e-6);
+    assert_eq!(stats.distinct, Some(Distinct::Count(2.0)));
+    let common: Vec<&str> = stats.common.iter().map(|(v, _)| v.as_str()).collect();
+    assert_eq!(common, ["us", "eu"]);
+    let ids = s
+        .catalog()
+        .column_stats(&at("customers"), "id", false)
+        .await
+        .expect("stats")
+        .expect("analyzed");
+    assert!(ids.histogram.len() > 10);
+    assert_eq!(ids.histogram[0].low, "1");
+    let total: f64 = ids.histogram.iter().map(|b| b.fraction).sum();
+    assert!((total - 1.0).abs() < 1e-6, "{total}");
+    let create = s
+        .catalog()
+        .definition(&at("orders"), NodeKind::Table)
+        .await
+        .expect("create");
+    assert!(
+        create.starts_with(&format!(
+            "CREATE TABLE {schema}.orders (\n    id integer NOT NULL,\n    customer integer,\n    \
+             code text COLLATE \"C\",\n"
+        )),
+        "{create}"
+    );
+    for part in [
+        "    doubled numeric GENERATED ALWAYS AS ((total * (2)::numeric)) STORED,\n",
+        "    CONSTRAINT orders_pkey PRIMARY KEY (id),\n",
+        "    CONSTRAINT positive CHECK (total >= 0::numeric)\n);\n",
+        "\nCREATE INDEX orders_code ON",
+        "\nCREATE TRIGGER touch BEFORE",
+        "IS 'what people bought';\n",
+        ".orders.total IS 'in cents';\n",
+    ] {
+        assert!(create.contains(part), "{part:?} in {create}");
+    }
+    let count = s.catalog().count_rows(&at("customers")).await;
+    assert_eq!(count.expect("count"), 201);
+
+    // Never analyzed.
+    let none = s.catalog().column_stats(&at("orders"), "id", false).await;
+    assert_eq!(none.expect("stats"), None);
+
+    let profile = s
+        .catalog()
+        .column_stats(&at("customers"), "region", true)
+        .await
+        .expect("profile")
+        .expect("a profile");
+    assert_eq!(profile.source, StatsSource::Profile);
+    assert_eq!(profile.rows, Some(201));
+    assert_eq!(profile.distinct, Some(Distinct::Count(2.0)));
+    assert_eq!(
+        (profile.min.as_deref(), profile.max.as_deref()),
+        (Some("eu"), Some("us"))
+    );
+    assert_eq!(profile.common[0].0, "us");
+    assert!((profile.common[0].1 - 150.0 / 201.0).abs() < 1e-9);
+    // Types without an order still profile.
+    execute(
+        s.as_mut(),
+        &format!("ALTER TABLE {schema}.orders ADD COLUMN extra json"),
+    )
+    .await;
+    let json = s.catalog().column_stats(&at("orders"), "extra", true).await;
+    assert_eq!(json.expect("profile").expect("a profile").min, None);
+    let missing = s.catalog().column_stats(&at("orders"), "nope", true).await;
+    assert!(missing.is_err());
+
+    execute(s.as_mut(), &format!("DROP SCHEMA {schema} CASCADE")).await;
+}
+
+#[tokio::test]
+async fn an_error_later_in_a_script_fails_it() {
+    let Some(mut s) = session().await else { return };
+    let out = run(
+        s.as_mut(),
+        "CREATE TEMP TABLE later_t (x int); SELECT * FROM no_such_table",
+        10,
+    )
+    .await;
+    assert!(out.is_err());
 }
