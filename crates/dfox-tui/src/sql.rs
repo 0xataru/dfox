@@ -25,5 +25,7 @@ pub fn dialect(driver: DbType) -> Dialect {
         DbType::Postgres => Dialect::Postgres,
         DbType::MySql => Dialect::MySql,
         DbType::Sqlite => Dialect::Sqlite,
+        // Speaks no SQL; the session says so once connected.
+        DbType::Mongo => Dialect::Postgres,
     }
 }

@@ -7,6 +7,21 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- MongoDB. Connect with `mongodb://` or the connection form; the explorer
+  lists databases and their collections and views, with document counts, the
+  fields each collection's documents have and its indexes. The editor runs
+  mongo shell commands: `db.users.find({ age: { $gt: 30 } }).sort({ name: 1
+  }).limit(10)`, `findOne`, `aggregate`, `countDocuments`, `distinct`,
+  `insertOne`/`insertMany`, `updateOne`/`updateMany`, `deleteOne`/
+  `deleteMany`, `createIndex`, `db.runCommand`, `show dbs`, `show
+  collections` and `use <db>`, with the shell's `ObjectId(…)`, `ISODate(…)`,
+  `NumberLong(…)` and `/regex/`. Documents show as columns learnt from them:
+  numbers, text, dates and ids as such, objects and arrays as JSON. Running
+  commands can be cancelled, and a read-only connection refuses those that
+  write. The table menu shows rows with `find` queries
+
 ## [0.3.2] - 2026-10-16
 
 ### Added

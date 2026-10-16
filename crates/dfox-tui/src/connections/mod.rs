@@ -182,6 +182,7 @@ impl Connection {
     pub fn default_port(driver: DbType) -> u16 {
         match driver {
             DbType::MySql => 3306,
+            DbType::Mongo => 27017,
             _ => 5432,
         }
     }
@@ -190,6 +191,8 @@ impl Connection {
     pub fn default_database(&self) -> &str {
         match self.driver {
             DbType::MySql => "mysql",
+            // As in mongosh.
+            DbType::Mongo => "test",
             _ => "postgres",
         }
     }

@@ -22,11 +22,13 @@ use futures_util::StreamExt;
 /// What the suite needs to know about a driver's database. The table must
 /// exist before the suite runs, as `people (id integer primary key, name
 /// text)` holding `(1, 'a'), (2, 'b'), (3, 'c')`; the suite leaves it that
-/// way.
+/// way. A document database names its key as it must, such as `_id`.
 #[derive(Debug, Clone)]
 pub struct Fixture {
     /// Where the table is in the catalog tree.
     pub table: NodePath,
+    /// The key column's name: `id`, or `_id` in MongoDB.
+    pub key: &'static str,
     /// Returns the table's rows, ordered by id.
     pub select_all: String,
     /// Returns one row and one column: how many rows the table has.
@@ -130,8 +132,8 @@ async fn catalog_walk(session: &mut dyn Session, fixture: &Fixture) {
         .await
         .expect("describe the table");
     let names: Vec<&str> = info.columns.iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, ["id", "name"]);
-    assert!(info.columns[0].primary_key, "id is the primary key");
+    assert_eq!(names, [fixture.key, "name"]);
+    assert!(info.columns[0].primary_key, "the key column is the key");
 
     // Autocomplete reads every column under the table's parent at once.
     let parts = fixture.table.parts();
@@ -147,12 +149,12 @@ async fn catalog_walk(session: &mut dyn Session, fixture: &Fixture) {
         .filter(|c| &c.table == table)
         .map(|c| c.name.as_str())
         .collect();
-    assert_eq!(of_table, ["id", "name"], "all columns, in order");
+    assert_eq!(of_table, [fixture.key, "name"], "all columns, in order");
 }
 
 async fn browse(session: &mut dyn Session, fixture: &Fixture) {
     let query = BrowseQuery {
-        sort: vec![("id".into(), Order::Descending)],
+        sort: vec![(fixture.key.into(), Order::Descending)],
         limit: Some(2),
         ..Default::default()
     };
@@ -174,7 +176,7 @@ async fn browse(session: &mut dyn Session, fixture: &Fixture) {
     );
 
     let query = BrowseQuery {
-        sort: vec![("id".into(), Order::Ascending)],
+        sort: vec![(fixture.key.into(), Order::Ascending)],
         offset: 1,
         ..Default::default()
     };

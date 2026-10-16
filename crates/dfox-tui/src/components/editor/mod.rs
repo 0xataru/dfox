@@ -52,6 +52,9 @@ struct Cache {
 pub struct EditorPanel {
     pub buffer: Buffer,
     dialect: Dialect,
+    /// What is written here, for the hint in an empty editor: `SQL`, or
+    /// `commands` for a database that speaks something else.
+    pub holds: &'static str,
     pub focused: bool,
     /// First line and first column shown.
     scroll: Cell<(usize, usize)>,
@@ -70,6 +73,7 @@ impl EditorPanel {
         Self {
             buffer: Buffer::default(),
             dialect,
+            holds: "SQL",
             focused: false,
             scroll: Cell::new((0, 0)),
             cache: RefCell::new(Cache::default()),
@@ -79,6 +83,12 @@ impl EditorPanel {
             search: None,
             completion: None,
         }
+    }
+
+    /// The editor, saying it holds `what`.
+    pub fn holding(mut self, what: &'static str) -> Self {
+        self.holds = what;
+        self
     }
 
     pub fn text(&self) -> String {

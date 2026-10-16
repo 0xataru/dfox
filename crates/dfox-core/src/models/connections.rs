@@ -6,6 +6,7 @@ pub enum DbType {
     Postgres,
     MySql,
     Sqlite,
+    Mongo,
 }
 
 /// Server connection details as typed by the user. Clients build driver

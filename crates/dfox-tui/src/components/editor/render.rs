@@ -81,7 +81,8 @@ impl EditorPanel {
 
         if lines.len() == 1 && lines[0].is_empty() && !self.focused {
             let hint = format!(
-                "Write SQL here · {} runs the statement under the cursor",
+                "Write {} here · {} runs the statement under the cursor",
+                self.holds,
                 ctx.keymap.hint(Action::Execute)
             );
             f.render_widget(

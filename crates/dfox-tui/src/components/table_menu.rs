@@ -99,22 +99,25 @@ pub struct TableMenu {
     pub kind: NodeKind,
     /// How SQL names it, in parts to quote.
     pub name: Vec<String>,
+    /// The session speaks SQL; otherwise mongo shell commands.
+    sql: bool,
     level: Level,
     selected: usize,
     items: Vec<Item>,
 }
 
 impl TableMenu {
-    /// The menu for the table or view at `table`, a `kind`. A read-only
-    /// connection offers nothing that writes.
+    /// The menu for the table or view at `table`, a `kind`, in a session
+    /// speaking `dialect`, or no SQL at all. A read-only connection offers
+    /// nothing that writes.
     pub fn new(
         table: NodePath,
         kind: NodeKind,
         name: Vec<String>,
-        dialect: Dialect,
+        dialect: Option<Dialect>,
         read_only: bool,
     ) -> Self {
-        let is_table = kind == NodeKind::Table;
+        let is_table = matches!(kind, NodeKind::Table | NodeKind::Collection);
         let pick = |key, label, choice| Item {
             key,
             label,
@@ -140,7 +143,15 @@ impl TableMenu {
         ];
         if is_table {
             items.insert(1, pick('l', "Last 100 rows", Choice::LastRows));
-        } else {
+        }
+        let Some(dialect) = dialect else {
+            // Scripts and dropping are written in SQL.
+            items.retain(|item| !matches!(item.then, Then::Scripts));
+            let at = items.len() - 2;
+            items.insert(at, pick('e', "Definition", Choice::Definition));
+            return Self::with_items(table, kind, name, false, items);
+        };
+        if !is_table {
             items.insert(6, pick('e', "Definition", Choice::Definition));
         }
         if !read_only {
@@ -152,7 +163,18 @@ impl TableMenu {
                 items.push(pick('D', "Drop cascade…", Choice::Drop { cascade: true }));
             }
         }
+        Self::with_items(table, kind, name, true, items)
+    }
+
+    fn with_items(
+        table: NodePath,
+        kind: NodeKind,
+        name: Vec<String>,
+        sql: bool,
+        items: Vec<Item>,
+    ) -> Self {
         Self {
+            sql,
             table,
             kind,
             name,
@@ -251,7 +273,14 @@ impl TableMenu {
         let (title, lines) = match &self.level {
             Level::Condition(typed) => {
                 let lines = vec![
-                    Line::styled(format!("SELECT * FROM {name} WHERE"), theme.dim()),
+                    Line::styled(
+                        if self.sql {
+                            format!("SELECT * FROM {name} WHERE")
+                        } else {
+                            format!("db.{name}.find(")
+                        },
+                        theme.dim(),
+                    ),
                     Line::from(vec![
                         Span::styled(format!("{} ", ctx.icons.selected), theme.key()),
                         Span::raw(typed.clone()),
@@ -380,7 +409,7 @@ mod tests {
             ["shop", "public", "orders"].into_iter().collect(),
             kind,
             vec!["orders".into()],
-            Dialect::Postgres,
+            Some(Dialect::Postgres),
             read_only,
         )
     }
@@ -470,6 +499,29 @@ mod tests {
         );
         m.handle(Action::Input('s'));
         assert_eq!(m.handle(Action::Input('i')), None, "no INSERT into a view");
+    }
+
+    #[test]
+    fn collections_offer_what_needs_no_sql() {
+        let mut m = TableMenu::new(
+            ["shop", "users"].into_iter().collect(),
+            NodeKind::Collection,
+            vec!["users".into()],
+            None,
+            false,
+        );
+        insta::assert_snapshot!("collection", snapshot(&m));
+        assert_eq!(m.handle(Action::Input('s')), None, "no SQL scripts");
+        assert_eq!(m.handle(Action::Input('d')), None, "no SQL drop");
+        assert_eq!(
+            m.handle(Action::Input('l')),
+            Some(MenuEvent::Pick(Choice::LastRows))
+        );
+        m.handle(Action::Input('w'));
+        for c in "{ a: 1 }".chars() {
+            m.handle(Action::Input(c));
+        }
+        insta::assert_snapshot!("collection_filter", snapshot(&m));
     }
 
     #[test]

@@ -45,6 +45,8 @@ fn drivers() -> Drivers {
         Some(Arc::new(dfox_driver_mysql::MySqlDriver)),
         #[cfg(feature = "sqlite")]
         Some(Arc::new(dfox_driver_sqlite::SqliteDriver)),
+        #[cfg(feature = "mongo")]
+        Some(Arc::new(dfox_driver_mongo::MongoDriver)),
         None,
     ];
     Drivers::new(drivers.into_iter().flatten().collect())

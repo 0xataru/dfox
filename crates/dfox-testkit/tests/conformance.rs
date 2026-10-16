@@ -10,6 +10,7 @@ use dfox_testkit::{
 fn fixture() -> Fixture {
     Fixture {
         table: ["mock", "main", "people"].into_iter().collect::<NodePath>(),
+        key: "id",
         select_all: "SELECT * FROM people".into(),
         count: "COUNT people".into(),
         generate: |n| format!("GENERATE {n}"),

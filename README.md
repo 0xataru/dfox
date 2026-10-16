@@ -13,12 +13,15 @@
   <a href="https://ratatui.rs/"><img src="https://img.shields.io/badge/Built_With_Ratatui-000?logo=ratatui&logoColor=fff" alt="Built With Ratatui" /></a>
 </p>
 
-**DFox** is a Rust-based database management tool that provides a terminal user interface (TUI) for interacting with PostgreSQL and MySQL databases.
+**DFox** is a Rust-based database management tool that provides a terminal user interface (TUI) for interacting with PostgreSQL, MySQL, SQLite and MongoDB databases.
 It allows users to perform database operations easily and efficiently through a simple and intuitive interface.
 
 ## Features
 
-- PostgreSQL, MySQL and SQLite, with saved connections (passwords in the OS keychain).
+- PostgreSQL, MySQL, SQLite and MongoDB, with saved connections (passwords in the OS keychain).
+- MongoDB speaks mongo shell commands: `db.users.find({ age: { $gt: 30 } }).sort({ name: 1 })`,
+  `aggregate`, `countDocuments`, `insertOne`, `updateMany`, `show dbs`, `use shop` and more.
+  Documents show as columns learnt from the documents, with objects and arrays as JSON.
 - User-friendly terminal interface for managing database connections and performing CRUD operations.
 - An explorer of databases, schemas, tables, views and routines, with fuzzy search.
 - A SQL editor with highlighting, autocomplete of tables and columns, query tabs, undo, and a
@@ -35,7 +38,7 @@ It allows users to perform database operations easily and efficiently through a 
 A Cargo workspace, with every crate in `crates/`:
 
 - **dfox-core**: the driver interfaces, query results and the engine that runs database work in the background.
-- **dfox-driver-postgres**, **dfox-driver-mysql**, **dfox-driver-sqlite**: one crate per database.
+- **dfox-driver-postgres**, **dfox-driver-mysql**, **dfox-driver-sqlite**, **dfox-driver-mongo**: one crate per database.
 - **dfox-ssh**: SSH tunnels to databases behind a jump host.
 - **dfox-sql**: highlighting, statement splitting, autocomplete context and the destructive-query guard.
 - **dfox-tui**: the terminal app. Each database is a cargo feature, so a smaller build can leave drivers out: `cargo build --release -p dfox-tui --no-default-features --features sqlite`.
@@ -219,6 +222,7 @@ dfox                                        # the connection manager
 dfox postgres://user@localhost:5432/shop    # connect right away
 dfox mysql://root@127.0.0.1/app
 dfox ./data.sqlite                          # a SQLite file
+dfox mongodb://root@127.0.0.1:27017/shop
 ```
 
 From a source checkout, `make run` (or `cargo run --bin dfox-tui`).
@@ -241,7 +245,8 @@ The manager also lists connections found on the machine: `DATABASE_URL`
 dot shows whether it is reachable and a sparkline shows its latency.
 
 A connection can be **read-only**: the server refuses writes (Postgres and
-MySQL start the session read-only, SQLite opens the file read-only). **TLS**
+MySQL start the session read-only, SQLite opens the file read-only; for
+MongoDB, which has no read-only sessions, dfox refuses commands that write). **TLS**
 can be `prefer` (the default), `require`, `verify` (the server's certificate
 and name are checked against the system's roots and an optional **CA file**)
 or turned off, and a coloured **tag** marks it in the list and the status bar.
