@@ -24,19 +24,21 @@ DFox is a Cargo workspace; every crate lives in `crates/`:
   batches, a catalog tree, edits by primary key. The engine holds one
   session and opens it through an `Opener`, which the app points at
   `dfox_ssh::open` for tunnels.
-- **`dfox-driver-postgres`**, **`dfox-driver-mysql`**, **`dfox-driver-sqlite`**:
-  one crate per database, each with its integration tests.
+- **`dfox-driver-postgres`**, **`dfox-driver-mysql`**, **`dfox-driver-sqlite`**,
+  **`dfox-driver-mongo`**: one crate per database, each with its integration
+  tests.
 - **`dfox-ssh`**: SSH tunnels on `russh`, for any driver: `dfox_ssh::open`
   logs in to the jump host (agent, key or password), checks its key against
   `known_hosts`, and opens the driver's session through a forwarded local
   port. A driver connects to `ConnectionParams::tunnel` when it is set, but
   keeps the original host name for TLS.
-- **`dfox-sql`**: reading SQL without running it: highlighting, splitting
-  scripts, autocomplete context and the destructive-statement guard.
+- **`dfox-sql`**: reading SQL and mongo shell commands without running
+  them: highlighting, splitting scripts, autocomplete context and the
+  destructive-statement guard.
 - **`dfox-tui`**: the terminal interface, built with `ratatui` and `crossterm`.
-  Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, all on by
-  default), so `cargo build -p dfox-tui --no-default-features --features sqlite`
-  builds a SQLite-only binary.
+  Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, `mongo`, all
+  on by default), so `cargo build -p dfox-tui --no-default-features --features
+  sqlite` builds a SQLite-only binary.
 - **`dfox-bench`**: benchmarks of decoding, memory and drawing (`make
   bench`), with the numbers to beat in `crates/dfox-bench/BASELINE.md`. Pull
   requests run them against `main` and fail on a clear slowdown of more than
@@ -53,8 +55,9 @@ New database support is a new driver crate implementing `Driver` (with
 ## Workflow
 
 You need stable Rust (install with [rustup](https://rustup.rs/)) and `make`.
-To try your changes against a real database, a local PostgreSQL or MySQL server
-is enough. Docker works well:
+To try your changes against a real database, a local PostgreSQL, MySQL or
+MongoDB server is enough. Docker works well, or `docker compose -f
+docker-compose.test.yml up -d` starts all of them on the test ports:
 
 ```sh
 docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
@@ -115,7 +118,7 @@ on `main`**.
 | `make check` | Everything CI requires: `fmt-check`, `lint`, `test` |
 | `make run` | Run the TUI |
 | `make test` | The test suite |
-| `make test-it` | The test suite against Postgres and MySQL in Docker, plus a second Postgres with TLS and a throwaway CA (`scripts/tls-postgres.sh`) for the `verify-full` tests, and an SSH jump host with test keys (`scripts/ssh-server.sh`) for the tunnel tests |
+| `make test-it` | The test suite against Postgres, MySQL and MongoDB in Docker, plus a second Postgres with TLS and a throwaway CA (`scripts/tls-postgres.sh`) for the `verify-full` tests, and an SSH jump host with test keys (`scripts/ssh-server.sh`) for the tunnel tests |
 | `make bench` | The benchmarks; Postgres and MySQL ones need `make test-it`'s databases |
 | `make fmt` | Format the workspace with rustfmt |
 | `make lint` | clippy with warnings as errors |
