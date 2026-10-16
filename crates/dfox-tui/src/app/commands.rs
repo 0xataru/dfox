@@ -87,7 +87,9 @@ impl App {
                     w.run_checked(sql, ctx);
                 }
             }),
-            command @ (Command::Browse { .. } | Command::InsertName(_)) => {
+            command @ (Command::Browse { .. }
+            | Command::InsertName(_)
+            | Command::Definition { .. }) => {
                 self.with_ctx(|app, ctx| {
                     if let Some(w) = app.workspace {
                         w.explorer_command(command, ctx);

@@ -257,3 +257,30 @@ fn names_leave_out_the_schema_and_database_in_use() {
     );
     assert_eq!(name(&["d/shop", "s/audit", "g/Table"]), None);
 }
+
+#[test]
+fn routines_and_views_open_their_definitions() {
+    let mut harness = Harness::new();
+    let mut explorer = loaded(&mut harness, &["public"]);
+    objects(&mut explorer, &mut harness, "public");
+    let at = |name: &str| path(&["shop", "public", name]);
+
+    explorer.select(&["d/shop", "g/Function", "o/total_spent"].map(String::from));
+    assert_eq!(
+        explorer.handle(Action::Confirm, &mut harness.ctx()),
+        Some(Command::Definition {
+            path: at("total_spent"),
+            kind: NodeKind::Function,
+        })
+    );
+    explorer.select(&["d/shop", "g/View", "o/active_customers"].map(String::from));
+    assert_eq!(
+        explorer.handle(Action::Edit, &mut harness.ctx()),
+        Some(Command::Definition {
+            path: at("active_customers"),
+            kind: NodeKind::View,
+        })
+    );
+    explorer.select(&["d/shop", "g/Table", "o/orders"].map(String::from));
+    assert_eq!(explorer.handle(Action::Edit, &mut harness.ctx()), None);
+}

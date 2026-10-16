@@ -242,7 +242,7 @@ impl Action {
             Action::Palette => "Command palette",
             Action::Connections => "Connection list",
             Action::New => "New connection",
-            Action::Edit => "Edit connection",
+            Action::Edit => "Edit / show definition",
             Action::Delete => "Delete connection",
             Action::Save => "Save",
             Action::Filter => "Filter",

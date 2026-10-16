@@ -42,6 +42,27 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// What it is, in words.
+    pub fn label(self) -> &'static str {
+        match self {
+            NodeKind::Server => "server",
+            NodeKind::Database => "database",
+            NodeKind::Schema => "schema",
+            NodeKind::Table => "table",
+            NodeKind::View => "view",
+            NodeKind::MaterializedView => "materialized view",
+            NodeKind::ForeignTable => "foreign table",
+            NodeKind::Function => "function",
+            NodeKind::Procedure => "procedure",
+            NodeKind::Collection => "collection",
+            NodeKind::Keyspace => "keyspace",
+            NodeKind::KeyPrefix => "key prefix",
+            NodeKind::Column => "column",
+            NodeKind::Folder => "folder",
+            NodeKind::Other => "object",
+        }
+    }
+
     /// True for nodes whose rows can be browsed.
     pub fn has_rows(self) -> bool {
         matches!(
@@ -232,6 +253,23 @@ pub trait Catalog: Send {
         node: &'a NodePath,
         query: BrowseQuery,
     ) -> BoxFuture<'a, Result<ResultStream, DbError>>;
+
+    /// The SQL that creates `node`, a view or routine of this `kind`, to read
+    /// or change. Two kinds of object may share a name, hence the kind. A
+    /// catalog that can't show it returns an error.
+    fn definition<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+        kind: NodeKind,
+    ) -> BoxFuture<'a, Result<String, DbError>> {
+        let _ = node;
+        Box::pin(async move {
+            Err(DbError::General(format!(
+                "this database can't show the definition of a {}",
+                kind.label()
+            )))
+        })
+    }
 
     /// Every column of every table and view directly under `node` (a schema,
     /// or a database that has no schemas), by table and then position, in

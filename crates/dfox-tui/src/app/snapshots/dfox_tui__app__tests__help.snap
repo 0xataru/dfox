@@ -29,7 +29,7 @@ expression: "test.snapshot(120, 32)"
 │              │ /                 Filter                   Shift+→           Select right              │              │
 │              │ R                 Refresh                  Shift+↑           Select up                 │              │
 │              │ n                 New connection           Shift+↓           Select down               │              │
-│              │ e                 Edit connection          Shift+Home        Select to line start      │              │
+│              │ e                 Edit / show definition   Shift+Home        Select to line start      │              │
 │              │ Delete d          Delete connection        Shift+End         Select to line end        │              │
 │              │                                                                                        │              │
 ╰──────────────╰─────────────────────────────────── any key to close ───────────────────────────────────╯──────────────╯

@@ -93,6 +93,14 @@ impl Entry {
     }
 }
 
+/// Objects whose SQL can be shown.
+fn has_definition(kind: NodeKind) -> bool {
+    matches!(
+        kind,
+        NodeKind::View | NodeKind::MaterializedView | NodeKind::Function | NodeKind::Procedure
+    )
+}
+
 /// Things the explorer groups by kind under their schema or database.
 fn is_object(kind: NodeKind) -> bool {
     kind.has_rows() || matches!(kind, NodeKind::Function | NodeKind::Procedure)
@@ -447,12 +455,29 @@ impl Explorer {
         let ids = self.state.borrow().selected().to_vec();
         let on_object = ids.last().is_some_and(|id| id.starts_with("o/"));
         if let Some((path, entry)) = self.resolve(&ids).filter(|_| on_object) {
-            if entry.node.kind.has_rows() {
+            let kind = entry.node.kind;
+            if kind.has_rows() {
                 let name = self.sql_name(&path);
                 return Some(Command::Browse { path, name });
             }
+            if matches!(kind, NodeKind::Function | NodeKind::Procedure) {
+                return Some(Command::Definition { path, kind });
+            }
         }
         self.open_selected(true, ctx)
+    }
+
+    /// The selected view or routine, to show its definition.
+    fn selected_definition(&self) -> Option<Command> {
+        let ids = self.state.borrow().selected().to_vec();
+        if !ids.last()?.starts_with("o/") {
+            return None;
+        }
+        let (path, entry) = self.resolve(&ids)?;
+        has_definition(entry.node.kind).then_some(Command::Definition {
+            path,
+            kind: entry.node.kind,
+        })
     }
 
     /// How SQL names the selected node, in parts to quote: a column by its
@@ -576,6 +601,10 @@ impl Component for Explorer {
             Action::Inspect => {
                 drop(state);
                 return self.selected_name().map(Command::InsertName);
+            }
+            Action::Edit => {
+                drop(state);
+                return self.selected_definition();
             }
             Action::Filter => {
                 drop(state);

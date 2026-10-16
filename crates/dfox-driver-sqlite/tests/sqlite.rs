@@ -201,6 +201,28 @@ async fn catalog_names_are_parameters_not_sql() {
     );
     assert_eq!(info.columns[1].default.as_deref(), Some("'x'"));
 
+    execute(
+        s.as_mut(),
+        "CREATE VIEW grown_ups AS SELECT name FROM people   ",
+    )
+    .await;
+    let view = s
+        .catalog()
+        .definition(&main.child("grown_ups"), NodeKind::View)
+        .await
+        .expect("view");
+    assert_eq!(view, "CREATE VIEW grown_ups AS SELECT name FROM people;\n");
+    assert!(s
+        .catalog()
+        .definition(&main.child("people"), NodeKind::View)
+        .await
+        .is_err());
+    assert!(s
+        .catalog()
+        .definition(&main.child("people"), NodeKind::Table)
+        .await
+        .is_err());
+
     let attack = "x'); DROP TABLE people; --";
     assert!(s.catalog().describe(&main.child(attack)).await.is_err());
     let still = run(s.as_mut(), "SELECT count(*) FROM people", 10)

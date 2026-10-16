@@ -25,7 +25,9 @@ impl EditorPanel {
         let theme = ctx.theme;
         let mut title = Vec::new();
         if tabs.len() <= 1 {
-            title.push(Span::raw("Query"));
+            // A lone tab is just "Query", unless it holds a definition.
+            let name = tabs.first().filter(|t| t.named).map(|t| t.title.clone());
+            title.push(Span::raw(name.unwrap_or_else(|| "Query".into())));
         }
         if tabs.len() > 1 {
             for (i, tab) in tabs.iter().enumerate() {

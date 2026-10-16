@@ -115,6 +115,7 @@ impl MyCatalog {
         } else {
             HashMap::new()
         };
+        let signatures = Self::signatures(&mut conn, database).await?;
         Ok(rows
             .into_iter()
             .map(|(name, kind)| {
@@ -125,14 +126,98 @@ impl MyCatalog {
                     "FUNCTION" => NodeKind::Function,
                     _ => NodeKind::Other,
                 };
-                let estimate = estimates.get(&name).filter(|_| kind == NodeKind::Table);
-                let node = Node::new(kind, name.clone(), kind.has_rows());
-                match estimate {
-                    Some(&rows) => node.with_detail(estimate_text(rows)),
+                let detail = match kind {
+                    NodeKind::Table => estimates.get(&name).map(|&rows| estimate_text(rows)),
+                    NodeKind::Function | NodeKind::Procedure => Some(
+                        signatures
+                            .get(&(name.clone(), kind))
+                            .cloned()
+                            .unwrap_or_else(|| "()".to_string()),
+                    ),
+                    _ => None,
+                };
+                let node = Node::new(kind, name, kind.has_rows());
+                match detail {
+                    Some(detail) => node.with_detail(detail),
                     None => node,
                 }
             })
             .collect())
+    }
+
+    /// `(a INT, OUT b TEXT) → int` for each routine with parameters or a
+    /// result, by name and kind.
+    async fn signatures(
+        conn: &mut Conn,
+        database: &str,
+    ) -> Result<HashMap<(String, NodeKind), String>, DbError> {
+        let rows: Vec<(String, String, Option<String>, Option<String>)> = conn
+            .exec(
+                "SELECT SPECIFIC_NAME, ROUTINE_TYPE, \
+                        GROUP_CONCAT(CASE WHEN ORDINAL_POSITION > 0 THEN CONCAT_WS(' ', \
+                            CASE WHEN PARAMETER_MODE <> 'IN' THEN PARAMETER_MODE END, \
+                            PARAMETER_NAME, DTD_IDENTIFIER) END \
+                            ORDER BY ORDINAL_POSITION SEPARATOR ', '), \
+                        MAX(CASE WHEN ORDINAL_POSITION = 0 THEN DTD_IDENTIFIER END) \
+                 FROM information_schema.PARAMETERS WHERE SPECIFIC_SCHEMA = ? \
+                 GROUP BY SPECIFIC_NAME, ROUTINE_TYPE",
+                (database,),
+            )
+            .await
+            .map_err(db_error)?;
+        Ok(rows
+            .into_iter()
+            .map(|(name, kind, arguments, result)| {
+                let kind = if kind == "PROCEDURE" {
+                    NodeKind::Procedure
+                } else {
+                    NodeKind::Function
+                };
+                let arguments = arguments.unwrap_or_default();
+                let signature = match result {
+                    Some(result) => format!("({arguments}) → {result}"),
+                    None => format!("({arguments})"),
+                };
+                ((name, kind), signature)
+            })
+            .collect())
+    }
+
+    /// The SQL that creates a view or routine, as the server keeps it.
+    async fn definition(&self, node: &NodePath, kind: NodeKind) -> Result<String, DbError> {
+        let (database, name) = table(node)?;
+        let (what, column) = match kind {
+            NodeKind::View => ("VIEW", "Create View"),
+            NodeKind::Function => ("FUNCTION", "Create Function"),
+            NodeKind::Procedure => ("PROCEDURE", "Create Procedure"),
+            kind => {
+                return Err(DbError::General(format!(
+                    "MySQL can't show the definition of a {}",
+                    kind.label()
+                )))
+            }
+        };
+        let sql = format!("SHOW CREATE {what} {}.{}", quote(database), quote(name));
+        let row: Option<mysql_async::Row> = self
+            .conn
+            .lock()
+            .await
+            .query_first(sql)
+            .await
+            .map_err(db_error)?;
+        let missing = || DbError::General(format!("no {} {database}.{name}", kind.label()));
+        let text: Option<String> = row
+            .ok_or_else(missing)?
+            .get_opt(column)
+            .and_then(Result::ok);
+        // Without the right privileges the server hides the body.
+        let text = text.ok_or_else(|| {
+            DbError::General(format!(
+                "the server didn't show the definition of {database}.{name}: \
+                 it needs SHOW_ROUTINE or the routine's own privileges"
+            ))
+        })?;
+        Ok(format!("{};\n", text.trim_end()))
     }
 
     async fn columns(&self, database: &str, table: &str) -> Result<Vec<ColumnInfo>, DbError> {
@@ -412,6 +497,14 @@ impl Catalog for MyCatalog {
             }))
         })
     }
+    fn definition<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+        kind: NodeKind,
+    ) -> BoxFuture<'a, Result<String, DbError>> {
+        Box::pin(async move { MyCatalog::definition(self, node, kind).await })
+    }
+
     fn all_columns<'a>(
         &'a mut self,
         node: &'a NodePath,
