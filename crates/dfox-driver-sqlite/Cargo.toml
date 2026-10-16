@@ -14,7 +14,7 @@ tokio = { version = "1.40.0", features = ["full"] }
 rusqlite = { version = "0.40.2", features = ["bundled", "column_decltype"] }
 arrow-array = "60.0.0"
 arrow-schema = "60.0.0"
-dfox-sql = { version = "0.2.0", path = "../dfox-sql" }
+dfox-sql = { path = "../dfox-sql" }
 
 [dev-dependencies]
 dfox-testkit = { path = "../dfox-testkit" }
