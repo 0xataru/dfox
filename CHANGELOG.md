@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-16
+
 ### Added
 
 - `DELIMITER` lines in MySQL scripts, as the mysql client reads them:
