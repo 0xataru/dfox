@@ -25,7 +25,7 @@ use tokio::{
 
 use crate::{
     arrow::Frame,
-    catalog::{BrowseQuery, Catalog, EntityInfo, Node, NodePath},
+    catalog::{BrowseQuery, Catalog, EntityInfo, Node, NodeKind, NodePath},
     driver::{ping, Driver, Drivers},
     errors::DbError,
     models::{
@@ -78,6 +78,11 @@ pub enum Command {
     AllColumns {
         path: NodePath,
     },
+    /// The SQL that creates the view or routine at `path`.
+    Definition {
+        path: NodePath,
+        kind: NodeKind,
+    },
     /// Measures how long it takes to reach a database, without logging in
     /// and without touching the session. See [`ping`].
     Ping {
@@ -125,6 +130,11 @@ pub enum EngineEvent {
     AllColumns {
         path: NodePath,
         result: Result<Vec<TableColumn>, DbError>,
+    },
+    Definition {
+        path: NodePath,
+        kind: NodeKind,
+        result: Result<String, DbError>,
     },
     Pong {
         id: u64,
@@ -287,6 +297,21 @@ impl Engine {
                 |path, result| EngineEvent::AllColumns { path, result },
                 |catalog, path| catalog.all_columns(path),
             ),
+            Command::Definition { path, kind } => {
+                let session = self.live.as_ref().map(|live| live.session.clone());
+                let events = self.events.clone();
+                tokio::spawn(async move {
+                    let result = match session {
+                        Some(session) => {
+                            let mut session = session.lock().await;
+                            session.catalog().definition(&path, kind).await
+                        }
+                        None => Err(Self::not_connected()),
+                    };
+                    let event = EngineEvent::Definition { path, kind, result };
+                    let _ = events.send(event).await;
+                });
+            }
             Command::Ping {
                 id,
                 db_type,

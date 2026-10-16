@@ -88,6 +88,23 @@ fn objects(conn: &Connection, database: &str) -> Result<Vec<Node>, DbError> {
     .collect()
 }
 
+/// The SQL that created a view, as SQLite keeps it.
+fn view_definition(conn: &Connection, database: &str, view: &str) -> Result<String, DbError> {
+    let sql = format!(
+        "SELECT sql FROM {}.sqlite_schema WHERE type = 'view' AND name = ?1",
+        quote(database)
+    );
+    let text: Option<String> = conn
+        .query_row(&sql, [view], |row| row.get(0))
+        .map_err(|err| match err {
+            rusqlite::Error::QueryReturnedNoRows => {
+                DbError::General(format!("no view {database}.{view}"))
+            }
+            err => db_error(err),
+        })?;
+    Ok(format!("{};\n", text.unwrap_or_default().trim_end()))
+}
+
 fn columns(conn: &Connection, database: &str, table: &str) -> Result<Vec<ColumnInfo>, DbError> {
     let mut stmt = conn
         .prepare(
@@ -405,6 +422,26 @@ impl Catalog for SqliteCatalog {
             self.worker.query(sql, params)
         })
     }
+    fn definition<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+        kind: NodeKind,
+    ) -> BoxFuture<'a, Result<String, DbError>> {
+        let target = table(node);
+        Box::pin(async move {
+            let (database, view) = target?;
+            if kind != NodeKind::View {
+                return Err(DbError::General(format!(
+                    "SQLite can't show the definition of a {}",
+                    kind.label()
+                )));
+            }
+            self.worker
+                .call(move |conn| view_definition(conn, &database, &view))
+                .await
+        })
+    }
+
     fn all_columns<'a>(
         &'a mut self,
         node: &'a NodePath,

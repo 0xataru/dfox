@@ -222,8 +222,9 @@ async fn databases_hold_every_kind_of_object() {
         &format!(
             "CREATE TABLE {prefix}_t (id INT);
              CREATE VIEW {prefix}_v AS SELECT 1 AS one;
-             CREATE FUNCTION {prefix}_f() RETURNS INT DETERMINISTIC RETURN 1;
-             CREATE PROCEDURE {prefix}_p() SELECT 1;"
+             CREATE FUNCTION {prefix}_f(a INT, b VARCHAR(10)) RETURNS INT DETERMINISTIC RETURN a;
+             CREATE PROCEDURE {prefix}_p(IN n INT, OUT m INT) SET m = n;
+             CREATE PROCEDURE {prefix}_q() SELECT 1;"
         ),
     )
     .await;
@@ -236,17 +237,64 @@ async fn databases_hold_every_kind_of_object() {
         .expect("objects")
         .into_iter()
         .filter(|n| n.name.starts_with(&prefix))
-        .map(|n| (n.name.trim_start_matches(&prefix).to_string(), n.kind))
+        .map(|n| {
+            let detail = n.detail.filter(|_| n.kind != NodeKind::Table);
+            (
+                n.name.trim_start_matches(&prefix).to_string(),
+                n.kind,
+                detail,
+            )
+        })
         .collect();
+    let object = |name: &str, kind, detail: Option<&str>| {
+        (name.to_string(), kind, detail.map(str::to_string))
+    };
     assert_eq!(
         objects,
         [
-            ("_f".to_string(), NodeKind::Function),
-            ("_p".to_string(), NodeKind::Procedure),
-            ("_t".to_string(), NodeKind::Table),
-            ("_v".to_string(), NodeKind::View),
+            object(
+                "_f",
+                NodeKind::Function,
+                Some("(a int, b varchar(10)) → int")
+            ),
+            object("_p", NodeKind::Procedure, Some("(n int, OUT m int)")),
+            object("_q", NodeKind::Procedure, Some("()")),
+            object("_t", NodeKind::Table, None),
+            object("_v", NodeKind::View, None),
         ]
     );
+
+    let at = |name: &str| db.child(format!("{prefix}{name}"));
+    let view = s
+        .catalog()
+        .definition(&at("_v"), NodeKind::View)
+        .await
+        .expect("view");
+    assert!(view.starts_with("CREATE "), "{view}");
+    assert!(
+        view.contains(&format!("VIEW `{prefix}_v` AS select 1 AS `one`")),
+        "{view}"
+    );
+    assert!(view.ends_with(";\n"));
+    let function = s
+        .catalog()
+        .definition(&at("_f"), NodeKind::Function)
+        .await
+        .expect("function");
+    assert!(
+        function.contains(&format!("FUNCTION `{prefix}_f`(a INT, b VARCHAR(10))")),
+        "{function}"
+    );
+    assert!(s
+        .catalog()
+        .definition(&at("_f"), NodeKind::Procedure)
+        .await
+        .is_err());
+    assert!(s
+        .catalog()
+        .definition(&at("_t"), NodeKind::Table)
+        .await
+        .is_err());
 
     let columns: Vec<_> = s
         .catalog()
@@ -275,7 +323,7 @@ async fn databases_hold_every_kind_of_object() {
         s.as_mut(),
         &format!(
             "DROP TABLE {prefix}_t; DROP VIEW {prefix}_v;
-             DROP FUNCTION {prefix}_f; DROP PROCEDURE {prefix}_p;"
+             DROP FUNCTION {prefix}_f; DROP PROCEDURE {prefix}_p; DROP PROCEDURE {prefix}_q;"
         ),
     )
     .await;

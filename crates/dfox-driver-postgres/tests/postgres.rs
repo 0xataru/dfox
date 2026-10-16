@@ -232,7 +232,9 @@ async fn schemas_hold_every_kind_of_object() {
              CREATE VIEW {schema}.v AS SELECT 1 AS one;
              CREATE MATERIALIZED VIEW {schema}.m AS SELECT 1 AS one;
              CREATE FUNCTION {schema}.f() RETURNS int LANGUAGE sql AS 'SELECT 1';
-             CREATE PROCEDURE {schema}.p() LANGUAGE sql AS 'SELECT 1';"
+             CREATE FUNCTION {schema}.g(a int, b text) RETURNS text LANGUAGE sql AS 'SELECT b';
+             CREATE FUNCTION {schema}.g(a int) RETURNS int LANGUAGE sql AS 'SELECT a';
+             CREATE PROCEDURE {schema}.p(n int) LANGUAGE sql AS 'SELECT 1';"
         ),
     )
     .await;
@@ -266,9 +268,10 @@ async fn schemas_hold_every_kind_of_object() {
     assert_eq!(
         objects,
         [
-            object("f", NodeKind::Function, None),
+            object("f", NodeKind::Function, Some("() → integer")),
+            object("g", NodeKind::Function, Some("2 overloads")),
             object("m", NodeKind::MaterializedView, None),
-            object("p", NodeKind::Procedure, None),
+            object("p", NodeKind::Procedure, Some("(IN n integer)")),
             object("t", NodeKind::Table, Some("~3")),
             object("v", NodeKind::View, None),
         ]
@@ -291,6 +294,38 @@ async fn schemas_hold_every_kind_of_object() {
             column("v", "one", "integer"),
         ]
     );
+
+    let at = |name: &str| db.child(schema.clone()).child(name);
+    let definition = |text: Result<String, _>| text.expect("a definition");
+    let view = definition(s.catalog().definition(&at("v"), NodeKind::View).await);
+    assert_eq!(
+        view,
+        format!("CREATE OR REPLACE VIEW {schema}.v AS\n SELECT 1 AS one;\n")
+    );
+    let matview = definition(
+        s.catalog()
+            .definition(&at("m"), NodeKind::MaterializedView)
+            .await,
+    );
+    assert!(matview.starts_with(&format!("CREATE MATERIALIZED VIEW {schema}.m AS\n")));
+    let overloads = definition(s.catalog().definition(&at("g"), NodeKind::Function).await);
+    assert_eq!(overloads.matches("CREATE OR REPLACE FUNCTION").count(), 2);
+    assert!(overloads.ends_with("$function$;\n"), "{overloads}");
+    let procedure = definition(s.catalog().definition(&at("p"), NodeKind::Procedure).await);
+    assert!(procedure.starts_with(&format!(
+        "CREATE OR REPLACE PROCEDURE {schema}.p(IN n integer)"
+    )));
+    // The kind picks between objects that share a name.
+    assert!(s
+        .catalog()
+        .definition(&at("f"), NodeKind::Procedure)
+        .await
+        .is_err());
+    assert!(s
+        .catalog()
+        .definition(&at("t"), NodeKind::Table)
+        .await
+        .is_err());
 
     execute(s.as_mut(), &format!("DROP SCHEMA {schema} CASCADE")).await;
 }

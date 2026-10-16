@@ -56,6 +56,15 @@ fn estimate(rows: i64) -> String {
     }
 }
 
+/// `(a integer, b text) → integer`: a routine's arguments and result.
+fn signature(arguments: Option<String>, result: Option<String>) -> String {
+    let arguments = arguments.unwrap_or_default();
+    match result {
+        Some(result) if !result.is_empty() => format!("({arguments}) → {result}"),
+        _ => format!("({arguments})"),
+    }
+}
+
 impl PgCatalog {
     pub fn new(client: Arc<Client>, database: String) -> Self {
         Self { client, database }
@@ -109,14 +118,18 @@ impl PgCatalog {
             .client
             .query(
                 "SELECT c.relname::text, c.relkind::text, \
-                        CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint END \
+                        CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint END, \
+                        NULL::text, NULL::text \
                  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
                  WHERE n.nspname = $1::text AND c.relkind IN ('r', 'p', 'v', 'm', 'f') \
                  UNION ALL \
-                 SELECT DISTINCT p.proname::text, \
-                        CASE p.prokind WHEN 'p' THEN 'P' ELSE 'F' END, NULL::bigint \
+                 SELECT p.proname::text, \
+                        CASE p.prokind WHEN 'p' THEN 'P' ELSE 'F' END, count(*), \
+                        min(pg_get_function_identity_arguments(p.oid)), \
+                        min(pg_get_function_result(p.oid)) \
                  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace \
                  WHERE n.nspname = $1::text AND p.prokind IN ('f', 'p') \
+                 GROUP BY 1, 2 \
                  ORDER BY 1, 2",
                 &[&schema],
             )
@@ -135,8 +148,16 @@ impl PgCatalog {
                     _ => NodeKind::Function,
                 };
                 let node = Node::new(kind, name, kind.has_rows());
-                match row.get::<_, Option<i64>>(2) {
-                    Some(rows) if kind == NodeKind::Table => node.with_detail(estimate(rows)),
+                // Tables have a row estimate; routines a count of overloads.
+                let number = row.get::<_, Option<i64>>(2);
+                match (kind, number) {
+                    (NodeKind::Table, Some(rows)) => node.with_detail(estimate(rows)),
+                    (NodeKind::Function | NodeKind::Procedure, Some(1)) => {
+                        node.with_detail(signature(row.get(3), row.get(4)))
+                    }
+                    (NodeKind::Function | NodeKind::Procedure, Some(n)) => {
+                        node.with_detail(format!("{n} overloads"))
+                    }
                     _ => node,
                 }
             })
@@ -221,6 +242,73 @@ impl PgCatalog {
             indexes,
             row_estimate: estimate,
         })
+    }
+
+    /// The SQL that creates a view or every overload of a routine.
+    async fn definition(&self, node: &NodePath, kind: NodeKind) -> Result<String, DbError> {
+        let (schema, name) = self.table(node)?;
+        let missing = || DbError::General(format!("no {} {schema}.{name}", kind.label()));
+        match kind {
+            NodeKind::Function | NodeKind::Procedure => {
+                let prokind = if kind == NodeKind::Procedure {
+                    "p"
+                } else {
+                    "f"
+                };
+                let rows = self
+                    .client
+                    .query(
+                        "SELECT pg_get_functiondef(p.oid) \
+                         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace \
+                         WHERE n.nspname = $1::text AND p.proname = $2::text \
+                           AND p.prokind = $3::text::\"char\" \
+                         ORDER BY p.oid",
+                        &[&schema, &name, &prokind],
+                    )
+                    .await
+                    .map_err(db_error)?;
+                if rows.is_empty() {
+                    return Err(missing());
+                }
+                Ok(rows
+                    .iter()
+                    .map(|row| format!("{};\n", row.get::<_, String>(0).trim_end()))
+                    .collect::<Vec<_>>()
+                    .join("\n"))
+            }
+            NodeKind::View | NodeKind::MaterializedView => {
+                let relkind = if kind == NodeKind::View { "v" } else { "m" };
+                let body: String = self
+                    .client
+                    .query_opt(
+                        "SELECT pg_get_viewdef(c.oid, true) \
+                         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+                         WHERE n.nspname = $1::text AND c.relname = $2::text \
+                           AND c.relkind = $3::text::\"char\"",
+                        &[&schema, &name, &relkind],
+                    )
+                    .await
+                    .map_err(db_error)?
+                    .ok_or_else(missing)?
+                    .get(0);
+                let create = if kind == NodeKind::View {
+                    "CREATE OR REPLACE VIEW"
+                } else {
+                    "CREATE MATERIALIZED VIEW"
+                };
+                let ident = |name| dfox_sql::quote_ident(name, dfox_sql::Dialect::Postgres);
+                Ok(format!(
+                    "{create} {}.{} AS\n{}\n",
+                    ident(schema),
+                    ident(name),
+                    body.trim_end()
+                ))
+            }
+            kind => Err(DbError::General(format!(
+                "Postgres can't show the definition of a {}",
+                kind.label()
+            ))),
+        }
     }
 
     /// Each column's type, to cast text parameters to.
@@ -355,6 +443,14 @@ impl Catalog for PgCatalog {
             let (schema, table) = self.table(node)?;
             self.describe_table(schema, table).await
         })
+    }
+
+    fn definition<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+        kind: NodeKind,
+    ) -> BoxFuture<'a, Result<String, DbError>> {
+        Box::pin(async move { PgCatalog::definition(self, node, kind).await })
     }
 
     fn browse<'a>(
