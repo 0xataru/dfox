@@ -9,6 +9,22 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Cassandra and ScyllaDB. Connect with `cassandra://` (or `scylla://`) or the
+  connection form; the explorer lists keyspaces and their tables and
+  materialized views, with the partition and clustering keys, secondary
+  indexes and the `CREATE` statement the server describes. CQL runs one
+  statement at a time, batches whole, and SELECTs page through big tables in
+  batches. Rows keep their types: integers, exact decimals and varints,
+  timestamps, dates, times, uuids, and collections, tuples and user-defined
+  types as JSON. The table menu's filtered rows add `ALLOW FILTERING`; a
+  read-only connection refuses statements that write. dfox connects through
+  the address given, so clusters behind Docker, NAT or an SSH tunnel work,
+  and reads with consistency `ONE`, as `cqlsh` does, so a single node or a
+  cluster with replicas down still answers. Encrypted connections to
+  Cassandra aren't supported yet
+
+### Added
+
 - MongoDB. Connect with `mongodb://` or the connection form; the explorer
   lists databases and their collections and views, with document counts, the
   fields each collection's documents have and its indexes. The editor runs

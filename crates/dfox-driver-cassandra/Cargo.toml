@@ -1,0 +1,27 @@
+[package]
+name = "dfox-driver-cassandra"
+description = "Cassandra and ScyllaDB driver for dfox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dfox-core = { path = "../dfox-core" }
+dfox-sql = { path = "../dfox-sql" }
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+log = "0.4.21"
+tokio = { version = "1.40.0", features = ["full"] }
+# No TLS yet: scylla's rustls feature brings rustls's default crypto
+# provider, aws-lc-rs, which clashes with the ring provider the other
+# drivers use.
+scylla = "1.9.0"
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"
+serde_json = "1"
+
+[dev-dependencies]
+dfox-testkit = { path = "../dfox-testkit" }
+
+[lints]
+workspace = true

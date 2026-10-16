@@ -183,6 +183,7 @@ impl Connection {
         match driver {
             DbType::MySql => 3306,
             DbType::Mongo => 27017,
+            DbType::Cassandra => 9042,
             _ => 5432,
         }
     }
@@ -193,6 +194,8 @@ impl Connection {
             DbType::MySql => "mysql",
             // As in mongosh.
             DbType::Mongo => "test",
+            // Every cluster has it.
+            DbType::Cassandra => "system",
             _ => "postgres",
         }
     }

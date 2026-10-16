@@ -13,9 +13,21 @@ pub fn session_dialect(language: QueryLanguage) -> Option<Dialect> {
         QueryLanguage::Sql(SqlDialect::Postgres) => Some(Dialect::Postgres),
         QueryLanguage::Sql(SqlDialect::MySql) => Some(Dialect::MySql),
         QueryLanguage::Sql(SqlDialect::Sqlite) => Some(Dialect::Sqlite),
-        // Unknown SQL reads closest to Postgres's standard style.
-        QueryLanguage::Sql(SqlDialect::Generic) => Some(Dialect::Postgres),
+        // Unknown SQL reads closest to Postgres's standard style, and so
+        // does CQL: the same quotes, comments and `$$`.
+        QueryLanguage::Sql(SqlDialect::Generic) | QueryLanguage::Cql => Some(Dialect::Postgres),
         _ => None,
+    }
+}
+
+/// The language a database speaks, before a session says.
+pub fn language(driver: DbType) -> QueryLanguage {
+    match driver {
+        DbType::Postgres => QueryLanguage::Sql(SqlDialect::Postgres),
+        DbType::MySql => QueryLanguage::Sql(SqlDialect::MySql),
+        DbType::Sqlite => QueryLanguage::Sql(SqlDialect::Sqlite),
+        DbType::Mongo => QueryLanguage::MongoShell,
+        DbType::Cassandra => QueryLanguage::Cql,
     }
 }
 
@@ -25,7 +37,7 @@ pub fn dialect(driver: DbType) -> Dialect {
         DbType::Postgres => Dialect::Postgres,
         DbType::MySql => Dialect::MySql,
         DbType::Sqlite => Dialect::Sqlite,
-        // Speaks no SQL; the session says so once connected.
-        DbType::Mongo => Dialect::Postgres,
+        // Speak no SQL; the session says so once connected.
+        DbType::Mongo | DbType::Cassandra => Dialect::Postgres,
     }
 }

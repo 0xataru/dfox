@@ -200,6 +200,19 @@ fn routine_bodies_stay_whole() {
 }
 
 #[test]
+fn cql_batches_are_one_statement() {
+    let batch = "BEGIN UNLOGGED BATCH\n  INSERT INTO t (a) VALUES (1);\n  UPDATE t SET b = 2 WHERE a = 1;\nAPPLY BATCH;";
+    assert_eq!(
+        split(&format!("{batch}\nSELECT * FROM t;"), Dialect::Postgres),
+        [batch, "SELECT * FROM t;"]
+    );
+    assert_eq!(
+        split("BEGIN; SELECT 1; COMMIT;", Dialect::Postgres),
+        ["BEGIN;", "SELECT 1;", "COMMIT;"]
+    );
+}
+
+#[test]
 fn delimiter_lines_change_what_ends_a_statement() {
     let text = "SELECT 1;\nDELIMITER $$\nCREATE PROCEDURE p()\nBEGIN\n  SELECT '$$';\n  -- not here $$\n  \
                 SELECT 2;\nEND$$\nSELECT 3$$\ndelimiter ;\nSELECT 4;";

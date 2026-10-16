@@ -2,7 +2,10 @@
 //! SQL scripts for it, its properties, and dropping it. Each item has a
 //! letter; Enter picks the highlighted one.
 
-use dfox_core::catalog::{EntityInfo, NodeKind, NodePath};
+use dfox_core::{
+    catalog::{EntityInfo, NodeKind, NodePath},
+    session::{QueryLanguage, SqlDialect},
+};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -108,16 +111,18 @@ pub struct TableMenu {
 
 impl TableMenu {
     /// The menu for the table or view at `table`, a `kind`, in a session
-    /// speaking `dialect`, or no SQL at all. A read-only connection offers
-    /// nothing that writes.
+    /// speaking `language`. A read-only connection offers nothing that
+    /// writes.
     pub fn new(
         table: NodePath,
         kind: NodeKind,
         name: Vec<String>,
-        dialect: Option<Dialect>,
+        language: QueryLanguage,
         read_only: bool,
     ) -> Self {
         let is_table = matches!(kind, NodeKind::Table | NodeKind::Collection);
+        // CQL orders rows only within a partition.
+        let cql = language == QueryLanguage::Cql;
         let pick = |key, label, choice| Item {
             key,
             label,
@@ -141,11 +146,10 @@ impl TableMenu {
             pick('p', "Properties", Choice::Properties),
             pick('r', "Refresh", Choice::Refresh),
         ];
-        if is_table {
+        if is_table && !cql {
             items.insert(1, pick('l', "Last 100 rows", Choice::LastRows));
         }
-        let Some(dialect) = dialect else {
-            // Mongo shell commands.
+        if language == QueryLanguage::MongoShell {
             let at = items.len() - 2;
             items.insert(at, pick('e', "Definition", Choice::Definition));
             if !read_only {
@@ -155,7 +159,7 @@ impl TableMenu {
                 items.push(pick('d', "Drop…", Choice::Drop { cascade: false }));
             }
             return Self::with_items(table, kind, name, false, items);
-        };
+        }
         if !is_table {
             items.insert(6, pick('e', "Definition", Choice::Definition));
         }
@@ -164,7 +168,7 @@ impl TableMenu {
                 items.push(pick('t', "Truncate…", Choice::Truncate));
             }
             items.push(pick('d', "Drop…", Choice::Drop { cascade: false }));
-            if dialect == Dialect::Postgres {
+            if language == QueryLanguage::Sql(SqlDialect::Postgres) {
                 items.push(pick('D', "Drop cascade…", Choice::Drop { cascade: true }));
             }
         }
@@ -487,7 +491,7 @@ mod tests {
             ["shop", "public", "orders"].into_iter().collect(),
             kind,
             vec!["orders".into()],
-            Some(Dialect::Postgres),
+            QueryLanguage::Sql(SqlDialect::Postgres),
             read_only,
         )
     }
@@ -585,7 +589,7 @@ mod tests {
             ["shop", "users"].into_iter().collect(),
             NodeKind::Collection,
             vec!["users".into()],
-            None,
+            QueryLanguage::MongoShell,
             false,
         );
         insta::assert_snapshot!("collection", snapshot(&m));
@@ -613,6 +617,24 @@ mod tests {
             m.handle(Action::Input(c));
         }
         insta::assert_snapshot!("collection_filter", snapshot(&m));
+    }
+
+    #[test]
+    fn cql_tables_offer_no_last_rows_or_cascade() {
+        let mut m = TableMenu::new(
+            ["shop", "events"].into_iter().collect(),
+            NodeKind::Table,
+            vec!["events".into()],
+            QueryLanguage::Cql,
+            false,
+        );
+        assert_eq!(m.handle(Action::Input('l')), None);
+        assert_eq!(m.handle(Action::Input('D')), None);
+        assert_eq!(
+            m.handle(Action::Input('t')),
+            Some(MenuEvent::Pick(Choice::Truncate))
+        );
+        assert!(m.sql, "CQL scripts read like SQL");
     }
 
     #[test]

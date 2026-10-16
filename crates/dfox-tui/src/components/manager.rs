@@ -410,6 +410,7 @@ pub fn driver_name(driver: DbType) -> &'static str {
         DbType::MySql => "MySQL",
         DbType::Sqlite => "SQLite",
         DbType::Mongo => "MongoDB",
+        DbType::Cassandra => "Cassandra / ScyllaDB",
     }
 }
 
@@ -419,6 +420,7 @@ fn driver_short(driver: DbType) -> &'static str {
         DbType::MySql => "mysql",
         DbType::Sqlite => "sqlite",
         DbType::Mongo => "mongo",
+        DbType::Cassandra => "cql",
     }
 }
 

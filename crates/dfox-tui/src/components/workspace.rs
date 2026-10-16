@@ -9,7 +9,7 @@ use dfox_core::{
     engine::{Command as DbCommand, EngineEvent, QueryId},
     errors::DbError,
     models::connections::DbType,
-    session::{QueryLanguage, SqlDialect},
+    session::QueryLanguage,
 };
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
@@ -125,7 +125,7 @@ impl Workspace {
             tabs: Vec::new(),
             active: 0,
             dialect: sql::dialect(driver),
-            language: QueryLanguage::Sql(SqlDialect::Generic),
+            language: sql::language(driver),
             connection: connection.to_string(),
             next_query: 0,
             next_tab: 0,
@@ -143,8 +143,6 @@ impl Workspace {
         workspace
     }
 
-    /// The dialect the session reported, for the editor, autocomplete and
-    /// the guard. The first tab starts over in it.
     /// The language the session reported. SQL starts the first tab over in
     /// its dialect.
     pub fn with_language(mut self, language: QueryLanguage) -> Self {
@@ -153,13 +151,15 @@ impl Workspace {
             Some(dialect) => self.with_dialect(dialect),
             None => {
                 for tab in &mut self.tabs {
-                    tab.editor.shell = true;
+                    tab.editor.shell = language == QueryLanguage::MongoShell;
                 }
                 self
             }
         }
     }
 
+    /// The dialect the session reported, for the editor, autocomplete and
+    /// the guard. The first tab starts over in it.
     pub fn with_dialect(mut self, dialect: Dialect) -> Self {
         self.dialect = dialect;
         self.tabs.clear();
@@ -330,7 +330,7 @@ impl Workspace {
             return None;
         };
         let findings = match self.language {
-            QueryLanguage::Sql(_) => guard::check(&sql, self.dialect),
+            QueryLanguage::Sql(_) | QueryLanguage::Cql => guard::check(&sql, self.dialect),
             QueryLanguage::MongoShell => sql::mongo::check(&sql),
             // Other languages' drivers refuse writes on read-only
             // connections themselves.
@@ -715,7 +715,7 @@ impl Workspace {
 
     /// True unless the session speaks something other than SQL.
     fn speaks_sql(&self) -> bool {
-        matches!(self.language, QueryLanguage::Sql(_))
+        matches!(self.language, QueryLanguage::Sql(_) | QueryLanguage::Cql)
     }
 
     /// The query for some rows of the table named `name`, in the session's
@@ -754,6 +754,10 @@ impl Workspace {
                     order.join(", ")
                 )
             }
+            // CQL filters outside the key only when asked to.
+            Rows::Matching(condition) if self.language == QueryLanguage::Cql => {
+                format!("SELECT * FROM {quoted} WHERE {condition} ALLOW FILTERING")
+            }
             Rows::Matching(condition) => format!("SELECT * FROM {quoted} WHERE {condition}"),
         }
     }
@@ -767,7 +771,7 @@ impl Workspace {
                     path,
                     kind,
                     name,
-                    self.speaks_sql().then_some(self.dialect),
+                    self.language,
                     self.read_only,
                 ));
             }

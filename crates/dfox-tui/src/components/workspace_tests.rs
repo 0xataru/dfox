@@ -1020,3 +1020,38 @@ fn mongo_commands_run_under_the_cursor_and_ask_before_deleting() {
     assert_eq!(complete(&mut w, "db.users.findO"), ["findOne"]);
     assert_eq!(complete(&mut w, "db.users.find({ a"), ["age"]);
 }
+
+#[test]
+fn cql_filters_allow_filtering() {
+    use dfox_core::session::QueryLanguage;
+
+    let mut harness = Harness::new();
+    let mut w =
+        Workspace::new("local", DbType::Cassandra, "shop").with_language(QueryLanguage::Cql);
+    assert!(!w.editor().shell);
+    w.on_children(
+        &NodePath::root(),
+        Ok(vec![Node::new(NodeKind::Database, "shop", true)]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["shop"].into_iter().collect(),
+        Ok(vec![Node::new(NodeKind::Table, "events", true)]),
+        &mut harness.ctx(),
+    );
+    harness.sent();
+    w.set_focus(Panel::Explorer);
+    w.explorer
+        .select(&["d/shop", "g/Table", "o/events"].map(String::from));
+    w.handle(Action::Confirm, &mut harness.ctx());
+    w.handle(Action::Input('w'), &mut harness.ctx());
+    for c in "kind = 'login'".chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [.., DbCommand::Run { sql, .. }]
+            if sql == "SELECT * FROM events WHERE kind = 'login' ALLOW FILTERING"
+    ));
+}

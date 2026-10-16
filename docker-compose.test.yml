@@ -32,3 +32,12 @@ services:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 2s
       retries: 60
+
+  scylla:
+    image: scylladb/scylla:2025.1
+    command: --smp 1 --memory 750M --overprovisioned 1 --developer-mode 1 --authenticator PasswordAuthenticator
+    ports: ["59042:9042"]
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'SELECT now() FROM system.local'"]
+      interval: 5s
+      retries: 60
