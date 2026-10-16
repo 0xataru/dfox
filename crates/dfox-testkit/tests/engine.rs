@@ -296,6 +296,50 @@ async fn sqlite_catalog_and_errors() {
 }
 
 #[tokio::test]
+async fn sqlite_tables_browse_like_queries() {
+    let db = TempDb::new();
+    let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;
+    engine
+        .query(
+            "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT);
+             INSERT INTO people VALUES (1, 'ada'), (2, 'grace'), (3, 'edsger')",
+            0,
+        )
+        .await
+        .outcome
+        .expect("create");
+
+    let people = NodePath::root().child("main").child("people");
+    engine.next_id += 1;
+    let id = engine.next_id;
+    engine.engine.send(Command::Browse {
+        id,
+        path: people.clone(),
+        row_limit: 2,
+    });
+    let finished = engine.finish(id).await;
+    let stats = finished.outcome.expect("browse");
+    assert_eq!(finished.columns, ["id", "name"]);
+    assert_eq!(
+        finished.rows,
+        [
+            [Some("1".to_string()), Some("ada".to_string())],
+            [Some("2".to_string()), Some("grace".to_string())],
+        ]
+    );
+    assert!(stats.truncated);
+
+    engine.next_id += 1;
+    let id = engine.next_id;
+    engine.engine.send(Command::Browse {
+        id,
+        path: NodePath::root().child("main").child("nobody"),
+        row_limit: 0,
+    });
+    assert!(engine.finish(id).await.outcome.is_err());
+}
+
+#[tokio::test]
 async fn sqlite_cancel_drops_the_query_and_the_session_survives() {
     let db = TempDb::new();
     let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;

@@ -25,7 +25,7 @@ use tokio::{
 
 use crate::{
     arrow::Frame,
-    catalog::{Catalog, EntityInfo, Node, NodePath},
+    catalog::{BrowseQuery, Catalog, EntityInfo, Node, NodePath},
     driver::{ping, Driver, Drivers},
     errors::DbError,
     models::{
@@ -90,6 +90,13 @@ pub enum Command {
     Run {
         id: QueryId,
         sql: String,
+        row_limit: usize,
+    },
+    /// Streams the rows of the table at `path`, at most `row_limit`, as
+    /// query `id`.
+    Browse {
+        id: QueryId,
+        path: NodePath,
         row_limit: usize,
     },
     Cancel {
@@ -291,7 +298,21 @@ impl Engine {
                     let _ = events.send(EngineEvent::Pong { id, result }).await;
                 });
             }
-            Command::Run { id, sql, row_limit } => self.run_query(id, sql, row_limit),
+            Command::Run { id, sql, row_limit } => {
+                let request = Request::new(sql).with_row_limit(row_limit);
+                self.run_query(id, Start::Run(request), row_limit);
+            }
+            Command::Browse {
+                id,
+                path,
+                row_limit,
+            } => {
+                let query = BrowseQuery {
+                    limit: (row_limit > 0).then_some(row_limit as u64),
+                    ..BrowseQuery::default()
+                };
+                self.run_query(id, Start::Browse(path, query), row_limit);
+            }
             Command::Cancel { id } => self.cancel(id),
         }
     }
@@ -371,7 +392,7 @@ impl Engine {
         });
     }
 
-    fn run_query(&mut self, id: QueryId, sql: String, row_limit: usize) {
+    fn run_query(&mut self, id: QueryId, start: Start, row_limit: usize) {
         let events = self.events.clone();
         let Some(live) = self.live.clone() else {
             tokio::spawn(async move {
@@ -383,8 +404,13 @@ impl Engine {
 
         // The query runs in its own task so it can be aborted; the outer task
         // always reports how it ended.
-        let request = Request::new(sql).with_row_limit(row_limit);
-        let query = tokio::spawn(stream_query(live.session, id, request, events.clone()));
+        let query = tokio::spawn(stream_query(
+            live.session,
+            id,
+            start,
+            row_limit,
+            events.clone(),
+        ));
         let cancelled = Arc::new(AtomicBool::new(false));
         self.queries.insert(
             id,
@@ -439,18 +465,30 @@ impl Engine {
     }
 }
 
+/// What a query streams: a script's results, or a table's rows.
+enum Start {
+    Run(Request),
+    Browse(NodePath, BrowseQuery),
+}
+
 /// Streams one query's results to `events` and measures it.
 async fn stream_query(
     session: Shared,
     id: QueryId,
-    request: Request,
+    start: Start,
+    limit: usize,
     events: mpsc::Sender<EngineEvent>,
 ) -> Result<QueryStats, DbError> {
     let started = Instant::now();
-    let limit = request.row_limit;
     // The session is needed only to start the run; the stream lives on its
     // own, so the catalog can be browsed meanwhile.
-    let mut frames = session.lock().await.run(request).await?;
+    let mut frames = {
+        let mut session = session.lock().await;
+        match start {
+            Start::Run(request) => session.run(request).await?,
+            Start::Browse(path, query) => session.catalog().browse(&path, query).await?,
+        }
+    };
     let mut stats = QueryStats::default();
     let mut has_rows = false;
     while let Some(frame) = frames.next().await {
@@ -477,7 +515,7 @@ async fn stream_query(
         }
     }
     stats.elapsed = started.elapsed();
-    stats.truncated = has_rows && limit.is_some_and(|l| l > 0 && stats.rows >= l as u64);
+    stats.truncated = has_rows && limit > 0 && stats.rows >= limit as u64;
     Ok(stats)
 }
 

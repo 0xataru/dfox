@@ -65,7 +65,7 @@ fn rows_stream_in_and_finish_with_a_message() {
     assert_eq!(
         finished,
         Finished {
-            sql: "SELECT 1".into(),
+            sql: Some("SELECT 1".into()),
             ok: true,
             rows: Some(2),
             elapsed: Duration::from_millis(5),

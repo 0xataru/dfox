@@ -97,9 +97,9 @@ impl App {
                     (Action::Help, "keys"),
                 ],
                 Some(Panel::Explorer) => &[
+                    (Action::Confirm, "open"),
+                    (Action::Inspect, "insert"),
                     (Action::Filter, "filter"),
-                    (Action::Execute, "run"),
-                    (Action::Menu, "menu"),
                     (Action::Help, "keys"),
                 ],
                 _ => &[

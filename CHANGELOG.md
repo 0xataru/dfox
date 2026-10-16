@@ -7,6 +7,18 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Enter on a table or view in the explorer shows its rows in the results;
+  → still lists its columns. Copy as INSERT names that table
+- `i` in the explorer puts the selected name at the editor's cursor: a
+  column by itself, a table without its schema when the schema is in use
+
+### Fixed
+
+- Names that are reserved words, such as `order` or `user`, are quoted in
+  completions and in copied INSERT statements
+
 ## [0.3.0] - 2026-10-16
 
 ### Added

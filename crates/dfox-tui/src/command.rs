@@ -1,5 +1,7 @@
 //! What a component asks the app to do in response to an action.
 
+use dfox_core::catalog::NodePath;
+
 use crate::{components::manager::EntryKey, connections::Connection};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,4 +37,11 @@ pub enum Command {
     },
     /// Runs SQL that was confirmed.
     RunConfirmed(String),
+    /// Shows the rows of the table at `path`; `name` is how SQL names it.
+    Browse {
+        path: NodePath,
+        name: Vec<String>,
+    },
+    /// Puts a name, quoted for the dialect, at the editor's cursor.
+    InsertName(Vec<String>),
 }
