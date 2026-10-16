@@ -22,6 +22,18 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   and reads with consistency `ONE`, as `cqlsh` does, so a single node or a
   cluster with replicas down still answers. Encrypted connections to
   Cassandra aren't supported yet
+- CQL has its own colours in the editor (`KEYSPACE`, `ALLOW FILTERING`,
+  `BATCH`, `TTL`, `frozen`, `map`, …), and copied `INSERT` statements write
+  blobs as `0x…`
+- The table menu on Cassandra offers "Partition rows…": the last 100 rows of
+  the partition you name, the highest clustering keys first (the newest, for
+  time series), as CQL can order rows only within a partition
+- Clicking a tab's name switches to it, and the status bar shows F1 for the
+  connection list
+
+### Fixed
+
+- A timing test of the explorer's filter no longer fails on a busy CI machine
 
 ### Added
 

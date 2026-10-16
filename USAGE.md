@@ -77,7 +77,8 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 
 ### Explorer
 - **Enter** on a table, view or collection - Its menu: first or last 100 rows, all rows,
-  filtered rows, an exact count, scripts, properties, refresh, truncate or drop
+  filtered rows, an exact count, scripts, properties, refresh, truncate or drop. On
+  Cassandra, the last 100 rows of a partition you name instead
 - **→** - Open a database, schema or table: a table holds its columns, constraints,
   indexes, triggers and policies
 - **Enter** on a column - Its card: type, keys, indexes, comment, and what its values look
@@ -106,7 +107,8 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - `DELETE` or `UPDATE` without `WHERE`, `DROP`, `TRUNCATE` and `ALTER … DROP` ask first
   (**y** runs them; **Enter** doesn't). Read-only connections don't send queries that write
 - **Ctrl+N** / **Ctrl+W** - New / close query tab; **Ctrl+PgDn** / **Ctrl+PgUp** (or
-  **Alt+]** / **Alt+[**) switch tabs. Each tab keeps its own results
+  **Alt+]** / **Alt+[**, or a click on a tab's name) switch tabs. Each tab keeps its own
+  results. On a Mac keyboard, Ctrl+PgDn is **Ctrl+Fn+↓**
 
 ### Results
 - **←/→/↑/↓** - Move between cells; **Ctrl+←/→** first/last column

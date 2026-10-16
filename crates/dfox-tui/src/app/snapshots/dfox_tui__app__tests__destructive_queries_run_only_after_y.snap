@@ -21,4 +21,4 @@ expression: "test.snapshot(80, 20)"
 │                    ││                                                        │
 │                    ││                                                        │
 ╰────────────────────╯╰────────────────────────────────────────────────────────╯
- dfox  ▌◆ prod · shop                F5 run  Ctrl+P commands  Tab focus  ? keys
+ dfox  ▌◆ prod · shop           F5 run  Ctrl+P commands  F1 connections  ? keys

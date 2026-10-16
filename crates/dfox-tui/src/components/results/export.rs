@@ -237,6 +237,7 @@ fn literal(cell: Cell<'_>, dialect: Dialect) -> String {
             match dialect {
                 Dialect::Postgres => format!("'\\x{hex}'"),
                 Dialect::MySql | Dialect::Sqlite => format!("X'{hex}'"),
+                Dialect::Cql => format!("0x{hex}"),
             }
         }
         other => {

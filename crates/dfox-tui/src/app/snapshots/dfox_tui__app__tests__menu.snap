@@ -33,4 +33,4 @@ expression: "test.snapshot(120, 32)"
 │                                ││                                                         │ ?  Keys                  │
 │                                ││                                                         │ q  Quit                  │
 ╰────────────────────────────────╯╰─────────────────────────────────────────────────────────╰──────────────────────────╯
- dfox  ▌◆ prod · shop                                               i inspect  y copy as  Tab focus  Space menu  ? keys
+ dfox  ▌◆ prod · shop                                                      i inspect  y copy as  F1 connections  ? keys
