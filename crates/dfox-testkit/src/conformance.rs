@@ -1,7 +1,8 @@
 //! The test suite every driver's [`Session`] must pass, against its own
-//! database: connecting, walking the catalog, browsing, every kind of value,
-//! streaming a million rows, row limits, cancelling, transactions that stay
-//! on the session, and edits from the grid.
+//! database: connecting, walking the catalog, listing every column for
+//! autocomplete, browsing, every kind of value, streaming a million rows, row
+//! limits, cancelling, transactions that stay on the session, and edits from
+//! the grid.
 //!
 //! A driver's tests describe its database in a [`Fixture`] and call
 //! [`check`]. Checks for capabilities the session doesn't claim are skipped.
@@ -131,6 +132,22 @@ async fn catalog_walk(session: &mut dyn Session, fixture: &Fixture) {
     let names: Vec<&str> = info.columns.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["id", "name"]);
     assert!(info.columns[0].primary_key, "id is the primary key");
+
+    // Autocomplete reads every column under the table's parent at once.
+    let parts = fixture.table.parts();
+    let (table, parent) = parts.split_last().expect("a table path");
+    let parent: NodePath = parent.iter().cloned().collect();
+    let columns = session
+        .catalog()
+        .all_columns(&parent)
+        .await
+        .unwrap_or_else(|err| panic!("all columns of {:?}: {err}", parent.parts()));
+    let of_table: Vec<&str> = columns
+        .iter()
+        .filter(|c| &c.table == table)
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(of_table, ["id", "name"], "all columns, in order");
 }
 
 async fn browse(session: &mut dyn Session, fixture: &Fixture) {
