@@ -7,7 +7,7 @@
 
 use sqlparser::tokenizer::Token;
 
-use super::{lex, Dialect, Lexeme};
+use super::{lex, slice, statements, Dialect, Lexeme};
 
 /// What the guard found in a script.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -27,12 +27,16 @@ const WRITES: &[&str] = &[
 
 pub fn check(sql: &str, dialect: Dialect) -> Findings {
     let mut findings = Findings::default();
-    let tokens: Vec<Lexeme> = lex(sql, dialect)
-        .into_iter()
-        .filter(|l| !l.trivia)
-        .collect();
-    for statement in tokens.split(|l| l.semicolon) {
-        check_statement(statement, &mut findings);
+    let lines: Vec<String> = sql.split('\n').map(str::to_string).collect();
+    // Statements as the editor splits them: a routine's body is part of
+    // the CREATE that holds it, and `DELIMITER` lines are left out.
+    for statement in statements(sql, dialect) {
+        let text = slice(&lines, statement.start, statement.end);
+        let tokens: Vec<Lexeme> = lex(&text, dialect)
+            .into_iter()
+            .filter(|l| !l.trivia && !l.semicolon)
+            .collect();
+        check_statement(&tokens, &mut findings);
     }
     findings
 }
@@ -215,6 +219,19 @@ mod tests {
         for sql in cases {
             assert!(destructive(sql).is_empty(), "{sql}: {:?}", destructive(sql));
         }
+    }
+
+    #[test]
+    fn routine_bodies_and_delimiters_are_read_as_the_editor_splits_them() {
+        let procedure = "CREATE PROCEDURE purge() BEGIN DELETE FROM logs; END;";
+        let found = check(procedure, Dialect::MySql);
+        assert!(found.destructive.is_empty(), "{:?}", found.destructive);
+        assert!(found.writes);
+        let script = "DELIMITER $$\nSELECT 1$$\nDELETE FROM logs$$\nDELIMITER ;";
+        assert_eq!(
+            check(script, Dialect::MySql).destructive,
+            ["DELETE without WHERE on logs"]
+        );
     }
 
     #[test]

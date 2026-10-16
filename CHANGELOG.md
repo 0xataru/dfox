@@ -7,6 +7,20 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- `DELIMITER` lines in MySQL scripts, as the mysql client reads them:
+  `DELIMITER $$` makes `$$` end a statement until `DELIMITER ;`. Running a
+  script sends it to the server without them
+
+### Fixed
+
+- Running the statement under the cursor sends a whole procedure, function,
+  trigger or event: the `;` inside its `BEGIN … END` no longer cut it short.
+  The same goes for SQLite triggers and PostgreSQL `BEGIN ATOMIC` bodies
+- The destructive-query check reads statements the same way, so a
+  `DELETE` inside a procedure's body no longer asks for confirmation
+
 ## [0.3.1] - 2026-10-16
 
 ### Added

@@ -162,3 +162,75 @@ fn names_are_quoted_only_when_they_must_be() {
         assert_eq!(quote_ident(name, dialect), quoted, "{name}");
     }
 }
+
+fn split(text: &str, dialect: Dialect) -> Vec<String> {
+    statements(text, dialect)
+        .iter()
+        .map(|s| slice(&lines(text), s.start, s.end))
+        .collect()
+}
+
+#[test]
+fn routine_bodies_stay_whole() {
+    let procedure = "CREATE PROCEDURE p(n INT)\nBEGIN\n  IF n > 0 THEN\n    SELECT 1;\n  END IF;\n  \
+                     WHILE n > 0 DO SET n = n - 1; END WHILE;\n  SELECT CASE WHEN n = 0 THEN 'a' ELSE 'b' END;\n  \
+                     CASE n WHEN 1 THEN SELECT 1; ELSE SELECT 2; END CASE;\nEND;";
+    let text = format!("{procedure}\nSELECT 2;");
+    assert_eq!(split(&text, Dialect::MySql), [procedure, "SELECT 2;"]);
+
+    let trigger = "CREATE TRIGGER t AFTER INSERT ON a BEGIN UPDATE b SET n = n + 1; END;";
+    assert_eq!(
+        split(&format!("{trigger} SELECT 1;"), Dialect::Sqlite),
+        [trigger, "SELECT 1;"]
+    );
+    let atomic = "CREATE FUNCTION f() RETURNS int LANGUAGE sql BEGIN ATOMIC SELECT 1; END;";
+    assert_eq!(
+        split(&format!("{atomic}\nselect 2"), Dialect::Postgres),
+        [atomic, "select 2"]
+    );
+    // BEGIN alone starts a transaction.
+    assert_eq!(
+        split("BEGIN; INSERT INTO t VALUES (1); COMMIT;", Dialect::MySql),
+        ["BEGIN;", "INSERT INTO t VALUES (1);", "COMMIT;"]
+    );
+    assert_eq!(
+        split("CREATE TABLE event (n INT); SELECT 1;", Dialect::MySql),
+        ["CREATE TABLE event (n INT);", "SELECT 1;"]
+    );
+}
+
+#[test]
+fn delimiter_lines_change_what_ends_a_statement() {
+    let text = "SELECT 1;\nDELIMITER $$\nCREATE PROCEDURE p()\nBEGIN\n  SELECT '$$';\n  -- not here $$\n  \
+                SELECT 2;\nEND$$\nSELECT 3$$\ndelimiter ;\nSELECT 4;";
+    assert_eq!(
+        split(text, Dialect::MySql),
+        [
+            "SELECT 1;",
+            "CREATE PROCEDURE p()\nBEGIN\n  SELECT '$$';\n  -- not here $$\n  SELECT 2;\nEND",
+            "SELECT 3",
+            "SELECT 4;"
+        ]
+    );
+    // The cursor on the procedure's body runs the procedure.
+    let at = statement_at(text, (6, 3), Dialect::MySql).expect("a statement");
+    assert_eq!(at.start, (2, 0));
+    // Only MySQL has directives.
+    assert_eq!(
+        split("DELIMITER //\nSELECT 1//", Dialect::Postgres).len(),
+        1
+    );
+    assert_eq!(split("DELIMITER //", Dialect::MySql), Vec::<String>::new());
+
+    assert_eq!(
+        without_delimiters(text, Dialect::MySql).as_deref(),
+        Some(
+            "SELECT 1;\nCREATE PROCEDURE p()\nBEGIN\n  SELECT '$$';\n  -- not here $$\n  SELECT 2;\nEND;\n\
+             SELECT 3;\nSELECT 4;"
+        )
+    );
+    assert_eq!(
+        without_delimiters("SELECT 1; SELECT 2", Dialect::MySql),
+        None
+    );
+}

@@ -512,3 +512,23 @@ async fn an_error_later_in_a_script_fails_it() {
     .await;
     assert!(ddl.is_err());
 }
+
+#[tokio::test]
+async fn delimiter_scripts_run_as_the_mysql_client_runs_them() {
+    let Some(mut s) = session().await else { return };
+    let name = unique("dfox_it_delim");
+    let script = format!(
+        "DELIMITER $$\n\
+         CREATE PROCEDURE {name}(n INT)\n\
+         BEGIN\n  \
+           DECLARE i INT DEFAULT 0;\n  \
+           WHILE i < n DO SET i = i + 1; END WHILE;\n  \
+           SELECT i AS counted;\n\
+         END$$\n\
+         DELIMITER ;\n\
+         CALL {name}(3);"
+    );
+    let out = run(s.as_mut(), &script, 10).await.expect("run");
+    assert_eq!(scalar(&out), Some("3"));
+    execute(s.as_mut(), &format!("DROP PROCEDURE {name}")).await;
+}
