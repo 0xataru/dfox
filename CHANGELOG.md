@@ -7,33 +7,7 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
-### Added
-
-- Cassandra and ScyllaDB. Connect with `cassandra://` (or `scylla://`) or the
-  connection form; the explorer lists keyspaces and their tables and
-  materialized views, with the partition and clustering keys, secondary
-  indexes and the `CREATE` statement the server describes. CQL runs one
-  statement at a time, batches whole, and SELECTs page through big tables in
-  batches. Rows keep their types: integers, exact decimals and varints,
-  timestamps, dates, times, uuids, and collections, tuples and user-defined
-  types as JSON. The table menu's filtered rows add `ALLOW FILTERING`; a
-  read-only connection refuses statements that write. dfox connects through
-  the address given, so clusters behind Docker, NAT or an SSH tunnel work,
-  and reads with consistency `ONE`, as `cqlsh` does, so a single node or a
-  cluster with replicas down still answers. Encrypted connections to
-  Cassandra aren't supported yet
-- CQL has its own colours in the editor (`KEYSPACE`, `ALLOW FILTERING`,
-  `BATCH`, `TTL`, `frozen`, `map`, …), and copied `INSERT` statements write
-  blobs as `0x…`
-- The table menu on Cassandra offers "Partition rows…": the last 100 rows of
-  the partition you name, the highest clustering keys first (the newest, for
-  time series), as CQL can order rows only within a partition
-- Clicking a tab's name switches to it, and the status bar shows F1 for the
-  connection list
-
-### Fixed
-
-- A timing test of the explorer's filter no longer fails on a busy CI machine
+## [0.3.3] - 2026-10-16
 
 ### Added
 
@@ -48,19 +22,40 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   `NumberLong(…)` and `/regex/`. Documents show as columns learnt from them:
   numbers, text, dates and ids as such, objects and arrays as JSON. Running
   commands can be cancelled, and a read-only connection refuses those that
-  write. The table menu shows rows with `find` queries, writes `find`,
-  `insertOne`, `updateOne` and `deleteOne` scripts, and deletes every
-  document or drops the collection
+  write
 - The editor reads mongo shell commands as such: F5 runs the command under
   the cursor, across lines, and commands are coloured, with `$operators`
   standing out. Completion offers collections after `db.`, methods after
   `db.orders.`, and the collection's fields as keys inside `{ … }`.
   Deleting or updating without a filter, `drop()` and `dropDatabase()` ask
-  first, as `DELETE` without `WHERE` does
+  first, as `DELETE` without `WHERE` does. The table menu shows a
+  collection's rows with `find` queries, writes `find`, `insertOne`,
+  `updateOne` and `deleteOne` scripts, and deletes every document or drops
+  the collection
+- Cassandra and ScyllaDB. Connect with `cassandra://` (or `scylla://`) or the
+  connection form; the explorer lists keyspaces and their tables and
+  materialized views, with the partition and clustering keys, secondary
+  indexes and the `CREATE` statement the server describes. CQL runs one
+  statement at a time, batches whole, and SELECTs page through big tables in
+  batches. Rows keep their types: integers, exact decimals and varints,
+  timestamps, dates, times, uuids, and collections, tuples and user-defined
+  types as JSON. A read-only connection refuses statements that write. dfox
+  connects through the address given, so clusters behind Docker, NAT or an
+  SSH tunnel work, and reads with consistency `ONE`, as `cqlsh` does, so a
+  single node or a cluster with replicas down still answers. Encrypted
+  connections to Cassandra aren't supported yet
+- CQL has its own colours in the editor (`KEYSPACE`, `ALLOW FILTERING`,
+  `BATCH`, `TTL`, `frozen`, `map`, …). The table menu's filtered rows add
+  `ALLOW FILTERING`, and "Partition rows…" shows the last 100 rows of the
+  partition you name, the highest clustering keys first (the newest, for
+  time series), as CQL can order rows only within a partition
+- Clicking a tab's name switches to it, and the status bar shows F1 for the
+  connection list
 
 ### Changed
 
-- Release binaries are stripped of debug symbols: 17.3 MB down to 15.0 MB
+- Release binaries are stripped of debug symbols, which makes them about
+  2.3 MB smaller
 
 ## [0.3.2] - 2026-10-16
 
