@@ -188,3 +188,43 @@ pub fn ints(values: &[i64]) -> (arrow_schema::SchemaRef, arrow_array::RecordBatc
         values.iter().map(|v| vec![OwnedCell::Int(*v)]).collect(),
     )
 }
+
+/// Rows of cells read through [`ResultSet`](dfox_core::result::ResultSet),
+/// for tests of code that takes any result: a column may mix kinds of value,
+/// as no Arrow result can.
+#[derive(Debug, Default)]
+pub struct Cells {
+    pub columns: Vec<dfox_core::result::ColumnMeta>,
+    pub rows: Vec<Vec<dfox_core::result::OwnedCell>>,
+}
+
+impl Cells {
+    pub fn new(columns: Vec<dfox_core::result::ColumnMeta>) -> Self {
+        Self {
+            columns,
+            rows: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, row: Vec<dfox_core::result::OwnedCell>) {
+        self.rows.push(row);
+    }
+}
+
+impl dfox_core::result::ResultSet for Cells {
+    fn columns(&self) -> &[dfox_core::result::ColumnMeta] {
+        &self.columns
+    }
+
+    fn row_count(&self) -> usize {
+        self.rows.len()
+    }
+
+    fn cell(&self, row: usize, col: usize) -> Option<dfox_core::result::Cell<'_>> {
+        self.rows.get(row)?.get(col).map(|c| c.as_cell())
+    }
+
+    fn is_complete(&self) -> bool {
+        true
+    }
+}

@@ -1,10 +1,10 @@
-//! Drawing a 200×60 result grid scrolled to the end of a million rows, from
-//! cells and from Arrow batches. The budget is 2 ms per frame.
+//! Drawing a 200×60 result grid scrolled to the end of a million rows held
+//! as Arrow batches. The budget is 2 ms per frame.
 
 use std::collections::BTreeMap;
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use dfox_bench::{arrow_result, row_store};
+use dfox_bench::arrow_result;
 use dfox_core::result::ResultSet;
 use dfox_tui::{
     action::Action,
@@ -38,7 +38,6 @@ fn draw(c: &mut Criterion, name: &str, result: &impl ResultSet) {
 }
 
 fn grid(c: &mut Criterion) {
-    draw(c, "grid/cells 1M×20", &row_store(1_000_000, 20));
     draw(c, "grid/arrow 1M×20", &arrow_result(1_000_000, 20));
 }
 

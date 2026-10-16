@@ -253,10 +253,12 @@ fn literal(cell: Cell<'_>, dialect: Dialect) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dfox_core::result::{ColumnMeta, OwnedCell, RowStore};
+    use dfox_core::result::{ColumnMeta, OwnedCell};
 
-    fn sample() -> RowStore {
-        let mut store = RowStore::new(vec![
+    use crate::testing::Cells;
+
+    fn sample() -> Cells {
+        let mut store = Cells::new(vec![
             ColumnMeta::new("id", "int4"),
             ColumnMeta::new("Name", "text"),
             ColumnMeta::new("price", "numeric"),
@@ -274,7 +276,6 @@ mod tests {
             OwnedCell::Null,
             OwnedCell::Bytes(vec![0xde, 0xad].into()),
         ]);
-        store.finish();
         store
     }
 

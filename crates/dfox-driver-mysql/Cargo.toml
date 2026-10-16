@@ -8,10 +8,8 @@ repository.workspace = true
 
 [dependencies]
 dfox-core = { path = "../dfox-core" }
-async-trait = "0.1.77"
 futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
 log = "0.4.21"
-sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql"] }
 tokio = { version = "1.40.0", features = ["full"] }
 mysql_async = { version = "0.37.1", default-features = false, features = ["minimal-rust", "rustls-tls", "ring", "tls12"] }
 dfox-sql = { version = "0.2.0", path = "../dfox-sql" }

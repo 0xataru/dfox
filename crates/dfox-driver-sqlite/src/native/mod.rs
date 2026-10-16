@@ -191,6 +191,8 @@ fn send(tx: &FrameTx, frame: Frame) -> Result<(), DbError> {
 
 /// Runs each statement of `sql`, as SQLite splits it.
 fn run_script(conn: &Connection, sql: &str, limit: usize, tx: &FrameTx) -> Result<(), DbError> {
+    use rusqlite::fallible_iterator::FallibleIterator;
+
     let mut batch = rusqlite::Batch::new(conn, sql);
     while let Some(mut stmt) = batch.next().map_err(db_error)? {
         run_statement(conn, &mut stmt, limit, tx)?;

@@ -1,11 +1,21 @@
 //! Query results as the UI reads them.
 //!
-//! The result grid depends only on [`ResultSet`], so the storage behind it can
-//! change (rows today, Arrow batches later) without touching the UI.
+//! The result grid depends only on [`ResultSet`], so it doesn't care how the
+//! rows are stored: [`ArrowResultSet`](crate::arrow::ArrowResultSet) holds
+//! them as Arrow batches.
 
 use std::fmt;
 
-use crate::db::hex;
+/// Bytes as `0x…` hex.
+pub(crate) fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(2 + bytes.len() * 2);
+    s.push_str("0x");
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
+}
 
 /// A result column: its name as the query returned it, and the database's
 /// name for its type (`int4`, `VARCHAR`, …), empty when unknown.
@@ -72,7 +82,7 @@ impl fmt::Display for Cell<'_> {
     }
 }
 
-/// One owned value, as stored in a [`RowStore`].
+/// One owned value: a parameter, an edited cell, or a value the app made.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum OwnedCell {
@@ -124,117 +134,14 @@ pub trait ResultSet {
     fn is_complete(&self) -> bool;
 }
 
-/// In-memory [`ResultSet`] that grows as rows arrive. Column names are stored
-/// once, not per row.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct RowStore {
-    columns: Vec<ColumnMeta>,
-    rows: Vec<Box<[OwnedCell]>>,
-    complete: bool,
-}
-
-impl RowStore {
-    pub fn new(columns: Vec<ColumnMeta>) -> Self {
-        Self {
-            columns,
-            rows: Vec::new(),
-            complete: false,
-        }
-    }
-
-    /// Appends a row. A row with the wrong number of values is padded with
-    /// NULLs or cut to fit, so the grid never reads out of range.
-    pub fn push(&mut self, row: impl Into<Vec<OwnedCell>>) {
-        let mut row = row.into();
-        if row.len() != self.columns.len() {
-            log::warn!(
-                "row has {} values for {} columns",
-                row.len(),
-                self.columns.len()
-            );
-            row.resize(self.columns.len(), OwnedCell::Null);
-        }
-        self.rows.push(row.into_boxed_slice());
-    }
-
-    /// Marks the result as complete: no more rows will be appended.
-    pub fn finish(&mut self) {
-        self.complete = true;
-    }
-}
-
-impl Extend<Vec<OwnedCell>> for RowStore {
-    fn extend<I: IntoIterator<Item = Vec<OwnedCell>>>(&mut self, rows: I) {
-        for row in rows {
-            self.push(row);
-        }
-    }
-}
-
-impl ResultSet for RowStore {
-    fn columns(&self) -> &[ColumnMeta] {
-        &self.columns
-    }
-
-    fn row_count(&self) -> usize {
-        self.rows.len()
-    }
-
-    fn cell(&self, row: usize, col: usize) -> Option<Cell<'_>> {
-        self.rows.get(row)?.get(col).map(OwnedCell::as_cell)
-    }
-
-    fn is_complete(&self) -> bool {
-        self.complete
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn store() -> RowStore {
-        RowStore::new(vec![
-            ColumnMeta::new("id", "int8"),
-            ColumnMeta::new("name", "text"),
-        ])
-    }
-
     #[test]
-    fn rows_append_and_read_back() {
-        let mut rs = store();
-        assert_eq!(rs.row_count(), 0);
-        assert!(!rs.is_complete());
-
-        rs.push(vec![OwnedCell::Int(1), OwnedCell::Text("a".into())]);
-        rs.extend([vec![OwnedCell::Int(2), OwnedCell::Null]]);
-        rs.finish();
-
-        assert_eq!(rs.row_count(), 2);
-        assert!(rs.is_complete());
-        assert_eq!(rs.columns()[1].name, "name");
-        assert_eq!(rs.cell(0, 1), Some(Cell::Text("a")));
-        assert_eq!(rs.cell(1, 0), Some(Cell::Int(2)));
-        assert_eq!(rs.cell(1, 1), Some(Cell::Null));
-    }
-
-    #[test]
-    fn out_of_range_is_none() {
-        let mut rs = store();
-        rs.push(vec![OwnedCell::Int(1), OwnedCell::Null]);
-
-        assert_eq!(rs.cell(0, 2), None);
-        assert_eq!(rs.cell(1, 0), None);
-    }
-
-    #[test]
-    fn rows_of_the_wrong_width_are_fitted_to_the_columns() {
-        let mut rs = store();
-        rs.push(vec![OwnedCell::Int(1)]);
-        rs.push(vec![OwnedCell::Int(2), OwnedCell::Null, OwnedCell::Int(3)]);
-
-        assert_eq!(rs.cell(0, 1), Some(Cell::Null));
-        assert_eq!(rs.cell(1, 2), None);
+    fn hex_has_a_prefix_even_when_empty() {
+        assert_eq!(hex(&[0xde, 0xad]), "0xdead");
+        assert_eq!(hex(&[]), "0x");
     }
 
     #[test]

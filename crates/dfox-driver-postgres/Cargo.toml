@@ -8,10 +8,8 @@ repository.workspace = true
 
 [dependencies]
 dfox-core = { path = "../dfox-core" }
-async-trait = "0.1.77"
 futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
 log = "0.4.21"
-sqlx = { version = "0.8.2", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres"] }
 tokio = { version = "1.40.0", features = ["full"] }
 tokio-postgres = "0.7.18"
 tokio-postgres-rustls = { version = "0.14.0", features = ["ring"] }
