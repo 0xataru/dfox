@@ -80,11 +80,29 @@ enum Overlay {
     Palette(Palette),
     Menu,
     Confirm(Confirm),
-    /// Typing the password for `connection`.
+    /// Typing a password for `connection`: the database's, or the SSH
+    /// jump host's.
     Password {
         connection: Connection,
         typed: String,
+        ask: Ask,
     },
+}
+
+/// Which secret the password prompt asks for, with what is known already.
+#[derive(Debug, Clone, PartialEq)]
+enum Ask {
+    Database { ssh: Option<String> },
+    Ssh { password: String },
+}
+
+/// The secrets a connection was made with, kept in memory to switch
+/// databases on the same server.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Credentials {
+    password: String,
+    /// The SSH password or key passphrase.
+    ssh: Option<String>,
 }
 
 /// A connection being made: to a server, or to another database on the
@@ -92,7 +110,7 @@ enum Overlay {
 #[derive(Debug, Clone, PartialEq)]
 struct Connecting {
     connection: Connection,
-    password: String,
+    credentials: Credentials,
     /// Set when switching the session to this database.
     switch_to: Option<String>,
 }
@@ -101,8 +119,7 @@ struct Connecting {
 #[derive(Debug, Clone, PartialEq)]
 struct Session {
     connection: Connection,
-    /// Kept in memory to switch databases on the same server.
-    password: String,
+    credentials: Credentials,
     database: String,
 }
 
@@ -488,18 +505,38 @@ impl App {
             Overlay::Password {
                 connection,
                 mut typed,
+                ask,
             } => match key.code {
-                KeyCode::Enter => self.start_connect(connection, typed, None),
+                KeyCode::Enter => match ask {
+                    Ask::Database { ssh } => self.connect_with(connection, Some(typed), ssh),
+                    Ask::Ssh { password } => {
+                        self.connect_with(connection, Some(password), Some(typed))
+                    }
+                },
                 KeyCode::Esc => {}
                 KeyCode::Backspace => {
                     typed.pop();
-                    self.overlay = Some(Overlay::Password { connection, typed });
+                    self.overlay = Some(Overlay::Password {
+                        connection,
+                        typed,
+                        ask,
+                    });
                 }
                 KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                     typed.push(c);
-                    self.overlay = Some(Overlay::Password { connection, typed });
+                    self.overlay = Some(Overlay::Password {
+                        connection,
+                        typed,
+                        ask,
+                    });
                 }
-                _ => self.overlay = Some(Overlay::Password { connection, typed }),
+                _ => {
+                    self.overlay = Some(Overlay::Password {
+                        connection,
+                        typed,
+                        ask,
+                    })
+                }
             },
         }
     }
@@ -600,8 +637,16 @@ impl App {
             Some(Overlay::Palette(palette)) => palette.render(f, main, ctx),
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
-            Some(Overlay::Password { connection, typed }) => {
-                prompt::render(f, main, &connection.name, typed.chars().count(), ctx)
+            Some(Overlay::Password {
+                connection,
+                typed,
+                ask,
+            }) => {
+                let title = match ask {
+                    Ask::Database { .. } => format!("Password for {}", connection.name),
+                    Ask::Ssh { .. } => format!("SSH password for {}", connection.name),
+                };
+                prompt::render(f, main, &title, typed.chars().count(), ctx)
             }
             None => {}
         }

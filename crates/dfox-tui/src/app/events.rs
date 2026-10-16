@@ -71,7 +71,7 @@ impl App {
             .push(format!("Connected to {} ({database})", connection.name));
         self.session = Some(Session {
             connection,
-            password: connecting.password,
+            credentials: connecting.credentials,
             database: database.clone(),
         });
         if switching {

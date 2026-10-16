@@ -15,9 +15,11 @@ pub enum Command {
     SaveConnection {
         /// The saved connection being replaced, by name.
         original: Option<String>,
-        connection: Connection,
+        connection: Box<Connection>,
         /// A new password to keep in the keychain.
         password: Option<String>,
+        /// A new SSH password or key passphrase to keep in the keychain.
+        ssh_secret: Option<String>,
     },
     ConfirmDelete(String),
     DeleteConnection(String),

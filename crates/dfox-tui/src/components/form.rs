@@ -17,7 +17,7 @@ use crate::{
     action::Action,
     command::Command,
     component::{Component, Ctx, RenderCtx},
-    connections::{Connection, Tag},
+    connections::{Connection, Ssh, SshLogin, Tag},
     widgets::centered,
 };
 
@@ -31,20 +31,23 @@ enum Field {
     User,
     Password,
     Tls,
+    CaFile,
+    Ssh,
+    SshHost,
+    SshPort,
+    SshUser,
+    SshKey,
+    SshSecret,
+    KnownHosts,
     ReadOnly,
     Tag,
 }
 
 impl Field {
     fn is_text(self) -> bool {
-        matches!(
+        !matches!(
             self,
-            Field::Name
-                | Field::Host
-                | Field::Port
-                | Field::Database
-                | Field::User
-                | Field::Password
+            Field::Driver | Field::Tls | Field::Ssh | Field::ReadOnly | Field::Tag
         )
     }
 }
@@ -55,6 +58,13 @@ const TLS: [TlsMode; 4] = [
     TlsMode::Require,
     TlsMode::VerifyFull,
     TlsMode::Disable,
+];
+/// No SSH, then each way of logging in.
+const SSH: [Option<SshLogin>; 4] = [
+    None,
+    Some(SshLogin::Agent),
+    Some(SshLogin::Key),
+    Some(SshLogin::Password),
 ];
 
 #[derive(Debug)]
@@ -69,6 +79,15 @@ pub struct ConnectionForm {
     user: String,
     password: String,
     tls: TlsMode,
+    ca_file: String,
+    /// How to log in to the jump host; `None` connects directly.
+    ssh: Option<SshLogin>,
+    ssh_host: String,
+    ssh_port: String,
+    ssh_user: String,
+    ssh_key: String,
+    ssh_secret: String,
+    known_hosts: String,
     read_only: bool,
     tag: Tag,
     field: usize,
@@ -78,6 +97,22 @@ pub struct ConnectionForm {
 impl Default for ConnectionForm {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// `text` trimmed, or `None` when empty.
+fn optional(text: &str) -> Option<String> {
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+fn port(text: &str) -> Result<Option<u16>, String> {
+    match text.trim() {
+        "" => Ok(None),
+        port => port
+            .parse()
+            .map(Some)
+            .map_err(|_| format!("Invalid port: {port}")),
     }
 }
 
@@ -93,6 +128,8 @@ impl ConnectionForm {
         connection: &Connection,
         password: Option<String>,
     ) -> Self {
+        let ssh = connection.ssh.as_ref();
+        let ssh_text = |get: fn(&Ssh) -> Option<String>| ssh.and_then(get).unwrap_or_default();
         Self {
             original,
             name: connection.name.clone(),
@@ -103,6 +140,14 @@ impl ConnectionForm {
             user: connection.user.clone(),
             password: password.unwrap_or_default(),
             tls: connection.tls,
+            ca_file: connection.ca_file.clone().unwrap_or_default(),
+            ssh: ssh.map(|s| s.login),
+            ssh_host: ssh_text(|s| Some(s.host.clone())),
+            ssh_port: ssh_text(|s| s.port.map(|p| p.to_string())),
+            ssh_user: ssh_text(|s| Some(s.user.clone())),
+            ssh_key: ssh_text(|s| s.key.clone()),
+            ssh_secret: String::new(),
+            known_hosts: ssh_text(|s| s.known_hosts.clone()),
             read_only: connection.read_only,
             tag: connection.tag,
             field: 0,
@@ -112,27 +157,40 @@ impl ConnectionForm {
 
     fn fields(&self) -> Vec<Field> {
         if self.driver == DbType::Sqlite {
-            vec![
+            return vec![
                 Field::Name,
                 Field::Driver,
                 Field::Database,
                 Field::ReadOnly,
                 Field::Tag,
-            ]
-        } else {
-            vec![
-                Field::Name,
-                Field::Driver,
-                Field::Host,
-                Field::Port,
-                Field::Database,
-                Field::User,
-                Field::Password,
-                Field::Tls,
-                Field::ReadOnly,
-                Field::Tag,
-            ]
+            ];
         }
+        let mut fields = vec![
+            Field::Name,
+            Field::Driver,
+            Field::Host,
+            Field::Port,
+            Field::Database,
+            Field::User,
+            Field::Password,
+            Field::Tls,
+        ];
+        if self.tls == TlsMode::VerifyFull {
+            fields.push(Field::CaFile);
+        }
+        fields.push(Field::Ssh);
+        if let Some(login) = self.ssh {
+            fields.extend([Field::SshHost, Field::SshPort, Field::SshUser]);
+            if login == SshLogin::Key {
+                fields.push(Field::SshKey);
+            }
+            if login != SshLogin::Agent {
+                fields.push(Field::SshSecret);
+            }
+            fields.push(Field::KnownHosts);
+        }
+        fields.extend([Field::ReadOnly, Field::Tag]);
+        fields
     }
 
     fn current(&self) -> Field {
@@ -140,16 +198,42 @@ impl ConnectionForm {
         fields[self.field.min(fields.len() - 1)]
     }
 
+    fn text(&self, field: Field) -> Option<&String> {
+        Some(match field {
+            Field::Name => &self.name,
+            Field::Host => &self.host,
+            Field::Port => &self.port,
+            Field::Database => &self.database,
+            Field::User => &self.user,
+            Field::Password => &self.password,
+            Field::CaFile => &self.ca_file,
+            Field::SshHost => &self.ssh_host,
+            Field::SshPort => &self.ssh_port,
+            Field::SshUser => &self.ssh_user,
+            Field::SshKey => &self.ssh_key,
+            Field::SshSecret => &self.ssh_secret,
+            Field::KnownHosts => &self.known_hosts,
+            _ => return None,
+        })
+    }
+
     fn text_mut(&mut self, field: Field) -> Option<&mut String> {
-        match field {
-            Field::Name => Some(&mut self.name),
-            Field::Host => Some(&mut self.host),
-            Field::Port => Some(&mut self.port),
-            Field::Database => Some(&mut self.database),
-            Field::User => Some(&mut self.user),
-            Field::Password => Some(&mut self.password),
-            _ => None,
-        }
+        Some(match field {
+            Field::Name => &mut self.name,
+            Field::Host => &mut self.host,
+            Field::Port => &mut self.port,
+            Field::Database => &mut self.database,
+            Field::User => &mut self.user,
+            Field::Password => &mut self.password,
+            Field::CaFile => &mut self.ca_file,
+            Field::SshHost => &mut self.ssh_host,
+            Field::SshPort => &mut self.ssh_port,
+            Field::SshUser => &mut self.ssh_user,
+            Field::SshKey => &mut self.ssh_key,
+            Field::SshSecret => &mut self.ssh_secret,
+            Field::KnownHosts => &mut self.known_hosts,
+            _ => return None,
+        })
     }
 
     /// Steps a choice field forwards or backwards.
@@ -162,10 +246,34 @@ impl ConnectionForm {
         match self.current() {
             Field::Driver => self.driver = step(&DRIVERS, self.driver, forward),
             Field::Tls => self.tls = step(&TLS, self.tls, forward),
+            Field::Ssh => self.ssh = step(&SSH, self.ssh, forward),
             Field::ReadOnly => self.read_only = !self.read_only,
             Field::Tag => self.tag = step(&Tag::ALL, self.tag, forward),
             _ => {}
         }
+    }
+
+    /// The jump host described by the form, or what is wrong with it.
+    fn ssh(&self) -> Result<Option<Ssh>, String> {
+        let Some(login) = self.ssh else {
+            return Ok(None);
+        };
+        let host = self.ssh_host.trim();
+        if host.is_empty() {
+            return Err("Enter the SSH host".to_string());
+        }
+        let key = optional(&self.ssh_key);
+        if login == SshLogin::Key && key.is_none() {
+            return Err("Enter the SSH key file".to_string());
+        }
+        Ok(Some(Ssh {
+            host: host.to_string(),
+            port: port(&self.ssh_port).map_err(|err| format!("SSH: {err}"))?,
+            user: self.ssh_user.trim().to_string(),
+            login,
+            key: key.filter(|_| login == SshLogin::Key),
+            known_hosts: optional(&self.known_hosts),
+        }))
     }
 
     /// The connection described by the form, or what is wrong with it.
@@ -174,44 +282,50 @@ impl ConnectionForm {
         if name.is_empty() {
             return Err("Give the connection a name".to_string());
         }
-        let port = match self.port.trim() {
-            "" => None,
-            port => Some(port.parse().map_err(|_| format!("Invalid port: {port}"))?),
-        };
+        let port = port(&self.port)?;
         let database = self.database.trim();
         if self.driver == DbType::Sqlite && database.is_empty() {
             return Err("Enter the path of the SQLite file".to_string());
         }
         let sqlite = self.driver == DbType::Sqlite;
+        let server = |text: &str| {
+            if sqlite {
+                String::new()
+            } else {
+                text.trim().to_string()
+            }
+        };
         Ok(Connection {
             name: name.to_string(),
             driver: self.driver,
-            host: if sqlite {
-                String::new()
-            } else {
-                self.host.trim().to_string()
-            },
+            host: server(&self.host),
             port: if sqlite { None } else { port },
             database: (!database.is_empty()).then(|| database.to_string()),
-            user: if sqlite {
-                String::new()
-            } else {
-                self.user.trim().to_string()
-            },
+            user: server(&self.user),
             tls: self.tls,
+            ca_file: optional(&self.ca_file).filter(|_| !sqlite && self.tls == TlsMode::VerifyFull),
             read_only: self.read_only,
             tag: self.tag,
+            ssh: if sqlite { None } else { self.ssh()? },
         })
     }
 
     fn save(&mut self) -> Option<Command> {
         match self.connection() {
-            Ok(connection) => Some(Command::SaveConnection {
-                original: self.original.clone(),
-                password: (!self.password.is_empty() && connection.driver != DbType::Sqlite)
-                    .then(|| self.password.clone()),
-                connection,
-            }),
+            Ok(connection) => {
+                let server = connection.driver != DbType::Sqlite;
+                let ssh_secret = connection
+                    .ssh
+                    .as_ref()
+                    .filter(|ssh| ssh.login != SshLogin::Agent)
+                    .and(optional(&self.ssh_secret));
+                Some(Command::SaveConnection {
+                    original: self.original.clone(),
+                    password: (!self.password.is_empty() && server).then(|| self.password.clone()),
+                    ssh_secret,
+                    connection: Box::new(connection),
+                })
+            }
             Err(err) => {
                 self.error = Some(err);
                 None
@@ -251,68 +365,14 @@ impl Component for ConnectionForm {
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
         let fields = self.fields();
-        let form = centered(area, 64, fields.len() as u16 + 6);
+        let form = centered(area, 66, fields.len() as u16 + 6);
         let current = self.current();
         let editing_saved = self.original.is_some();
 
         let mut lines = vec![Line::from("")];
         for field in &fields {
             let focused = *field == current;
-            let (label, value, placeholder) = match field {
-                Field::Name => ("Name", self.name.clone(), "my database"),
-                Field::Driver => ("Driver", format!("‹ {} ›", driver_name(self.driver)), ""),
-                Field::Host => ("Host", self.host.clone(), "localhost"),
-                Field::Port => (
-                    "Port",
-                    self.port.clone(),
-                    if self.driver == DbType::MySql {
-                        "3306"
-                    } else {
-                        "5432"
-                    },
-                ),
-                Field::Database if self.driver == DbType::Sqlite => {
-                    ("File", self.database.clone(), "/path/to/file.db")
-                }
-                Field::Database => (
-                    "Database",
-                    self.database.clone(),
-                    if self.driver == DbType::MySql {
-                        "mysql"
-                    } else {
-                        "postgres"
-                    },
-                ),
-                Field::User => ("User", self.user.clone(), ""),
-                Field::Password => (
-                    "Password",
-                    "•".repeat(self.password.chars().count()),
-                    if editing_saved {
-                        "unchanged"
-                    } else {
-                        "asked when connecting"
-                    },
-                ),
-                Field::Tls => (
-                    "TLS",
-                    format!(
-                        "‹ {} ›",
-                        match self.tls {
-                            TlsMode::Prefer => "prefer",
-                            TlsMode::Require => "require",
-                            TlsMode::VerifyFull => "verify",
-                            TlsMode::Disable => "off",
-                        }
-                    ),
-                    "",
-                ),
-                Field::ReadOnly => (
-                    "Read-only",
-                    format!("‹ {} ›", if self.read_only { "yes" } else { "no" }),
-                    "",
-                ),
-                Field::Tag => ("Tag", format!("‹ {} ›", self.tag.name()), ""),
-            };
+            let (label, value, placeholder) = self.row(*field, editing_saved);
             let marker = if focused { ctx.icons.selected } else { " " };
             let value = if value.is_empty() {
                 Span::styled(placeholder, theme.dim())
@@ -322,7 +382,7 @@ impl Component for ConnectionForm {
                 Span::raw(value)
             };
             lines.push(Line::from(vec![
-                Span::styled(format!("{marker} {label:<10} "), theme.title(focused)),
+                Span::styled(format!("{marker} {label:<13} "), theme.title(focused)),
                 value,
             ]));
         }
@@ -345,16 +405,8 @@ impl Component for ConnectionForm {
 
         if current.is_text() {
             let index = fields.iter().position(|f| *f == current).unwrap_or(0);
-            let value_len = match current {
-                Field::Password => self.password.chars().count(),
-                Field::Name => self.name.chars().count(),
-                Field::Host => self.host.chars().count(),
-                Field::Port => self.port.chars().count(),
-                Field::Database => self.database.chars().count(),
-                Field::User => self.user.chars().count(),
-                _ => 0,
-            };
-            let x = form.x + 2 + 13 + value_len as u16;
+            let value_len = self.text(current).map_or(0, |t| t.chars().count());
+            let x = form.x + 2 + 16 + value_len as u16;
             let y = form.y + 2 + index as u16;
             if x < form.x + form.width - 1 {
                 f.set_cursor_position((x, y));
@@ -364,6 +416,73 @@ impl Component for ConnectionForm {
 
     fn wants_text(&self) -> bool {
         self.current().is_text()
+    }
+}
+
+impl ConnectionForm {
+    /// A field's label, its value as shown, and what shows when it is empty.
+    fn row(&self, field: Field, editing_saved: bool) -> (&'static str, String, &'static str) {
+        let choice = |value: &str| format!("‹ {value} ›");
+        let hidden = |text: &str| "•".repeat(text.chars().count());
+        let unchanged = if editing_saved {
+            "unchanged"
+        } else {
+            "asked when connecting"
+        };
+        let mysql = self.driver == DbType::MySql;
+        match field {
+            Field::Name => ("Name", self.name.clone(), "my database"),
+            Field::Driver => ("Driver", choice(driver_name(self.driver)), ""),
+            Field::Host => ("Host", self.host.clone(), "localhost"),
+            Field::Port => (
+                "Port",
+                self.port.clone(),
+                if mysql { "3306" } else { "5432" },
+            ),
+            Field::Database if self.driver == DbType::Sqlite => {
+                ("File", self.database.clone(), "/path/to/file.db")
+            }
+            Field::Database => (
+                "Database",
+                self.database.clone(),
+                if mysql { "mysql" } else { "postgres" },
+            ),
+            Field::User => ("User", self.user.clone(), ""),
+            Field::Password => ("Password", hidden(&self.password), unchanged),
+            Field::Tls => (
+                "TLS",
+                choice(match self.tls {
+                    TlsMode::Prefer => "prefer",
+                    TlsMode::Require => "require",
+                    TlsMode::VerifyFull => "verify",
+                    TlsMode::Disable => "off",
+                }),
+                "",
+            ),
+            Field::CaFile => ("CA file", self.ca_file.clone(), "system roots only"),
+            Field::Ssh => ("SSH", choice(self.ssh.map_or("off", SshLogin::name)), ""),
+            Field::SshHost => ("  Host", self.ssh_host.clone(), "bastion.example.com"),
+            Field::SshPort => ("  Port", self.ssh_port.clone(), "22"),
+            Field::SshUser => ("  User", self.ssh_user.clone(), ""),
+            Field::SshKey => ("  Key file", self.ssh_key.clone(), "~/.ssh/id_ed25519"),
+            Field::SshSecret if self.ssh == Some(SshLogin::Key) => (
+                "  Passphrase",
+                hidden(&self.ssh_secret),
+                if editing_saved { "unchanged" } else { "none" },
+            ),
+            Field::SshSecret => ("  Password", hidden(&self.ssh_secret), unchanged),
+            Field::KnownHosts => (
+                "  Known hosts",
+                self.known_hosts.clone(),
+                "~/.ssh/known_hosts",
+            ),
+            Field::ReadOnly => (
+                "Read-only",
+                choice(if self.read_only { "yes" } else { "no" }),
+                "",
+            ),
+            Field::Tag => ("Tag", choice(self.tag.name()), ""),
+        }
     }
 }
 
@@ -397,13 +516,18 @@ mod tests {
         type_text(&mut form, "app");
         act(&mut form, &[Action::Down]);
         type_text(&mut form, "secret");
-        act(&mut form, &[Action::Down, Action::Down, Action::Right]);
+        // Past TLS and SSH to read-only.
+        act(
+            &mut form,
+            &[Action::Down, Action::Down, Action::Down, Action::Right],
+        );
 
         match act(&mut form, &[Action::Save]) {
             Some(Command::SaveConnection {
                 original: None,
                 connection,
                 password,
+                ssh_secret: None,
             }) => {
                 assert_eq!(connection.driver, DbType::MySql);
                 assert_eq!(connection.address(), "app@db.example.com:3306");
@@ -437,6 +561,79 @@ mod tests {
         type_text(&mut form, "12ab");
         act(&mut form, &[Action::Save]);
         assert_eq!(form.error.as_deref(), Some("Invalid port: 12ab"));
+    }
+
+    #[test]
+    fn a_connection_through_ssh_with_a_key() {
+        let mut form = ConnectionForm::new();
+        type_text(&mut form, "prod");
+        // Down to TLS, verify-full: a CA file field appears.
+        act(&mut form, &[Action::Down; 7]);
+        act(&mut form, &[Action::Right, Action::Right]);
+        act(&mut form, &[Action::Down]);
+        assert_eq!(form.current(), Field::CaFile);
+        type_text(&mut form, "~/ca.pem");
+        // SSH with a key: its fields appear.
+        act(&mut form, &[Action::Down, Action::Right, Action::Right]);
+        assert_eq!(form.ssh, Some(SshLogin::Key));
+        act(&mut form, &[Action::Save]);
+        assert_eq!(form.error.as_deref(), Some("Enter the SSH host"));
+        act(&mut form, &[Action::Down]);
+        type_text(&mut form, "bastion");
+        act(&mut form, &[Action::Save]);
+        assert_eq!(form.error.as_deref(), Some("Enter the SSH key file"));
+        act(&mut form, &[Action::Down, Action::Down, Action::Down]);
+        assert_eq!(form.current(), Field::SshKey);
+        type_text(&mut form, "~/.ssh/id_ed25519");
+        act(&mut form, &[Action::Down]);
+        type_text(&mut form, "phrase");
+
+        match act(&mut form, &[Action::Save]) {
+            Some(Command::SaveConnection {
+                connection,
+                ssh_secret,
+                ..
+            }) => {
+                assert_eq!(connection.ca_file.as_deref(), Some("~/ca.pem"));
+                let ssh = connection.ssh.expect("ssh");
+                assert_eq!(ssh.host, "bastion");
+                assert_eq!(ssh.key.as_deref(), Some("~/.ssh/id_ed25519"));
+                assert_eq!(ssh_secret.as_deref(), Some("phrase"));
+            }
+            other => panic!("expected a save, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn agent_logins_keep_no_secret_and_editing_shows_the_ssh_fields() {
+        let connection = Connection {
+            ssh: Some(Ssh {
+                host: "bastion".into(),
+                port: Some(2222),
+                user: "me".into(),
+                login: SshLogin::Agent,
+                key: None,
+                known_hosts: None,
+            }),
+            ..Connection::new("prod", DbType::Postgres)
+        };
+        let mut form = ConnectionForm::edit(Some("prod".into()), &connection, None);
+        assert!(form.fields().contains(&Field::SshHost));
+        assert!(!form.fields().contains(&Field::SshSecret));
+        assert_eq!(form.ssh_port, "2222");
+        match act(&mut form, &[Action::Save]) {
+            Some(Command::SaveConnection {
+                connection: saved,
+                ssh_secret,
+                ..
+            }) => {
+                assert_eq!(*saved, connection);
+                assert_eq!(ssh_secret, None);
+            }
+            other => panic!("expected a save, got {other:?}"),
+        }
+        let test = TestCtx::new();
+        insta::assert_snapshot!(render(&test, 80, 30, |f, area, ctx| form.render(f, area, ctx)));
     }
 
     #[test]

@@ -325,6 +325,21 @@ impl Manager {
                 },
             };
             lines.push(field("Password", password));
+            if let Some(ssh) = &connection.ssh {
+                let user = match ssh.user.as_str() {
+                    "" => String::new(),
+                    user => format!("{user}@"),
+                };
+                lines.push(field(
+                    "SSH",
+                    format!(
+                        "{user}{}:{} · {}",
+                        ssh.host,
+                        ssh.port.unwrap_or(22),
+                        ssh.login.name()
+                    ),
+                ));
+            }
         }
         if connection.read_only {
             lines.push(Line::from(vec![

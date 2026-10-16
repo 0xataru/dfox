@@ -1,5 +1,6 @@
 ---
-source: dfox-tui/src/components/form.rs
+source: crates/dfox-tui/src/components/form.rs
+assertion_line: 658
 expression: "render(&test, 120, 40, |f, area, ctx| form.render(f, area, ctx))"
 ---
 
@@ -17,14 +18,14 @@ expression: "render(&test, 120, 40, |f, area, ctx| form.render(f, area, ctx))"
 
 
 
-                            ╭ Edit connection ─────────────────────────────────────────────╮
-                            │                                                              │
-                            │ ▸ Name       app                                             │
-                            │   Driver     ‹ SQLite ›                                      │
-                            │   File       /home/me/app.db                                 │
-                            │   Read-only  ‹ yes ›                                         │
-                            │   Tag        ‹ red ›                                         │
-                            │                                                              │
-                            │ Type to edit · ↑↓ move                                       │
-                            │                                                              │
-                            ╰──────────────────────────────────────────────────────────────╯
+                           ╭ Edit connection ───────────────────────────────────────────────╮
+                           │                                                                │
+                           │ ▸ Name          app                                            │
+                           │   Driver        ‹ SQLite ›                                     │
+                           │   File          /home/me/app.db                                │
+                           │   Read-only     ‹ yes ›                                        │
+                           │   Tag           ‹ red ›                                        │
+                           │                                                                │
+                           │ Type to edit · ↑↓ move                                         │
+                           │                                                                │
+                           ╰────────────────────────────────────────────────────────────────╯

@@ -4,11 +4,11 @@
 use dfox_core::{engine::Command as DbCommand, models::connections::DbType};
 use tokio::time::Instant;
 
-use super::{App, Connecting, Overlay, Screen};
+use super::{App, Ask, Connecting, Credentials, Overlay, Screen};
 use crate::{
     command::Command,
     components::{form::ConnectionForm, manager::EntryKey},
-    connections::{pgpass, secrets, Connection},
+    connections::{pgpass, secrets, ssh_secret_name, Connection, SshLogin},
     widgets::{confirm::Confirm, toast::Level},
 };
 
@@ -51,7 +51,8 @@ impl App {
                 original,
                 connection,
                 password,
-            } => self.save_connection(original, connection, password),
+                ssh_secret,
+            } => self.save_connection(original, *connection, password, ssh_secret),
             Command::ConfirmDelete(name) => {
                 self.overlay = Some(Overlay::Confirm(Confirm {
                     title: "Delete".to_string(),
@@ -67,7 +68,7 @@ impl App {
             }
             Command::UseDatabase(database) => {
                 if let Some(session) = self.session.clone() {
-                    self.start_connect(session.connection, session.password, Some(database));
+                    self.start_connect(session.connection, session.credentials, Some(database));
                 }
             }
             Command::Connections => self.show_manager(),
@@ -105,8 +106,14 @@ impl App {
         original: Option<String>,
         connection: Connection,
         password: Option<String>,
+        ssh_secret: Option<String>,
     ) {
         let name = connection.name.clone();
+        // An agent login, or no SSH at all, leaves no secret behind.
+        let keeps_ssh_secret = connection
+            .ssh
+            .as_ref()
+            .is_some_and(|ssh| ssh.login != SshLogin::Agent);
         if let Err(err) = self.store.save(original.as_deref(), connection) {
             if let Some(form) = &mut self.form {
                 form.error = Some(err);
@@ -114,14 +121,22 @@ impl App {
             return;
         }
         let now = Instant::now();
+        let secrets = self.secrets.as_ref();
+        let ssh_name = ssh_secret_name(&name);
         let keychain = original
             .as_deref()
             .map_or(Ok(()), |old| {
-                secrets::rename(self.secrets.as_ref(), old, &name)
+                secrets::rename(secrets, old, &name)?;
+                secrets::rename(secrets, &ssh_secret_name(old), &ssh_name)
             })
             .and_then(|()| match &password {
-                Some(password) => self.secrets.set(&name, password),
+                Some(password) => secrets.set(&name, password),
                 None => Ok(()),
+            })
+            .and_then(|()| match (&ssh_secret, keeps_ssh_secret) {
+                (Some(secret), true) => secrets.set(&ssh_name, secret),
+                (_, true) => Ok(()),
+                (_, false) => secrets.delete(&ssh_name),
             });
         if let Err(err) = keychain {
             self.toasts.push(
@@ -143,7 +158,11 @@ impl App {
         let now = Instant::now();
         match self.store.remove(name) {
             Ok(()) => {
-                if let Err(err) = self.secrets.delete(name) {
+                let deleted = self
+                    .secrets
+                    .delete(name)
+                    .and_then(|()| self.secrets.delete(&ssh_secret_name(name)));
+                if let Err(err) = deleted {
                     self.toasts.push(
                         Level::Warning,
                         format!("Couldn't remove the password from the keychain: {err}"),
@@ -166,17 +185,7 @@ impl App {
                 let Some(connection) = self.store.get(&name).cloned() else {
                     return;
                 };
-                let password = match self.secrets.get(&name) {
-                    Ok(password) => password,
-                    Err(err) => {
-                        self.toasts.push(
-                            Level::Warning,
-                            format!("Couldn't read the keychain: {err}"),
-                            Instant::now(),
-                        );
-                        None
-                    }
-                };
+                let password = self.keychain(&name);
                 (connection, password)
             }
             EntryKey::Detected(index) => match self.manager.detected.get(index) {
@@ -186,18 +195,58 @@ impl App {
         };
         let password =
             password.or_else(|| pgpass::lookup(&self.pgpass, &connection).map(str::to_string));
-        match password {
-            Some(password) => self.start_connect(connection, password, None),
-            None if connection.driver == DbType::Sqlite => {
-                self.start_connect(connection, String::new(), None)
+        let ssh = match connection.ssh {
+            Some(_) => self.keychain(&ssh_secret_name(&connection.name)),
+            None => None,
+        };
+        self.connect_with(connection, password, ssh);
+    }
+
+    /// Reads a secret from the keychain; a failure is a warning, and the
+    /// secret is asked for instead.
+    fn keychain(&mut self, name: &str) -> Option<String> {
+        match self.secrets.get(name) {
+            Ok(secret) => secret,
+            Err(err) => {
+                self.toasts.push(
+                    Level::Warning,
+                    format!("Couldn't read the keychain: {err}"),
+                    Instant::now(),
+                );
+                None
             }
+        }
+    }
+
+    /// Connects once every secret is known, asking for the database
+    /// password and then the SSH password when they are missing.
+    pub(super) fn connect_with(
+        &mut self,
+        connection: Connection,
+        password: Option<String>,
+        ssh: Option<String>,
+    ) {
+        let password = match password {
+            Some(password) => password,
+            None if connection.driver == DbType::Sqlite => String::new(),
             None => {
                 self.overlay = Some(Overlay::Password {
                     connection,
                     typed: String::new(),
-                })
+                    ask: Ask::Database { ssh },
+                });
+                return;
             }
+        };
+        if ssh.is_none() && connection.needs_ssh_password() {
+            self.overlay = Some(Overlay::Password {
+                connection,
+                typed: String::new(),
+                ask: Ask::Ssh { password },
+            });
+            return;
         }
+        self.start_connect(connection, Credentials { password, ssh }, None);
     }
 
     /// Connects, to the connection's own database or to `switch_to` on the
@@ -205,10 +254,10 @@ impl App {
     pub(super) fn start_connect(
         &mut self,
         connection: Connection,
-        password: String,
+        credentials: Credentials,
         switch_to: Option<String>,
     ) {
-        let mut params = connection.params(&password);
+        let mut params = connection.params(&credentials.password, credentials.ssh.as_deref());
         if let Some(database) = &switch_to {
             params.database = Some(database.clone());
         }
@@ -218,7 +267,7 @@ impl App {
         });
         self.connecting = Some(Connecting {
             connection,
-            password,
+            credentials,
             switch_to,
         });
     }
