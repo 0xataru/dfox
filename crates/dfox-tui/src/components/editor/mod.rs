@@ -52,9 +52,8 @@ struct Cache {
 pub struct EditorPanel {
     pub buffer: Buffer,
     dialect: Dialect,
-    /// What is written here, for the hint in an empty editor: `SQL`, or
-    /// `commands` for a database that speaks something else.
-    pub holds: &'static str,
+    /// Holds mongo shell commands rather than SQL.
+    pub shell: bool,
     pub focused: bool,
     /// First line and first column shown.
     scroll: Cell<(usize, usize)>,
@@ -73,7 +72,7 @@ impl EditorPanel {
         Self {
             buffer: Buffer::default(),
             dialect,
-            holds: "SQL",
+            shell: false,
             focused: false,
             scroll: Cell::new((0, 0)),
             cache: RefCell::new(Cache::default()),
@@ -85,10 +84,27 @@ impl EditorPanel {
         }
     }
 
-    /// The editor, saying it holds `what`.
-    pub fn holding(mut self, what: &'static str) -> Self {
-        self.holds = what;
+    /// The editor, for mongo shell commands when `shell`.
+    pub fn with_shell(mut self, shell: bool) -> Self {
+        self.shell = shell;
         self
+    }
+
+    /// What is written here, for the hint in an empty editor.
+    pub fn holds(&self) -> &'static str {
+        if self.shell {
+            "commands"
+        } else {
+            "SQL"
+        }
+    }
+
+    fn statement_at(&self, text: &str, cursor: sql::Pos) -> Option<sql::Stmt> {
+        if self.shell {
+            sql::mongo::statement_at(text, cursor)
+        } else {
+            sql::statement_at(text, cursor, self.dialect)
+        }
     }
 
     pub fn text(&self) -> String {
@@ -112,7 +128,7 @@ impl EditorPanel {
             return Some(selected).filter(|s| !s.trim().is_empty());
         }
         let text = self.buffer.text();
-        let statement = sql::statement_at(&text, self.buffer.cursor(), self.dialect)?;
+        let statement = self.statement_at(&text, self.buffer.cursor())?;
         Some(sql::slice(
             self.buffer.lines(),
             statement.start,
@@ -123,6 +139,15 @@ impl EditorPanel {
     /// True while the history search has the keys.
     pub fn is_modal(&self) -> bool {
         self.search.is_some()
+    }
+
+    /// What the autocomplete popup lists, best first.
+    #[cfg(test)]
+    pub fn completion_labels(&self) -> Vec<String> {
+        self.completion
+            .iter()
+            .flat_map(|c| c.items.iter().map(|i| i.label.clone()))
+            .collect()
     }
 
     /// True while the autocomplete popup is open.
@@ -139,7 +164,14 @@ impl EditorPanel {
             Action::Backspace => self.completion.is_some(),
             _ => false,
         };
-        self.completion = if refresh && self.buffer.selection().is_none() {
+        self.completion = if refresh && self.buffer.selection().is_none() && self.shell {
+            complete::suggest_shell(
+                &self.buffer.text(),
+                self.buffer.cursor(),
+                catalog,
+                action == Action::Complete,
+            )
+        } else if refresh && self.buffer.selection().is_none() {
             complete::suggest(
                 &self.buffer.text(),
                 self.buffer.cursor(),
@@ -261,15 +293,20 @@ impl EditorPanel {
         let version = self.buffer.version();
         let cursor = self.buffer.cursor();
         if cache.version != Some(version) {
-            cache.highlight = sql::highlight(self.buffer.lines(), self.dialect);
-            cache.statements = sql::statements(&self.buffer.text(), self.dialect).len();
+            if self.shell {
+                cache.highlight = sql::mongo::highlight(self.buffer.lines());
+                cache.statements = sql::mongo::statements(&self.buffer.text()).len();
+            } else {
+                cache.highlight = sql::highlight(self.buffer.lines(), self.dialect);
+                cache.statements = sql::statements(&self.buffer.text(), self.dialect).len();
+            }
             cache.version = Some(version);
             cache.statement = None;
             cache.cursor = (usize::MAX, 0);
         }
         if cache.cursor != cursor {
             cache.statement = if cache.statements > 1 {
-                sql::statement_at(&self.buffer.text(), cursor, self.dialect)
+                self.statement_at(&self.buffer.text(), cursor)
             } else {
                 None
             };

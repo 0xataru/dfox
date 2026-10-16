@@ -21,7 +21,7 @@ use super::{
     editor::{EditorPanel, TabLabel},
     explorer::Explorer,
     results::ResultsPanel,
-    table_menu::{self, Choice, MenuEvent, Script, TableMenu, FEW_ROWS},
+    table_menu::{self, mongo_handle, mongo_key, Choice, MenuEvent, Script, TableMenu, FEW_ROWS},
 };
 use crate::{
     action::Action,
@@ -76,36 +76,6 @@ enum Rows {
     Last(Vec<String>),
     /// Those meeting a condition: SQL after WHERE, or a find filter.
     Matching(String),
-}
-
-/// `db.users`, or `db.getCollection("odd name")`.
-fn mongo_handle(name: &str) -> String {
-    let plain = name
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-    if plain {
-        format!("db.{name}")
-    } else {
-        format!("db.getCollection({})", serde_json::Value::from(name))
-    }
-}
-
-/// A field name as an object key: bare when it can be.
-fn mongo_key(name: &str) -> String {
-    let plain = name
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-    if plain {
-        name.to_string()
-    } else {
-        serde_json::Value::from(name).to_string()
-    }
 }
 
 /// A menu choice waiting for its table to be described.
@@ -183,7 +153,7 @@ impl Workspace {
             Some(dialect) => self.with_dialect(dialect),
             None => {
                 for tab in &mut self.tabs {
-                    tab.editor.holds = "commands";
+                    tab.editor.shell = true;
                 }
                 self
             }
@@ -318,11 +288,7 @@ impl Workspace {
     fn new_tab(&mut self) {
         self.next_tab += 1;
         self.tabs.push(Tab {
-            editor: EditorPanel::new(self.dialect).holding(if self.speaks_sql() {
-                "SQL"
-            } else {
-                "commands"
-            }),
+            editor: EditorPanel::new(self.dialect).with_shell(!self.speaks_sql()),
             results: ResultsPanel::new(self.dialect),
             number: self.next_tab,
             source: None,
@@ -363,12 +329,12 @@ impl Workspace {
             ctx.toast(Level::Info, "Nothing to run");
             return None;
         };
-        // Other languages' drivers refuse writes on read-only connections
-        // themselves.
-        let findings = if self.speaks_sql() {
-            guard::check(&sql, self.dialect)
-        } else {
-            guard::Findings::default()
+        let findings = match self.language {
+            QueryLanguage::Sql(_) => guard::check(&sql, self.dialect),
+            QueryLanguage::MongoShell => sql::mongo::check(&sql),
+            // Other languages' drivers refuse writes on read-only
+            // connections themselves.
+            _ => guard::Findings::default(),
         };
         if self.read_only && findings.writes {
             ctx.toast(
@@ -633,8 +599,18 @@ impl Workspace {
             }
             Choice::Script(script) => {
                 let info = info.unwrap_or_default();
-                let text = table_menu::script(script, &quoted, &info, self.dialect);
-                let what = format!("{script:?}").to_uppercase();
+                let text = if self.speaks_sql() {
+                    table_menu::script(script, &quoted, &info, self.dialect)
+                } else {
+                    table_menu::shell_script(script, &quoted, &info)
+                };
+                let what = match (self.speaks_sql(), script) {
+                    (true, script) => format!("{script:?}").to_uppercase(),
+                    (false, Script::Select) => "find".into(),
+                    (false, Script::Insert) => "insertOne".into(),
+                    (false, Script::Update) => "updateOne".into(),
+                    (false, _) => "deleteOne".into(),
+                };
                 let title = format!("{what} {}", table.name().unwrap_or_default());
                 self.open_text(title, None, &text);
             }
@@ -645,6 +621,14 @@ impl Workspace {
                 self.properties = Some(TableCard::new(table, kind, info.unwrap_or_default()));
             }
             Choice::Refresh => self.explorer.refresh_table(&table, ctx),
+            Choice::Truncate if !self.speaks_sql() => {
+                let command = format!("{}.deleteMany({{}})", mongo_handle(&quoted));
+                return self.run(Some(command), ctx);
+            }
+            Choice::Drop { .. } if !self.speaks_sql() => {
+                let command = format!("{}.drop()", mongo_handle(&quoted));
+                return self.run(Some(command), ctx);
+            }
             Choice::Truncate => {
                 let sql = if self.dialect == Dialect::Sqlite {
                     format!("DELETE FROM {quoted}")

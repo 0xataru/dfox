@@ -4,16 +4,17 @@ expression: snapshot(&m)
 ---
 
 
-
-
            ╭ users ───────────────────╮
            │ f  First 100 rows        │
            │ l  Last 100 rows         │
            │ a  All rows              │
            │ w  Filtered rows…        │
            │ c  Count rows            │
+           │ s  Scripts           ▸   │
            │ i  Insert name           │
            │ e  Definition            │
            │ p  Properties            │
            │ r  Refresh               │
+           │ t  Delete all…           │
+           │ d  Drop…                 │
            ╰──────────────────────────╯

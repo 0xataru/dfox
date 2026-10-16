@@ -82,7 +82,7 @@ impl EditorPanel {
         if lines.len() == 1 && lines[0].is_empty() && !self.focused {
             let hint = format!(
                 "Write {} here · {} runs the statement under the cursor",
-                self.holds,
+                self.holds(),
                 ctx.keymap.hint(Action::Execute)
             );
             f.render_widget(
