@@ -13,10 +13,8 @@
   <a href="https://ratatui.rs/"><img src="https://img.shields.io/badge/Built_With_Ratatui-000?logo=ratatui&logoColor=fff" alt="Built With Ratatui" /></a>
 </p>
 
-**DFox** is a fast terminal database client, written in Rust. One app for
-**PostgreSQL**, **MySQL / MariaDB**, **SQLite** and **MongoDB**: browse what a
-database holds, write and run queries, and work through results of a million
-rows without leaving the terminal.
+**DFox** is a Rust-based database management tool that provides a terminal user interface (TUI) for interacting with PostgreSQL, MySQL, SQLite and MongoDB databases.
+It allows users to perform database operations easily and efficiently through a simple and intuitive interface.
 
 ## Features
 
