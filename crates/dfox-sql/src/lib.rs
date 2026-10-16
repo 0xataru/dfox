@@ -53,12 +53,14 @@ pub enum Dialect {
     Postgres,
     MySql,
     Sqlite,
+    /// Cassandra's CQL: Postgres's quotes and comments, its own words.
+    Cql,
 }
 
 /// The `sqlparser` dialect for `dialect`.
 fn parser_dialect(dialect: Dialect) -> Box<dyn SqlParserDialect> {
     match dialect {
-        Dialect::Postgres => Box::new(PostgreSqlDialect {}),
+        Dialect::Postgres | Dialect::Cql => Box::new(PostgreSqlDialect {}),
         Dialect::MySql => Box::new(MySqlDialect {}),
         Dialect::Sqlite => Box::new(SQLiteDialect {}),
     }
@@ -97,8 +99,8 @@ impl Lexeme {
 
 /// Tokenizes `text`. Text the tokenizer gives up on, such as a string that
 /// isn't closed yet, runs to the end as one piece.
-pub(crate) fn lex(text: &str, dialect: Dialect) -> Vec<Lexeme> {
-    let dialect = parser_dialect(dialect);
+pub(crate) fn lex(text: &str, language: Dialect) -> Vec<Lexeme> {
+    let dialect = parser_dialect(language);
     let mut tokens: Vec<TokenWithSpan> = Vec::new();
     let failed = Tokenizer::new(dialect.as_ref(), text)
         .tokenize_with_location_into_buf(&mut tokens)
@@ -117,7 +119,7 @@ pub(crate) fn lex(text: &str, dialect: Dialect) -> Vec<Lexeme> {
             | Token::Whitespace(Whitespace::MultiLineComment(_)) => (Kind::Comment, true),
             Token::Whitespace(_) => (Kind::Plain, true),
             Token::Word(word) if word.quote_style.is_some() => (Kind::Plain, false),
-            Token::Word(word) if is_keyword(&word.value) => (Kind::Keyword, false),
+            Token::Word(word) if is_keyword(&word.value, language) => (Kind::Keyword, false),
             Token::Word(_) => {
                 let call = tokens[i + 1..]
                     .iter()
@@ -819,11 +821,50 @@ const KEYWORDS: &[&str] = &[
     "WITH",
 ];
 
-fn is_keyword(word: &str) -> bool {
-    word.len() <= 17
-        && KEYWORDS
-            .binary_search(&word.to_ascii_uppercase().as_str())
-            .is_ok()
+/// Words CQL adds, coloured only there.
+const CQL_KEYWORDS: &[&str] = &[
+    "ALLOW",
+    "APPLY",
+    "ASCII",
+    "BATCH",
+    "BLOB",
+    "CLUSTERING",
+    "COMPACT",
+    "CONTAINS",
+    "COUNTER",
+    "DURATION",
+    "ENTRIES",
+    "EXISTS",
+    "FILTERING",
+    "FROZEN",
+    "INET",
+    "KEYS",
+    "KEYSPACE",
+    "KEYSPACES",
+    "LIST",
+    "LOGGED",
+    "MAP",
+    "PER",
+    "SET",
+    "STATIC",
+    "TIMEUUID",
+    "TOKEN",
+    "TTL",
+    "TUPLE",
+    "TYPE",
+    "UNLOGGED",
+    "USE",
+    "VARINT",
+    "WRITETIME",
+];
+
+fn is_keyword(word: &str, dialect: Dialect) -> bool {
+    if word.len() > 17 {
+        return false;
+    }
+    let upper = word.to_ascii_uppercase();
+    KEYWORDS.binary_search(&upper.as_str()).is_ok()
+        || (dialect == Dialect::Cql && CQL_KEYWORDS.binary_search(&upper.as_str()).is_ok())
 }
 
 #[cfg(test)]

@@ -143,6 +143,7 @@ fn every_dialect_reads_scripts() {
 fn the_keyword_list_is_sorted() {
     assert!(KEYWORDS.windows(2).all(|w| w[0] < w[1]));
     assert!(RESERVED.windows(2).all(|w| w[0] < w[1]));
+    assert!(CQL_KEYWORDS.windows(2).all(|w| w[0] < w[1]));
 }
 
 #[test]
@@ -197,6 +198,18 @@ fn routine_bodies_stay_whole() {
         split("CREATE TABLE event (n INT); SELECT 1;", Dialect::MySql),
         ["CREATE TABLE event (n INT);", "SELECT 1;"]
     );
+}
+
+#[test]
+fn cql_words_are_keywords_only_in_cql() {
+    let keyword = |dialect| {
+        highlight(&lines("SELECT * FROM t ALLOW FILTERING"), dialect)[0]
+            .iter()
+            .filter(|p| p.kind == Kind::Keyword)
+            .count()
+    };
+    assert_eq!(keyword(Dialect::Cql), 4);
+    assert_eq!(keyword(Dialect::Postgres), 2);
 }
 
 #[test]

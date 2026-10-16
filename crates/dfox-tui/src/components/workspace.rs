@@ -1,7 +1,9 @@
 //! The main screen once a database is open: the explorer, and query tabs of
 //! an editor with its results. Tab moves focus between the panels.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+
+use unicode_width::UnicodeWidthStr;
 
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use dfox_core::{
@@ -107,6 +109,9 @@ pub struct Workspace {
     pub catalog: Catalog,
     /// Where the explorer, editor and results were drawn, for the mouse.
     areas: Cell<[Rect; 3]>,
+    /// The columns each tab's name was drawn across, on the editor's top
+    /// border, for clicks.
+    tab_spots: RefCell<Vec<(u16, u16)>>,
     /// The column card, over everything while it is open.
     card: Option<ColumnCard>,
     /// What Enter on a table offers, while it is open.
@@ -133,6 +138,7 @@ impl Workspace {
             read_only: false,
             catalog: Catalog::default(),
             areas: Cell::new([Rect::default(); 3]),
+            tab_spots: RefCell::new(Vec::new()),
             card: None,
             menu: None,
             properties: None,
@@ -394,6 +400,41 @@ impl Workspace {
         }
     }
 
+    /// Where the tabs' names land on the editor's top border: after its
+    /// corner and a space, ` │ ` between them, a spinner before a running
+    /// one.
+    fn tab_spots_in(&self, editor: Rect) -> Vec<(u16, u16)> {
+        if self.tabs.len() < 2 {
+            return Vec::new();
+        }
+        let mut x = editor.x + 2;
+        let mut spots = Vec::new();
+        for i in 0..self.tabs.len() {
+            if i > 0 {
+                x += 3;
+            }
+            if self.tabs[i].results.running.is_some() {
+                x += 2;
+            }
+            let width = UnicodeWidthStr::width(self.title(i).as_str()) as u16;
+            spots.push((x, x + width));
+            x += width;
+        }
+        spots
+    }
+
+    /// The tab whose name is at a point on screen.
+    fn tab_at(&self, column: u16, row: u16) -> Option<usize> {
+        let [_, editor, _] = self.areas.get();
+        if row != editor.y {
+            return None;
+        }
+        self.tab_spots
+            .borrow()
+            .iter()
+            .position(|(start, end)| (*start..*end).contains(&column))
+    }
+
     /// The tab opened with the definition of `path`, a `kind`.
     fn definition_tab(&self, path: &NodePath, kind: NodeKind) -> Option<usize> {
         self.tabs
@@ -582,6 +623,36 @@ impl Workspace {
                     return None;
                 }
                 let query = self.rows_query(&name, Rows::Last(key));
+                return self.show_rows(table, query, ctx);
+            }
+            Choice::PartitionRows(condition) => {
+                // The highest keys first, as the last rows of a table are.
+                // CQL orders a partition only as its clustering columns are
+                // declared, or exactly the reverse: whichever puts the first
+                // one descending.
+                let clustering: Vec<(String, bool)> = info
+                    .iter()
+                    .flat_map(|info| &info.columns)
+                    .filter_map(|c| {
+                        let declared = c.comment.as_deref()?.strip_prefix("clustering key, ")?;
+                        Some((sql::quote_ident(&c.name, self.dialect), declared == "DESC"))
+                    })
+                    .collect();
+                let flip = clustering
+                    .first()
+                    .is_some_and(|(_, descending)| !descending);
+                let order: Vec<String> = clustering
+                    .iter()
+                    .map(|(name, descending)| {
+                        let way = if descending ^ flip { "DESC" } else { "ASC" };
+                        format!("{name} {way}")
+                    })
+                    .collect();
+                let mut query = format!("SELECT * FROM {quoted} WHERE {condition}");
+                if !order.is_empty() {
+                    query.push_str(&format!(" ORDER BY {}", order.join(", ")));
+                }
+                query.push_str(&format!(" LIMIT {FEW_ROWS}"));
                 return self.show_rows(table, query, ctx);
             }
             Choice::Filtered(condition) => {
@@ -883,6 +954,14 @@ impl Workspace {
         };
         let sideways = event.modifiers.contains(KeyModifiers::SHIFT);
         match event.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if !self.modal() && self.tab_at(event.column, event.row).is_some() =>
+            {
+                if let Some(i) = self.tab_at(event.column, event.row) {
+                    self.active = i;
+                    self.set_focus(Panel::Editor);
+                }
+            }
             MouseEventKind::Down(MouseButton::Left) => {
                 let panel = under?;
                 if self.modal() {
@@ -1042,6 +1121,7 @@ impl Component for Workspace {
         let [editor, results] =
             Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right);
         self.areas.set([left, editor, results]);
+        self.tab_spots.replace(self.tab_spots_in(editor));
         let labels: Vec<TabLabel> = (0..self.tabs.len()).map(|i| self.label(i)).collect();
         self.explorer.render(f, left, ctx);
         self.editor().render_with(f, editor, ctx, &labels);

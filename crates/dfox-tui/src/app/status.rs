@@ -93,20 +93,20 @@ impl App {
                 Some(Panel::Editor) => &[
                     (Action::Execute, "run"),
                     (Action::Palette, "commands"),
-                    (Action::NextFocus, "focus"),
+                    (Action::Connections, "connections"),
                     (Action::Help, "keys"),
                 ],
                 Some(Panel::Explorer) => &[
                     (Action::Confirm, "open"),
                     (Action::Inspect, "insert"),
                     (Action::Filter, "filter"),
+                    (Action::Connections, "connections"),
                     (Action::Help, "keys"),
                 ],
                 _ => &[
                     (Action::Inspect, "inspect"),
                     (Action::CopyAs, "copy as"),
-                    (Action::NextFocus, "focus"),
-                    (Action::Menu, "menu"),
+                    (Action::Connections, "connections"),
                     (Action::Help, "keys"),
                 ],
             },

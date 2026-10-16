@@ -1055,3 +1055,125 @@ fn cql_filters_allow_filtering() {
             if sql == "SELECT * FROM events WHERE kind = 'login' ALLOW FILTERING"
     ));
 }
+
+#[test]
+fn a_partition_shows_its_last_rows_first() {
+    use dfox_core::{
+        catalog::{ColumnInfo, EntityInfo},
+        session::QueryLanguage,
+    };
+
+    let mut harness = Harness::new();
+    let mut w =
+        Workspace::new("local", DbType::Cassandra, "shop").with_language(QueryLanguage::Cql);
+    w.on_children(
+        &NodePath::root(),
+        Ok(vec![Node::new(NodeKind::Database, "shop", true)]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["shop"].into_iter().collect(),
+        Ok(vec![Node::new(NodeKind::Table, "events", true)]),
+        &mut harness.ctx(),
+    );
+    let events: NodePath = ["shop", "events"].into_iter().collect();
+    let column = |name: &str, comment: Option<&str>| ColumnInfo {
+        name: name.into(),
+        primary_key: comment.is_some(),
+        comment: comment.map(str::to_string),
+        ..ColumnInfo::default()
+    };
+    w.explorer.on_described(
+        &events,
+        Ok(EntityInfo {
+            columns: vec![
+                column("tenant", Some("partition key")),
+                column("day", Some("clustering key, DESC")),
+                column("seq", Some("clustering key, ASC")),
+                column("kind", None),
+            ],
+            ..EntityInfo::default()
+        }),
+    );
+    harness.sent();
+    w.set_focus(Panel::Explorer);
+    w.explorer
+        .select(&["d/shop", "g/Table", "o/events"].map(String::from));
+    w.handle(Action::Confirm, &mut harness.ctx());
+    w.handle(Action::Input('l'), &mut harness.ctx());
+    for c in "tenant = 'acme'".chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [.., DbCommand::Run { sql, .. }]
+            if sql == "SELECT * FROM events WHERE tenant = 'acme' ORDER BY day DESC, seq ASC LIMIT 100"
+    ));
+
+    // Declared ascending: the reverse puts the highest first.
+    w.explorer.on_described(
+        &events,
+        Ok(EntityInfo {
+            columns: vec![
+                column("tenant", Some("partition key")),
+                column("day", Some("clustering key, ASC")),
+                column("seq", Some("clustering key, ASC")),
+            ],
+            ..EntityInfo::default()
+        }),
+    );
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id: 1,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
+    w.set_focus(Panel::Explorer);
+    w.handle(Action::Confirm, &mut harness.ctx());
+    w.handle(Action::Input('l'), &mut harness.ctx());
+    for c in "tenant = 'acme'".chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [.., DbCommand::Run { sql, .. }]
+            if sql == "SELECT * FROM events WHERE tenant = 'acme' ORDER BY day DESC, seq DESC LIMIT 100"
+    ));
+}
+
+#[test]
+fn clicking_a_tab_name_switches_to_it() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    w.handle(Action::NewTab, &mut harness.ctx());
+    w.handle(Action::NewTab, &mut harness.ctx());
+    assert_eq!(w.active_tab(), 2);
+    let test = TestCtx::new();
+    render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx));
+    let editor = w.area(Panel::Editor);
+    // "Query 1 │ Query 2 │ Query 3", from two columns in.
+    let second = editor.x + 2 + "Query 1 │ ".chars().count() as u16;
+    w.mouse(
+        mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            second + 2,
+            editor.y,
+        ),
+        &mut harness.ctx(),
+    );
+    assert_eq!(w.active_tab(), 1);
+    assert_eq!(w.focused(), Panel::Editor);
+    // A click on the border elsewhere does nothing to the tabs.
+    w.mouse(
+        mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            editor.right() - 3,
+            editor.y,
+        ),
+        &mut harness.ctx(),
+    );
+    assert_eq!(w.active_tab(), 1);
+}

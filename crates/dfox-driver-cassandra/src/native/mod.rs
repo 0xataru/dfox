@@ -165,15 +165,13 @@ impl Session for CqlSession {
 
     fn run(&mut self, request: Request) -> BoxFuture<'_, Result<ResultStream, DbError>> {
         let lines: Vec<String> = request.text.split('\n').map(str::to_string).collect();
-        // CQL reads like Postgres's SQL: the same quotes, comments and `$$`.
-        let statements: Vec<String> =
-            dfox_sql::statements(&request.text, dfox_sql::Dialect::Postgres)
-                .iter()
-                .map(|s| {
-                    let text = dfox_sql::slice(&lines, s.start, s.end);
-                    text.trim_end().trim_end_matches(';').to_string()
-                })
-                .collect();
+        let statements: Vec<String> = dfox_sql::statements(&request.text, dfox_sql::Dialect::Cql)
+            .iter()
+            .map(|s| {
+                let text = dfox_sql::slice(&lines, s.start, s.end);
+                text.trim_end().trim_end_matches(';').to_string()
+            })
+            .collect();
         let session = self.session.clone();
         let read_only = self.read_only;
         let limit = request.row_limit.unwrap_or(usize::MAX);

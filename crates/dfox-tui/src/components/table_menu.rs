@@ -41,6 +41,8 @@ pub enum Choice {
     AllRows,
     /// Rows meeting a SQL condition.
     Filtered(String),
+    /// The last rows of the CQL partition a condition names.
+    PartitionRows(String),
     Count,
     Script(Script),
     Definition,
@@ -59,6 +61,7 @@ impl Choice {
         matches!(
             self,
             Choice::LastRows
+                | Choice::PartitionRows(_)
                 | Choice::Properties
                 | Choice::Script(Script::Select | Script::Insert | Script::Update | Script::Delete)
         )
@@ -78,15 +81,24 @@ struct Item {
 enum Then {
     Pick(Choice),
     Scripts,
-    AskCondition,
+    Ask(Ask),
+}
+
+/// What a typed condition is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ask {
+    /// The rows meeting it.
+    Filter,
+    /// The last rows of the partition it names.
+    Partition,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 enum Level {
     Main,
     Scripts,
-    /// Typing the condition for filtered rows.
-    Condition(String),
+    /// Typing a condition.
+    Condition(String, Ask),
 }
 
 /// What the workspace does with a key the menu got.
@@ -134,7 +146,7 @@ impl TableMenu {
             Item {
                 key: 'w',
                 label: "Filtered rows…",
-                then: Then::AskCondition,
+                then: Then::Ask(Ask::Filter),
             },
             pick('c', "Count rows", Choice::Count),
             Item {
@@ -148,6 +160,16 @@ impl TableMenu {
         ];
         if is_table && !cql {
             items.insert(1, pick('l', "Last 100 rows", Choice::LastRows));
+        }
+        if is_table && cql {
+            items.insert(
+                1,
+                Item {
+                    key: 'l',
+                    label: "Partition rows…",
+                    then: Then::Ask(Ask::Partition),
+                },
+            );
         }
         if language == QueryLanguage::MongoShell {
             let at = items.len() - 2;
@@ -230,7 +252,7 @@ impl TableMenu {
     }
 
     pub fn handle(&mut self, action: Action) -> Option<MenuEvent> {
-        if let Level::Condition(typed) = &mut self.level {
+        if let Level::Condition(typed, ask) = &mut self.level {
             match action {
                 Action::Input(c) => typed.push(c),
                 Action::Backspace => {
@@ -238,7 +260,10 @@ impl TableMenu {
                 }
                 Action::Confirm if !typed.trim().is_empty() => {
                     let condition = typed.trim().to_string();
-                    return Some(MenuEvent::Pick(Choice::Filtered(condition)));
+                    return Some(MenuEvent::Pick(match ask {
+                        Ask::Filter => Choice::Filtered(condition),
+                        Ask::Partition => Choice::PartitionRows(condition),
+                    }));
                 }
                 Action::Back => self.back(),
                 _ => {}
@@ -271,7 +296,7 @@ impl TableMenu {
         match item.then {
             Then::Pick(choice) => return Some(MenuEvent::Pick(choice)),
             Then::Scripts => self.level = Level::Scripts,
-            Then::AskCondition => self.level = Level::Condition(String::new()),
+            Then::Ask(ask) => self.level = Level::Condition(String::new(), ask),
         }
         self.selected = 0;
         None
@@ -281,6 +306,7 @@ impl TableMenu {
     fn back(&mut self) {
         let key = match self.level {
             Level::Scripts => 's',
+            Level::Condition(_, Ask::Partition) => 'l',
             _ => 'w',
         };
         self.level = Level::Main;
@@ -291,13 +317,13 @@ impl TableMenu {
         let theme = ctx.theme;
         let name = self.table.name().unwrap_or_default();
         let (title, lines) = match &self.level {
-            Level::Condition(typed) => {
+            Level::Condition(typed, ask) => {
                 let lines = vec![
                     Line::styled(
-                        if self.sql {
-                            format!("SELECT * FROM {name} WHERE")
-                        } else {
-                            format!("db.{name}.find(")
+                        match (ask, self.sql) {
+                            (Ask::Partition, _) => format!("the last 100 of {name} WHERE"),
+                            (Ask::Filter, true) => format!("SELECT * FROM {name} WHERE"),
+                            (Ask::Filter, false) => format!("db.{name}.find("),
                         },
                         theme.dim(),
                     ),
@@ -313,7 +339,12 @@ impl TableMenu {
                         Span::styled(" back", theme.dim()),
                     ]),
                 ];
-                (format!("{name} · filter"), lines)
+                let what = if *ask == Ask::Partition {
+                    "partition"
+                } else {
+                    "filter"
+                };
+                (format!("{name} · {what}"), lines)
             }
             level => {
                 let lines = self
@@ -342,7 +373,7 @@ impl TableMenu {
             }
         };
         let (width, padding) = match self.level {
-            Level::Condition(_) => (48, 1),
+            Level::Condition(..) => (48, 1),
             _ => (28, 0),
         };
         let popup = centered(area, width, lines.len() as u16 + 2);
@@ -358,7 +389,7 @@ impl TableMenu {
             .style(theme.surface());
         f.render_widget(Clear, popup);
         f.render_widget(Paragraph::new(lines).block(block), popup);
-        if let Level::Condition(typed) = &self.level {
+        if let Level::Condition(typed, _) = &self.level {
             let room = width.saturating_sub(7);
             let x = popup.x + 4 + (typed.chars().count() as u16).min(room);
             f.set_cursor_position((x, popup.y + 2));
@@ -628,7 +659,19 @@ mod tests {
             QueryLanguage::Cql,
             false,
         );
+        // `l` asks for a partition instead of the table's last rows.
         assert_eq!(m.handle(Action::Input('l')), None);
+        for c in "tenant = 'acme'".chars() {
+            m.handle(Action::Input(c));
+        }
+        insta::assert_snapshot!("partition", snapshot(&m));
+        assert_eq!(
+            m.handle(Action::Confirm),
+            Some(MenuEvent::Pick(Choice::PartitionRows(
+                "tenant = 'acme'".into()
+            )))
+        );
+        m.handle(Action::Back);
         assert_eq!(m.handle(Action::Input('D')), None);
         assert_eq!(
             m.handle(Action::Input('t')),
