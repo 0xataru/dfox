@@ -145,10 +145,15 @@ impl TableMenu {
             items.insert(1, pick('l', "Last 100 rows", Choice::LastRows));
         }
         let Some(dialect) = dialect else {
-            // Scripts and dropping are written in SQL.
-            items.retain(|item| !matches!(item.then, Then::Scripts));
+            // Mongo shell commands.
             let at = items.len() - 2;
             items.insert(at, pick('e', "Definition", Choice::Definition));
+            if !read_only {
+                if is_table {
+                    items.push(pick('t', "Delete all…", Choice::Truncate));
+                }
+                items.push(pick('d', "Drop…", Choice::Drop { cascade: false }));
+            }
             return Self::with_items(table, kind, name, false, items);
         };
         if !is_table {
@@ -190,15 +195,26 @@ impl TableMenu {
             label,
             then: Then::Pick(Choice::Script(script)),
         };
-        let mut items = vec![script('s', "SELECT", Script::Select)];
-        if self.kind == NodeKind::Table {
+        let labels = if self.sql {
+            ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE"]
+        } else {
+            [
+                "find",
+                "insertOne",
+                "updateOne",
+                "deleteOne",
+                "createCollection",
+            ]
+        };
+        let mut items = vec![script('s', labels[0], Script::Select)];
+        if matches!(self.kind, NodeKind::Table | NodeKind::Collection) {
             items.extend([
-                script('i', "INSERT", Script::Insert),
-                script('u', "UPDATE", Script::Update),
-                script('d', "DELETE", Script::Delete),
+                script('i', labels[1], Script::Insert),
+                script('u', labels[2], Script::Update),
+                script('d', labels[3], Script::Delete),
             ]);
         }
-        items.push(script('c', "CREATE", Script::Create));
+        items.push(script('c', labels[4], Script::Create));
         items
     }
 
@@ -343,6 +359,68 @@ impl TableMenu {
             let x = popup.x + 4 + (typed.chars().count() as u16).min(room);
             f.set_cursor_position((x, popup.y + 2));
         }
+    }
+}
+
+/// `db.users`, or `db.getCollection("odd name")`.
+pub fn mongo_handle(name: &str) -> String {
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    if plain {
+        format!("db.{name}")
+    } else {
+        format!("db.getCollection({name:?})")
+    }
+}
+
+/// A field name as an object key: bare when it can be.
+pub fn mongo_key(name: &str) -> String {
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if plain {
+        name.to_string()
+    } else {
+        format!("{name:?}")
+    }
+}
+
+/// A mongo shell script for the collection `collection` with `info`'s
+/// fields. `?` marks where values go.
+pub fn shell_script(script: Script, collection: &str, info: &EntityInfo) -> String {
+    let handle = mongo_handle(collection);
+    let fields: Vec<String> = info.columns.iter().map(|c| mongo_key(&c.name)).collect();
+    let others: Vec<&String> = fields.iter().filter(|f| *f != "_id").collect();
+    let each = |names: &[&String], value: &str| {
+        names
+            .iter()
+            .map(|n| format!("    {n}: {value}"))
+            .collect::<Vec<_>>()
+            .join(",\n")
+    };
+    match script {
+        Script::Select => {
+            let all: Vec<&String> = fields.iter().collect();
+            format!(
+                "{handle}.find(\n  {{}},\n  {{\n{}\n  }}\n)\n",
+                each(&all, "1")
+            )
+        }
+        Script::Insert => format!("{handle}.insertOne({{\n{}\n}})\n", each(&others, "?")),
+        Script::Update => format!(
+            "{handle}.updateOne(\n  {{ _id: ? }},\n  {{ $set: {{\n{}\n  }} }}\n)\n",
+            each(&others, "?")
+        ),
+        Script::Delete => format!("{handle}.deleteOne({{ _id: ? }})\n"),
+        // The database writes that one.
+        Script::Create => String::new(),
     }
 }
 
@@ -511,8 +589,21 @@ mod tests {
             false,
         );
         insta::assert_snapshot!("collection", snapshot(&m));
-        assert_eq!(m.handle(Action::Input('s')), None, "no SQL scripts");
-        assert_eq!(m.handle(Action::Input('d')), None, "no SQL drop");
+        assert_eq!(m.handle(Action::Input('s')), None);
+        insta::assert_snapshot!("collection_scripts", snapshot(&m));
+        assert_eq!(
+            m.handle(Action::Input('u')),
+            Some(MenuEvent::Pick(Choice::Script(Script::Update)))
+        );
+        m.handle(Action::Back);
+        assert_eq!(
+            m.handle(Action::Input('t')),
+            Some(MenuEvent::Pick(Choice::Truncate))
+        );
+        assert_eq!(
+            m.handle(Action::Input('d')),
+            Some(MenuEvent::Pick(Choice::Drop { cascade: false }))
+        );
         assert_eq!(
             m.handle(Action::Input('l')),
             Some(MenuEvent::Pick(Choice::LastRows))
@@ -522,6 +613,31 @@ mod tests {
             m.handle(Action::Input(c));
         }
         insta::assert_snapshot!("collection_filter", snapshot(&m));
+    }
+
+    #[test]
+    fn shell_scripts_use_the_fields() {
+        let info = EntityInfo {
+            columns: ["_id", "name", "odd key"]
+                .map(|name| ColumnInfo {
+                    name: name.into(),
+                    ..ColumnInfo::default()
+                })
+                .to_vec(),
+            ..EntityInfo::default()
+        };
+        assert_eq!(
+            shell_script(Script::Select, "users", &info),
+            "db.users.find(\n  {},\n  {\n    _id: 1,\n    name: 1,\n    \"odd key\": 1\n  }\n)\n"
+        );
+        assert_eq!(
+            shell_script(Script::Update, "odd name", &info),
+            "db.getCollection(\"odd name\").updateOne(\n  { _id: ? },\n  { $set: {\n    name: ?,\n    \"odd key\": ?\n  } }\n)\n"
+        );
+        assert_eq!(
+            shell_script(Script::Delete, "users", &info),
+            "db.users.deleteOne({ _id: ? })\n"
+        );
     }
 
     #[test]

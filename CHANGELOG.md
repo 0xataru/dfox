@@ -20,7 +20,19 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   `NumberLong(…)` and `/regex/`. Documents show as columns learnt from them:
   numbers, text, dates and ids as such, objects and arrays as JSON. Running
   commands can be cancelled, and a read-only connection refuses those that
-  write. The table menu shows rows with `find` queries
+  write. The table menu shows rows with `find` queries, writes `find`,
+  `insertOne`, `updateOne` and `deleteOne` scripts, and deletes every
+  document or drops the collection
+- The editor reads mongo shell commands as such: F5 runs the command under
+  the cursor, across lines, and commands are coloured, with `$operators`
+  standing out. Completion offers collections after `db.`, methods after
+  `db.orders.`, and the collection's fields as keys inside `{ … }`.
+  Deleting or updating without a filter, `drop()` and `dropDatabase()` ask
+  first, as `DELETE` without `WHERE` does
+
+### Changed
+
+- Release binaries are stripped of debug symbols: 17.3 MB down to 15.0 MB
 
 ## [0.3.2] - 2026-10-16
 

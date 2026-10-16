@@ -885,7 +885,7 @@ fn mongo_collections_show_their_rows_with_shell_queries() {
     let mut harness = Harness::new();
     let mut w =
         Workspace::new("local", DbType::Mongo, "shop").with_language(QueryLanguage::MongoShell);
-    assert_eq!(w.editor().holds, "commands");
+    assert!(w.editor().shell);
     w.on_children(
         &NodePath::root(),
         Ok(vec![Node::new(NodeKind::Database, "shop", true)]),
@@ -957,4 +957,66 @@ fn mongo_collections_show_their_rows_with_shell_queries() {
     // Names go into the editor as they are, at the cursor.
     w.handle(Action::Inspect, &mut harness.ctx());
     assert!(w.editor().text().starts_with("odd name"));
+}
+
+#[test]
+fn mongo_commands_run_under_the_cursor_and_ask_before_deleting() {
+    use dfox_core::{models::schema::TableColumn, session::QueryLanguage};
+
+    let mut harness = Harness::new();
+    let mut w =
+        Workspace::new("local", DbType::Mongo, "shop").with_language(QueryLanguage::MongoShell);
+    w.on_children(
+        &["shop"].into_iter().collect(),
+        Ok(vec![Node::new(NodeKind::Collection, "users", true)]),
+        &mut harness.ctx(),
+    );
+    w.catalog.on_columns(
+        "shop",
+        Ok(vec![TableColumn {
+            table: "users".into(),
+            name: "age".into(),
+            data_type: "int".into(),
+        }]),
+    );
+    harness.sent();
+
+    // F5 runs the command the cursor is in, over several lines.
+    w.editor_mut()
+        .set_text("db.users.find({\n  age: 3\n})\n  .limit(5)\ndb.users.countDocuments({})");
+    w.editor_mut().buffer.set_cursor((1, 2), false);
+    w.handle(Action::Execute, &mut harness.ctx());
+    let id = match harness.sent().as_slice() {
+        [DbCommand::Run { id, sql, .. }] if sql == "db.users.find({\n  age: 3\n})\n  .limit(5)" => {
+            *id
+        }
+        other => panic!("expected the find, got {other:?}"),
+    };
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
+
+    // Deleting every document asks first.
+    w.editor_mut().set_text("db.users.deleteMany({})");
+    assert!(matches!(
+        w.handle(Action::Execute, &mut harness.ctx()),
+        Some(Command::ConfirmRun { reasons, .. }) if reasons == ["deleteMany without a filter on users"]
+    ));
+    assert!(harness.sent().is_empty());
+
+    // Completion: collections, methods, fields.
+    let mut complete = |w: &mut Workspace, text: &str| {
+        w.editor_mut().set_text(text);
+        w.handle(Action::Complete, &mut harness.ctx());
+        let labels: Vec<String> = w.editor().completion_labels().into_iter().take(3).collect();
+        w.handle(Action::Back, &mut harness.ctx());
+        labels
+    };
+    assert_eq!(complete(&mut w, "db.us"), ["users"]);
+    assert_eq!(complete(&mut w, "db.users.findO"), ["findOne"]);
+    assert_eq!(complete(&mut w, "db.users.find({ a"), ["age"]);
 }

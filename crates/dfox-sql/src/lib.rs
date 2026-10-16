@@ -5,6 +5,7 @@
 
 pub mod complete;
 pub mod guard;
+pub mod mongo;
 
 use sqlparser::{
     ast::{SetExpr, Statement, TableFactor},
@@ -193,7 +194,7 @@ fn rest_of(text: &str, (line, col): Pos) -> &str {
 }
 
 /// The position just after the last character.
-fn end_of(text: &str) -> Pos {
+pub(crate) fn end_of(text: &str) -> Pos {
     let line = text.split('\n').count() - 1;
     let col = text.rsplit('\n').next().map_or(0, |l| l.chars().count());
     (line, col)

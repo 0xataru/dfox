@@ -21,6 +21,9 @@ unwrap_used = "deny"
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+# No debug symbols in the shipped binary: a sixth smaller, and panics still
+# print their message and location.
+strip = true
 
 # Benchmarks compare main with a change under the same settings, so they
 # skip the slow whole-program optimisation.

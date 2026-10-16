@@ -18,20 +18,31 @@ It allows users to perform database operations easily and efficiently through a 
 
 ## Features
 
-- PostgreSQL, MySQL, SQLite and MongoDB, with saved connections (passwords in the OS keychain).
-- MongoDB speaks mongo shell commands: `db.users.find({ age: { $gt: 30 } }).sort({ name: 1 })`,
-  `aggregate`, `countDocuments`, `insertOne`, `updateMany`, `show dbs`, `use shop` and more.
-  Documents show as columns learnt from the documents, with objects and arrays as JSON.
-- User-friendly terminal interface for managing database connections and performing CRUD operations.
-- An explorer of databases, schemas, tables, views and routines, with fuzzy search.
-- A SQL editor with highlighting, autocomplete of tables and columns, query tabs, undo, and a
-  searchable history of every query run.
-- A command palette, a record inspector, and a confirmation before `DELETE`/`UPDATE` without
-  `WHERE`, `DROP` or `TRUNCATE` runs.
-- A result grid that stays fast with a million rows: cell and range selection, resizable
-  columns, and copying as TSV, CSV, JSON, Markdown or `INSERT` statements.
-- Easily extendable for additional database types and features.
-- Built-in debug logging system for troubleshooting.
+- **Databases:** PostgreSQL, MySQL and MariaDB, SQLite, and MongoDB, each on its own native
+  client with rows decoded straight into Apache Arrow. Connections are saved with their
+  passwords in the OS keychain, and can go through TLS (with your own CA file) or an SSH jump
+  host.
+- **Explorer:** databases, schemas, tables, views, routines and collections, with fuzzy
+  search. Under each table are its columns, constraints, indexes, triggers and policies; Enter
+  on any of them opens the SQL that makes it.
+- **Table menu**, as in pgAdmin: the first or last 100 rows, all rows or a filtered set, as a
+  query you can read and change; an exact row count; SELECT, INSERT, UPDATE, DELETE and CREATE
+  scripts; properties; truncate and drop, asked first.
+- **Column card:** a column's type, keys, the column a foreign key points at, indexes and
+  comment, and what its values look like: nulls, distinct values, the most common ones and how
+  they spread, from the planner's statistics or a quick profile.
+- **Editor:** highlighting, autocomplete of tables, columns and fields, query tabs, undo, and
+  a searchable history of every query run. F5 runs the statement under the cursor, even a
+  procedure body or a script with MySQL's `DELIMITER`.
+- **MongoDB** speaks mongo shell commands: `db.users.find({ age: { $gt: 30 } }).sort({ name:
+  1 })`, `aggregate`, `countDocuments`, `insertOne`, `updateMany`, `show dbs`, `use shop` and
+  more. Documents show as columns learnt from them, with objects and arrays as JSON.
+- **Safety:** a confirmation before `DELETE` or `UPDATE` without `WHERE`, `DROP`, `TRUNCATE`,
+  or a Mongo `deleteMany({})`; read-only connections that refuse writes.
+- **Result grid** that stays fast with a million rows: cell and range selection, resizable
+  columns, a record inspector, and copying as TSV, CSV, JSON, Markdown or `INSERT`
+  statements. Long queries can be cancelled.
+- A command palette, themes, and a debug log for troubleshooting.
 
 ## Project Structure
 

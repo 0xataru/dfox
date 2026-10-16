@@ -18,7 +18,7 @@ use crate::{
     sql::{
         self,
         complete::{context, TableRef, Want},
-        Dialect, Pos,
+        mongo, Dialect, Pos,
     },
     widgets::truncate,
 };
@@ -33,6 +33,8 @@ pub enum ItemKind {
     Schema,
     Table,
     Column,
+    /// A method of a collection.
+    Method,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,16 +108,91 @@ pub fn suggest(
     if !forced && ctx.prefix.is_empty() && !matches!(ctx.want, Want::Member(_)) {
         return None;
     }
-    let items = rank(candidates, &ctx.prefix);
+    offer(ctx.start, candidates, &ctx.prefix, forced)
+}
+
+/// Suggestions for mongo shell commands: collections after `db.`, methods
+/// after `db.name.`, and fields as the keys of a document passed to a
+/// method.
+pub fn suggest_shell(
+    text: &str,
+    cursor: Pos,
+    catalog: &Catalog,
+    forced: bool,
+) -> Option<Completion> {
+    let (want, start, prefix) = mongo::context(text, cursor);
+    let after_dot = matches!(want, mongo::Want::Collections | mongo::Want::Methods(_));
+    let candidates: Vec<Item> = match &want {
+        mongo::Want::Nothing => return None,
+        mongo::Want::Collections => {
+            // The database the session is in is the catalog's default.
+            let current = catalog.schemas().first().map(String::as_str);
+            catalog
+                .tables(None)
+                .into_iter()
+                .filter(|(database, _)| Some(*database) == current)
+                .map(|(database, collection)| Item {
+                    label: collection.to_string(),
+                    insert: collection.to_string(),
+                    kind: ItemKind::Table,
+                    detail: database.to_string(),
+                })
+                .collect()
+        }
+        mongo::Want::Methods(_) => mongo::METHODS
+            .iter()
+            .map(|method| Item {
+                label: (*method).to_string(),
+                insert: (*method).to_string(),
+                kind: ItemKind::Method,
+                detail: "method".to_string(),
+            })
+            .collect(),
+        mongo::Want::Fields(collection) => catalog
+            .columns(None, collection)
+            .iter()
+            .map(|field| Item {
+                label: field.name.clone(),
+                insert: mongo_key(&field.name),
+                kind: ItemKind::Column,
+                detail: field.data_type.clone(),
+            })
+            .collect(),
+    };
+    if !forced && prefix.is_empty() && !after_dot {
+        return None;
+    }
+    offer(start, candidates, &prefix, forced)
+}
+
+/// A field name as an object key: bare when it can be, quoted otherwise.
+fn mongo_key(name: &str) -> String {
+    let plain = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    if plain {
+        name.to_string()
+    } else {
+        format!("{name:?}")
+    }
+}
+
+/// The popup for `candidates` matching `prefix`, typed from `start`.
+fn offer(start: Pos, candidates: Vec<Item>, prefix: &str, forced: bool) -> Option<Completion> {
+    let items = rank(candidates, prefix);
     // Nothing to add when the best suggestion is what was typed.
     let typed_already = items
         .first()
-        .is_some_and(|i| i.label.eq_ignore_ascii_case(&ctx.prefix));
+        .is_some_and(|i| i.label.eq_ignore_ascii_case(prefix));
     if items.is_empty() || (typed_already && !forced) {
         return None;
     }
     Some(Completion {
-        start: ctx.start,
+        start,
         items,
         selected: 0,
     })
@@ -278,6 +355,7 @@ pub fn render(completion: &Completion, f: &mut Frame, x: u16, y: u16, ctx: &Rend
                 ItemKind::Schema => "◇",
                 ItemKind::Table => ctx.icons.table,
                 ItemKind::Column => ctx.icons.column,
+                ItemKind::Method => "ƒ",
             };
             let style = if i == completion.selected {
                 theme.highlight()
