@@ -211,7 +211,10 @@ impl Session for MySession {
         // their own semicolons need no DELIMITER. Comments alone are no
         // statement, and the server would call them an error.
         let empty = dfox_sql::statements(&request.text, dfox_sql::Dialect::MySql).is_empty();
-        let sql = request.text;
+        // `DELIMITER` lines are for the mysql client; the server reads the
+        // script without them.
+        let sql = dfox_sql::without_delimiters(&request.text, dfox_sql::Dialect::MySql)
+            .unwrap_or(request.text);
         let conn = self.conn.clone();
         let cancelled = self.cancelled.clone();
         let limit = request.row_limit.unwrap_or(usize::MAX);

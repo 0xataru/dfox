@@ -861,3 +861,16 @@ fn enter_on_a_column_shows_its_card() {
     w.handle(Action::Inspect, &mut harness.ctx());
     assert_eq!(w.editor().text(), "customers");
 }
+
+#[test]
+fn run_at_cursor_sends_a_whole_mysql_procedure() {
+    let mut harness = Harness::new();
+    let mut w = Workspace::new("local", DbType::MySql, "shop").with_dialect(Dialect::MySql);
+    w.editor_mut()
+        .set_text("DELIMITER $$\nCREATE PROCEDURE p()\nBEGIN\n  SELECT 1;\nEND$$\nDELIMITER ;\n");
+    w.handle(Action::Execute, &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "CREATE PROCEDURE p()\nBEGIN\n  SELECT 1;\nEND"
+    ));
+}

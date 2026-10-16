@@ -232,12 +232,84 @@ pub fn highlight(lines: &[String], dialect: Dialect) -> Vec<Vec<Piece>> {
     out
 }
 
-/// The statements of a script, skipping empty ones.
+/// The statements of a script, skipping empty ones. A statement ends at a
+/// `;` outside strings, comments and the `BEGIN … END` body of a procedure,
+/// function, trigger or event. On MySQL, `DELIMITER $$` lines change what
+/// ends a statement, as in the mysql client; they aren't statements, and a
+/// statement's text leaves its delimiter out.
 pub fn statements(text: &str, dialect: Dialect) -> Vec<Stmt> {
+    let lexemes = lex(text, dialect);
+    let directives = if dialect == Dialect::MySql {
+        delimiter_lines(&lexemes, text)
+    } else {
+        Vec::new()
+    };
+    if directives.is_empty() {
+        return split_on_semicolons(&lexemes, end_of(text));
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut found = Vec::new();
+    let mut delimiter = ";".to_string();
+    let mut first = 0;
+    // Each run of lines between directives, with the delimiter in force.
+    for (line, next) in directives
+        .iter()
+        .map(|(line, d)| (*line, Some(d)))
+        .chain([(lines.len(), None)])
+    {
+        if line > first {
+            let last = line - 1;
+            let segment_end = (last, lines[last].chars().count());
+            if delimiter == ";" {
+                let inside: Vec<Lexeme> = lexemes
+                    .iter()
+                    .filter(|l| l.start.0 >= first && l.start.0 <= last)
+                    .cloned()
+                    .collect();
+                found.extend(split_on_semicolons(&inside, segment_end));
+            } else {
+                found.extend(split_on(&lines, first..=last, &delimiter, &lexemes));
+            }
+        }
+        if let Some(next) = next {
+            delimiter = next.clone();
+        }
+        first = line + 1;
+    }
+    found
+}
+
+/// The lines that are `DELIMITER x` directives, and the delimiter each sets.
+fn delimiter_lines(lexemes: &[Lexeme], text: &str) -> Vec<(usize, String)> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut out = Vec::new();
+    let mut seen_line = None;
+    for lexeme in lexemes {
+        if lexeme.trivia || seen_line == Some(lexeme.start.0) {
+            continue;
+        }
+        // Only the first token of a line can start a directive.
+        seen_line = Some(lexeme.start.0);
+        if lexeme.keyword().as_deref() != Some("DELIMITER") {
+            continue;
+        }
+        let line = lines[lexeme.start.0];
+        let rest: String = line.chars().skip(lexeme.end.1).collect();
+        if let Some(delimiter) = rest.split_whitespace().next() {
+            out.push((lexeme.start.0, delimiter.to_string()));
+        }
+    }
+    out
+}
+
+/// Splits on `;` the statements made of `lexemes`, keeping procedure
+/// bodies whole; the last statement's zone runs to `end`.
+fn split_on_semicolons(lexemes: &[Lexeme], end: Pos) -> Vec<Stmt> {
     let mut found = Vec::new();
     let mut current: Option<(Pos, Pos)> = None;
-    for lexeme in lex(text, dialect) {
-        if lexeme.semicolon {
+    let mut body = Body::default();
+    for lexeme in lexemes {
+        if lexeme.semicolon && body.depth == 0 {
             if let Some((start, _)) = current.take() {
                 found.push(Stmt {
                     start,
@@ -248,19 +320,134 @@ pub fn statements(text: &str, dialect: Dialect) -> Vec<Stmt> {
                 // `;;`: the empty statement belongs to the one before.
                 last.zone_end = lexeme.end;
             }
+            body = Body::default();
         } else if !lexeme.trivia {
+            body.step(current.is_none(), lexeme);
             let start = current.map_or(lexeme.start, |(start, _)| start);
             current = Some((start, lexeme.end));
+        }
+    }
+    if let Some((start, last)) = current {
+        found.push(Stmt {
+            start,
+            end: last,
+            zone_end: end,
+        });
+    }
+    found
+}
+
+/// How deep in a routine's `BEGIN … END` a statement is: its `;` don't end
+/// it there.
+#[derive(Debug, Default)]
+struct Body {
+    /// The statement starts with CREATE.
+    create: bool,
+    /// It creates a procedure, function, trigger or event, so its BEGIN
+    /// starts a body rather than a transaction.
+    routine: bool,
+    depth: usize,
+    /// The word before was END, which `END IF` and the like don't close.
+    after_end: bool,
+}
+
+impl Body {
+    fn step(&mut self, first: bool, lexeme: &Lexeme) {
+        let word = lexeme.keyword();
+        let word = word.as_deref().unwrap_or("");
+        if first {
+            self.create = word == "CREATE";
+        }
+        if std::mem::take(&mut self.after_end) {
+            match word {
+                // These blocks opened without being counted.
+                "IF" | "LOOP" | "WHILE" | "REPEAT" => self.depth += 1,
+                // `END CASE` closes the CASE already counted.
+                "CASE" => return,
+                _ => {}
+            }
+        }
+        match word {
+            "PROCEDURE" | "FUNCTION" | "TRIGGER" | "EVENT" if self.create => self.routine = true,
+            "BEGIN" | "CASE" if self.routine => self.depth += 1,
+            "END" if self.routine => {
+                self.depth = self.depth.saturating_sub(1);
+                self.after_end = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Splits `rows` of `lines` on `delimiter` outside strings and comments,
+/// leaving the delimiter out of each statement.
+fn split_on(
+    lines: &[&str],
+    rows: std::ops::RangeInclusive<usize>,
+    delimiter: &str,
+    lexemes: &[Lexeme],
+) -> Vec<Stmt> {
+    // Where strings and comments are: no delimiter ends a statement there.
+    let shielded: Vec<&Lexeme> = lexemes
+        .iter()
+        .filter(|l| matches!(l.kind, Kind::String | Kind::Comment))
+        .collect();
+    let within = |at: Pos| shielded.iter().find(|l| l.start <= at && at < l.end);
+    let width = delimiter.chars().count();
+    let mut found = Vec::new();
+    let mut current: Option<(Pos, Pos)> = None;
+    let last_row = *rows.end();
+    for row in rows {
+        let chars: Vec<char> = lines[row].chars().collect();
+        let mut col = 0;
+        while col < chars.len() {
+            let at = (row, col);
+            let shield = within(at);
+            let rest: String = chars[col..].iter().take(width).collect();
+            if shield.is_none() && rest == delimiter {
+                if let Some((start, end)) = current.take() {
+                    found.push(Stmt {
+                        start,
+                        end,
+                        zone_end: (row, col + width),
+                    });
+                }
+                col += width;
+                continue;
+            }
+            let comment = shield.is_some_and(|l| l.kind == Kind::Comment);
+            if !comment && !chars[col].is_whitespace() {
+                let start = current.map_or(at, |(start, _)| start);
+                current = Some((start, (row, col + 1)));
+            }
+            col += 1;
         }
     }
     if let Some((start, end)) = current {
         found.push(Stmt {
             start,
             end,
-            zone_end: end_of(text),
+            zone_end: (last_row, lines[last_row].chars().count()),
         });
     }
     found
+}
+
+/// A MySQL script without its `DELIMITER` lines, each statement ending in
+/// `;` as the server reads it; `None` when it has none to take out.
+pub fn without_delimiters(text: &str, dialect: Dialect) -> Option<String> {
+    if dialect != Dialect::MySql || delimiter_lines(&lex(text, dialect), text).is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let statements: Vec<String> = statements(text, dialect)
+        .iter()
+        .map(|s| {
+            let text = slice(&lines, s.start, s.end);
+            text.trim_end().trim_end_matches(';').to_string()
+        })
+        .collect();
+    Some(format!("{};", statements.join(";\n")))
 }
 
 /// The statement the cursor is in or just after: the one whose text, up to
