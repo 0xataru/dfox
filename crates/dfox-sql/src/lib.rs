@@ -350,6 +350,10 @@ struct Body {
     depth: usize,
     /// The word before was END, which `END IF` and the like don't close.
     after_end: bool,
+    /// The statement starts with BEGIN: a transaction, or a CQL batch.
+    begin: bool,
+    /// The word before was APPLY, which `APPLY BATCH` ends a batch with.
+    after_apply: bool,
 }
 
 impl Body {
@@ -358,6 +362,21 @@ impl Body {
         let word = word.as_deref().unwrap_or("");
         if first {
             self.create = word == "CREATE";
+            self.begin = word == "BEGIN";
+        }
+        // A CQL batch, `BEGIN [UNLOGGED | COUNTER] BATCH … APPLY BATCH`,
+        // holds statements of its own.
+        if std::mem::take(&mut self.after_apply) && word == "BATCH" {
+            self.depth = self.depth.saturating_sub(1);
+            return;
+        }
+        if self.begin && word == "BATCH" && self.depth == 0 {
+            self.depth = 1;
+            return;
+        }
+        if self.begin && word == "APPLY" {
+            self.after_apply = true;
+            return;
         }
         if std::mem::take(&mut self.after_end) {
             match word {

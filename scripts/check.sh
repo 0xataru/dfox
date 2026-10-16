@@ -18,7 +18,7 @@ step "clippy"
 cargo clippy --workspace --all-targets --locked -- -D warnings
 
 step "clippy, one driver at a time"
-for driver in postgres mysql sqlite mongo; do
+for driver in postgres mysql sqlite mongo cassandra; do
 	cargo clippy -p dfox-tui --no-default-features --features "$driver" --locked -- -D warnings
 done
 

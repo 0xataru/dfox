@@ -31,6 +31,7 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
         "postgres" | "postgresql" => DbType::Postgres,
         "mysql" | "mariadb" => DbType::MySql,
         "mongodb" => DbType::Mongo,
+        "cassandra" | "scylla" | "scylladb" => DbType::Cassandra,
         "mongodb+srv" => {
             return Err(
                 "mongodb+srv addresses aren't supported yet: use mongodb://host:port".into(),
@@ -110,6 +111,17 @@ mod tests {
         assert!(parse("x", "mongodb+srv://cluster.example.net")
             .unwrap_err()
             .contains("aren't supported yet"));
+    }
+
+    #[test]
+    fn cassandra_urls() {
+        let (c, password) =
+            parse("env", "cassandra://cassandra:secret@10.0.0.5/shop").expect("parse");
+        assert_eq!(c.driver, DbType::Cassandra);
+        assert_eq!(c.target().port, 9042);
+        assert_eq!(password.as_deref(), Some("secret"));
+        let (c, _) = parse("env", "scylla://localhost").expect("parse");
+        assert_eq!(c.target().database.as_deref(), Some("system"));
     }
 
     #[test]

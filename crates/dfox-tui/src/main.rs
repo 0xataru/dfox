@@ -47,6 +47,8 @@ fn drivers() -> Drivers {
         Some(Arc::new(dfox_driver_sqlite::SqliteDriver)),
         #[cfg(feature = "mongo")]
         Some(Arc::new(dfox_driver_mongo::MongoDriver)),
+        #[cfg(feature = "cassandra")]
+        Some(Arc::new(dfox_driver_cassandra::CassandraDriver)),
         None,
     ];
     Drivers::new(drivers.into_iter().flatten().collect())

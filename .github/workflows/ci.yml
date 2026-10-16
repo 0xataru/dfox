@@ -33,7 +33,7 @@ jobs:
       # Each driver is a cargo feature; the app must build with any one alone.
       - name: clippy, one driver at a time
         run: |
-          for driver in postgres mysql sqlite mongo; do
+          for driver in postgres mysql sqlite mongo cassandra; do
             cargo clippy -p dfox-tui --no-default-features --features "$driver" --locked -- -D warnings
           done
 
@@ -93,6 +93,7 @@ jobs:
           --health-interval 2s --health-retries 60
     env:
       DFOX_IT_REQUIRED: "1"
+      DFOX_TEST_CASSANDRA_URL: cassandra://cassandra:cassandra@127.0.0.1:59042
       DFOX_TEST_MONGO_URL: mongodb://root:dfox@127.0.0.1:57017
       DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
       DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
@@ -108,6 +109,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # ScyllaDB needs arguments a service container can't take: one
+      # small shard, and logins.
+      - name: ScyllaDB
+        run: docker compose -f docker-compose.test.yml up -d --wait scylla
+
       # A second Postgres with TLS and a test CA, for the verify-full tests.
       - name: TLS Postgres
         run: ./scripts/tls-postgres.sh
@@ -119,7 +125,7 @@ jobs:
       - name: integration tests
         run: >-
           cargo test --locked --tests
-          -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-driver-mongo
+          -p dfox-driver-postgres -p dfox-driver-mysql -p dfox-driver-sqlite -p dfox-driver-mongo -p dfox-driver-cassandra
           -p dfox-ssh -p dfox-testkit
 
   # Benchmarks of main and of the change, on the same runner one after the

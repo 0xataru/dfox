@@ -48,6 +48,7 @@ jobs:
           --health-interval 2s --health-retries 60
     env:
       DFOX_IT_REQUIRED: "1"
+      DFOX_TEST_CASSANDRA_URL: cassandra://cassandra:cassandra@127.0.0.1:59042
       DFOX_TEST_MONGO_URL: mongodb://root:dfox@127.0.0.1:57017
       DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
       DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
@@ -67,6 +68,11 @@ jobs:
       - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # v2.87.28
         with:
           tool: cargo-llvm-cov
+
+      # ScyllaDB needs arguments a service container can't take: one
+      # small shard, and logins.
+      - name: ScyllaDB
+        run: docker compose -f docker-compose.test.yml up -d --wait scylla
 
       - name: TLS Postgres
         run: ./scripts/tls-postgres.sh
