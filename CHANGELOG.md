@@ -18,8 +18,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   timestamps, dates, times, uuids, and collections, tuples and user-defined
   types as JSON. The table menu's filtered rows add `ALLOW FILTERING`; a
   read-only connection refuses statements that write. dfox connects through
-  the address given, so clusters behind Docker, NAT or an SSH tunnel work.
-  Encrypted connections to Cassandra aren't supported yet
+  the address given, so clusters behind Docker, NAT or an SSH tunnel work,
+  and reads with consistency `ONE`, as `cqlsh` does, so a single node or a
+  cluster with replicas down still answers. Encrypted connections to
+  Cassandra aren't supported yet
 
 ### Added
 

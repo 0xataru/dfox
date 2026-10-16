@@ -19,7 +19,7 @@ impl Driver for CassandraDriver {
     fn info(&self) -> DriverInfo {
         DriverInfo {
             id: "cassandra",
-            name: "Cassandra",
+            name: "Cassandra / ScyllaDB",
             default_port: Some(9042),
             url_schemes: &["cassandra", "scylla"],
         }

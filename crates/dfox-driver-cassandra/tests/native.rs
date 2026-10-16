@@ -301,3 +301,21 @@ async fn a_wrong_password_fails_to_connect() {
         .expect("refused");
     assert!(err.to_string().starts_with("Connection error"), "{err}");
 }
+
+#[tokio::test]
+async fn one_replica_is_enough_to_read() {
+    let Some(url) = server_url(URL) else { return };
+    let mut s = CassandraDriver
+        .open(&params_from_url(&url))
+        .await
+        .expect("open");
+    // ScyllaDB keeps three copies of this keyspace; the test cluster has one
+    // node.
+    let out = run(
+        s.as_mut(),
+        "SELECT * FROM system_distributed.service_levels",
+        10,
+    )
+    .await;
+    assert!(out.is_ok(), "{:?}", out.err());
+}

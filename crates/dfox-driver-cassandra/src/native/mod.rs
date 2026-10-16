@@ -24,8 +24,12 @@ use dfox_core::{
 };
 use futures_util::{future::BoxFuture, stream, StreamExt};
 use scylla::{
-    client::{session::Session as Scylla, session_builder::SessionBuilder},
+    client::{
+        execution_profile::ExecutionProfile, session::Session as Scylla,
+        session_builder::SessionBuilder,
+    },
     errors::TranslationError,
+    frame::types::Consistency,
     policies::address_translator::{AddressTranslator, UntranslatedPeer},
     statement::Statement,
     value::Row,
@@ -76,7 +80,14 @@ pub async fn open(params: &ConnectionParams) -> Result<Box<dyn Session>, DbError
     // Nodes tell each other's addresses as the cluster sees them, which
     // Docker, NAT or a tunnel make unreachable from here: every connection
     // goes to the address given, and that node coordinates.
+    // One replica answers, as in cqlsh: a client shows what a node has, and
+    // keeps working on a single node or with replicas down.
+    let profile = ExecutionProfile::builder()
+        .consistency(Consistency::One)
+        .build()
+        .into_handle();
     let builder = SessionBuilder::new()
+        .default_execution_profile_handle(profile)
         .connection_timeout(Duration::from_secs(10))
         .known_node_addr(address)
         .address_translator(Arc::new(Only(address)));
