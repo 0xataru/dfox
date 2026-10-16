@@ -6,9 +6,9 @@ expression: "test.snapshot(80, 24)"
 │   ◆ postgres       ││  1 SELECT * FROM customers                             │
 │ ▾ ◆ shop ●         ││                                                        │
 │   ▾ Tables 3       ││                                                        │
-│       ▤ customers  ││                                                        │
-│       ▤ order_item ││                                                        │
-│       ▤ orders ~12 ││                                                        │
+│     ▸ ▤ customers  ││                                                        │
+│     ▸ ▤ order_item ││                                                        │
+│     ▸ ▤ orders ~12 ││                                                        │
 │   ▸ Views 1        │╰────────────────────────────────────────── Ln 1, Col 24 ╯
 │   ▸ Functions 1    │╭ Results 1/2 · col 1/2 ─────────────────────────────────╮
 │   ▸ Procedures 1   ││ # │ id   name                                          │

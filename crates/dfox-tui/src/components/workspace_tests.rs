@@ -514,26 +514,58 @@ fn enter_in_the_results_opens_the_inspector() {
     assert!(!w.results().takes_back());
 }
 
-#[test]
-fn enter_on_a_table_shows_its_rows() {
-    let mut harness = Harness::new();
+/// A workspace with the `orders` table selected in the explorer.
+fn on_orders(harness: &mut Harness) -> Workspace {
     let mut w = workspace();
-    answer_catalog(&mut w, &mut harness);
+    answer_catalog(&mut w, harness);
     harness.sent();
     w.set_focus(Panel::Explorer);
     w.explorer
         .select(&["d/shop", "g/Table", "o/orders"].map(String::from));
+    w
+}
 
-    w.handle(Action::Confirm, &mut harness.ctx());
-    let id = match harness.sent().as_slice() {
-        [DbCommand::Browse {
-            id,
-            path,
-            row_limit: 100_000,
-        }] if path.parts() == ["shop", "public", "orders"] => *id,
-        other => panic!("expected a browse, got {other:?}"),
+fn orders() -> NodePath {
+    ["shop", "public", "orders"].into_iter().collect()
+}
+
+fn orders_info() -> dfox_core::catalog::EntityInfo {
+    use dfox_core::catalog::{ColumnInfo, EntityInfo};
+    let column = |name: &str, primary_key| ColumnInfo {
+        name: name.into(),
+        type_name: "integer".into(),
+        primary_key,
+        ..ColumnInfo::default()
     };
+    EntityInfo {
+        columns: vec![column("id", true), column("total", false)],
+        row_estimate: Some(12_400),
+        ..EntityInfo::default()
+    }
+}
+
+#[test]
+fn enter_on_a_table_shows_its_rows() {
+    let mut harness = Harness::new();
+    let mut w = on_orders(&mut harness);
+
+    // Enter opens the menu, which reads the table meanwhile; Enter again
+    // picks its first rows.
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert_eq!(harness.sent(), [DbCommand::Describe { path: orders() }]);
+    assert!(w.wants_text());
+    w.handle(Action::Confirm, &mut harness.ctx());
+    let sql = "SELECT * FROM orders LIMIT 100";
+    let id = match harness.sent().as_slice() {
+        [DbCommand::Run { id, sql: sent, .. }] if sent == sql => *id,
+        other => panic!("expected the query, got {other:?}"),
+    };
+    // The query shows in a tab of the table's own, and the explorer keeps
+    // the keys.
+    assert_eq!((w.tab_count(), w.title(0)), (1, "orders".to_string()));
+    assert_eq!(w.editor().text(), sql);
     assert_eq!(w.focused(), Panel::Explorer);
+    assert!(!w.wants_text());
 
     let mut ctx = harness.ctx();
     let (schema, batch) = crate::testing::ints(&[1, 2]);
@@ -549,10 +581,26 @@ fn enter_on_a_table_shows_its_rows() {
         },
         &mut ctx,
     );
-    // Reading a table changes nothing and isn't kept in the history.
-    assert!(!changed);
+    assert!(changed);
     assert_eq!(w.results().store.row_count(), 2);
-    assert!(harness.history.search("", 10).is_empty());
+    assert_eq!(harness.history.search("", 10)[0].sql, sql);
+
+    // Another view of the same table reuses its tab.
+    w.explorer.on_described(&orders(), Ok(orders_info()));
+    w.handle(Action::Confirm, &mut harness.ctx());
+    w.handle(Action::Input('a'), &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "SELECT * FROM orders"
+    ));
+    assert_eq!(w.tab_count(), 1);
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id: id + 1,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
 
     // One query at a time.
     w.editor_mut().set_text("select 1");
@@ -561,8 +609,102 @@ fn enter_on_a_table_shows_its_rows() {
     harness.sent();
     w.set_focus(Panel::Explorer);
     w.handle(Action::Confirm, &mut harness.ctx());
+    w.handle(Action::Confirm, &mut harness.ctx());
     assert!(harness.sent().is_empty());
     assert_eq!(harness.toast_texts(), ["A query is already running"]);
+}
+
+#[test]
+fn the_last_rows_wait_for_the_primary_key() {
+    let mut harness = Harness::new();
+    let mut w = on_orders(&mut harness);
+    w.handle(Action::Confirm, &mut harness.ctx());
+    harness.sent();
+    w.handle(Action::Input('l'), &mut harness.ctx());
+    assert!(harness.sent().is_empty(), "the menu waits for describe");
+
+    let command = w.on_described(&orders(), Ok(orders_info()), &mut harness.ctx());
+    assert_eq!(command, None);
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "SELECT * FROM orders ORDER BY id DESC LIMIT 100"
+    ));
+}
+
+/// Opens the table menu and types `keys`: what the last one did, and what
+/// went to the engine.
+fn pick(w: &mut Workspace, harness: &mut Harness, keys: &str) -> (Option<Command>, Vec<DbCommand>) {
+    w.handle(Action::Confirm, &mut harness.ctx());
+    let mut command = None;
+    for c in keys.chars() {
+        command = w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    (command, harness.sent())
+}
+
+#[test]
+fn the_menu_counts_scripts_and_drops() {
+    let mut harness = Harness::new();
+    let mut w = on_orders(&mut harness);
+    w.explorer.on_described(&orders(), Ok(orders_info()));
+
+    let (_, sent) = pick(&mut w, &mut harness, "c");
+    assert_eq!(sent, [DbCommand::Count { path: orders() }]);
+    w.on_counted(&orders(), Ok(12_345), &mut harness.ctx());
+    assert_eq!(harness.toast_texts(), ["orders holds 12345 rows"]);
+
+    pick(&mut w, &mut harness, "su");
+    assert_eq!(w.title(w.active_tab()), "UPDATE orders");
+    assert_eq!(
+        w.editor().text(),
+        "UPDATE orders\nSET total = ?\nWHERE id = ?;\n"
+    );
+    assert_eq!(w.focused(), Panel::Editor);
+
+    w.set_focus(Panel::Explorer);
+    let (_, sent) = pick(&mut w, &mut harness, "sc");
+    assert_eq!(
+        sent,
+        [DbCommand::Definition {
+            path: orders(),
+            kind: NodeKind::Table,
+        }]
+    );
+
+    // Dropping asks first, as any destructive query does.
+    let (command, sent) = pick(&mut w, &mut harness, "D");
+    assert!(sent.is_empty());
+    assert!(matches!(
+        command,
+        Some(Command::ConfirmRun { sql, .. }) if sql == "DROP TABLE orders CASCADE"
+    ));
+
+    w.set_focus(Panel::Explorer);
+    w.handle(Action::Confirm, &mut harness.ctx());
+    w.handle(Action::Input('w'), &mut harness.ctx());
+    for c in "total > 10".chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "SELECT * FROM orders WHERE total > 10"
+    ));
+}
+
+#[test]
+fn read_only_connections_and_properties() {
+    let mut harness = Harness::new();
+    let mut w = on_orders(&mut harness).with_read_only(true);
+    w.explorer.on_described(&orders(), Ok(orders_info()));
+    w.handle(Action::Confirm, &mut harness.ctx());
+    // No drop on a read-only connection.
+    assert_eq!(w.handle(Action::Input('d'), &mut harness.ctx()), None);
+    w.handle(Action::Input('p'), &mut harness.ctx());
+    let test = TestCtx::new();
+    insta::assert_snapshot!(render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx)));
+    w.handle(Action::Back, &mut harness.ctx());
+    assert!(!w.wants_text());
 }
 
 #[test]
@@ -654,4 +796,68 @@ fn definitions_open_in_tabs_named_for_their_object() {
         harness.toast_texts(),
         ["Couldn't open place_order: Error: permission denied"]
     );
+}
+
+#[test]
+fn enter_on_a_column_shows_its_card() {
+    use dfox_core::catalog::{ColumnInfo, EntityInfo, ForeignKey};
+
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    answer_catalog(&mut w, &mut harness);
+    let orders: NodePath = ["shop", "public", "orders"].into_iter().collect();
+    let customers: NodePath = ["shop", "public", "customers"].into_iter().collect();
+    w.set_focus(Panel::Explorer);
+    w.explorer
+        .select(&["d/shop", "g/Table", "o/orders"].map(String::from));
+    w.handle(Action::Right, &mut harness.ctx());
+    harness.sent();
+    w.explorer.on_described(
+        &orders,
+        Ok(EntityInfo {
+            columns: vec![ColumnInfo {
+                name: "customer".into(),
+                type_name: "integer".into(),
+                ..ColumnInfo::default()
+            }],
+            foreign_keys: vec![ForeignKey {
+                name: "orders_customer_fkey".into(),
+                columns: vec!["customer".into()],
+                target: customers.clone(),
+                target_columns: vec!["id".into()],
+            }],
+            ..EntityInfo::default()
+        }),
+    );
+    w.explorer
+        .select(&["d/shop", "g/Table", "o/orders", "f/c", "c/customer"].map(String::from));
+
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert_eq!(
+        harness.sent(),
+        [DbCommand::ColumnStats {
+            path: orders.clone(),
+            column: "customer".into(),
+            profile: false,
+        }]
+    );
+    // The card takes every key, letters too.
+    assert!(w.wants_text());
+    w.handle(Action::Input('p'), &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::ColumnStats { profile: true, .. }]
+    ));
+    w.on_column_stats(&orders, "customer", false, Ok(None));
+    w.handle(Action::Back, &mut harness.ctx());
+    assert!(!w.wants_text());
+
+    // Enter on the card goes to the table the key points at.
+    w.handle(Action::Confirm, &mut harness.ctx());
+    harness.sent();
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Explorer);
+    assert!(!w.wants_text());
+    w.handle(Action::Inspect, &mut harness.ctx());
+    assert_eq!(w.editor().text(), "customers");
 }

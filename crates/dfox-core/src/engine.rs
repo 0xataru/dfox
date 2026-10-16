@@ -25,7 +25,7 @@ use tokio::{
 
 use crate::{
     arrow::Frame,
-    catalog::{BrowseQuery, Catalog, EntityInfo, Node, NodeKind, NodePath},
+    catalog::{BrowseQuery, Catalog, ColumnStats, EntityInfo, Node, NodeKind, NodePath},
     driver::{ping, Driver, Drivers},
     errors::DbError,
     models::{
@@ -83,6 +83,13 @@ pub enum Command {
         path: NodePath,
         kind: NodeKind,
     },
+    /// What is known about the values of `column` in the table at `path`;
+    /// with `profile`, counted now. See [`Catalog::column_stats`].
+    ColumnStats {
+        path: NodePath,
+        column: String,
+        profile: bool,
+    },
     /// Measures how long it takes to reach a database, without logging in
     /// and without touching the session. See [`ping`].
     Ping {
@@ -97,12 +104,16 @@ pub enum Command {
         sql: String,
         row_limit: usize,
     },
-    /// Streams the rows of the table at `path`, at most `row_limit`, as
+    /// Streams the rows of the table at `path`, as `query` picks them, as
     /// query `id`.
     Browse {
         id: QueryId,
         path: NodePath,
-        row_limit: usize,
+        query: BrowseQuery,
+    },
+    /// Counts the rows of the table at `path`, exactly.
+    Count {
+        path: NodePath,
     },
     Cancel {
         id: QueryId,
@@ -135,6 +146,16 @@ pub enum EngineEvent {
         path: NodePath,
         kind: NodeKind,
         result: Result<String, DbError>,
+    },
+    ColumnStats {
+        path: NodePath,
+        column: String,
+        profile: bool,
+        result: Result<Option<ColumnStats>, DbError>,
+    },
+    Counted {
+        path: NodePath,
+        result: Result<u64, DbError>,
     },
     Pong {
         id: u64,
@@ -312,6 +333,33 @@ impl Engine {
                     let _ = events.send(event).await;
                 });
             }
+            Command::ColumnStats {
+                path,
+                column,
+                profile,
+            } => {
+                let session = self.live.as_ref().map(|live| live.session.clone());
+                let events = self.events.clone();
+                tokio::spawn(async move {
+                    let result = match session {
+                        Some(session) => {
+                            let mut session = session.lock().await;
+                            session
+                                .catalog()
+                                .column_stats(&path, &column, profile)
+                                .await
+                        }
+                        None => Err(Self::not_connected()),
+                    };
+                    let event = EngineEvent::ColumnStats {
+                        path,
+                        column,
+                        profile,
+                        result,
+                    };
+                    let _ = events.send(event).await;
+                });
+            }
             Command::Ping {
                 id,
                 db_type,
@@ -327,17 +375,15 @@ impl Engine {
                 let request = Request::new(sql).with_row_limit(row_limit);
                 self.run_query(id, Start::Run(request), row_limit);
             }
-            Command::Browse {
-                id,
-                path,
-                row_limit,
-            } => {
-                let query = BrowseQuery {
-                    limit: (row_limit > 0).then_some(row_limit as u64),
-                    ..BrowseQuery::default()
-                };
-                self.run_query(id, Start::Browse(path, query), row_limit);
+            Command::Browse { id, path, query } => {
+                let limit = query.limit.map_or(0, |l| l as usize);
+                self.run_query(id, Start::Browse(path, query), limit);
             }
+            Command::Count { path } => self.catalog(
+                path,
+                |path, result| EngineEvent::Counted { path, result },
+                |catalog, path| catalog.count_rows(path),
+            ),
             Command::Cancel { id } => self.cancel(id),
         }
     }

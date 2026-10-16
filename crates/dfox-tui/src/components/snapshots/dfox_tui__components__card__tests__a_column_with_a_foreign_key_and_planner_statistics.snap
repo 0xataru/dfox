@@ -1,0 +1,24 @@
+---
+source: dfox-tui/src/components/card.rs
+expression: snapshot(&card)
+---
+
+
+
+
+   ╭ orders.customer ─────────────────────────────────────────────╮
+   │ Type        integer                                          │
+   │ Null        nullable                                         │
+   │ References  customers.id                                     │
+   │ Indexes     orders_customer_idx                              │
+   │ Comment     who placed it                                    │
+   │                                                              │
+   │ Values  from the planner                                     │
+   │ Nulls       2.0%                                             │
+   │ Distinct    10.0% of rows, ≈ 1.2k                            │
+   │ Common      7                ████████████████████ 12.0%      │
+   │             42               ██████████ 6.0%                 │
+   │ Spread      █████▃▃▃▃▃ 0 … 130                               │
+   │                                                              │
+   │  Enter  go to customers    p  profile    Esc  close          │
+   ╰──────────────────────────────────────────────────────────────╯

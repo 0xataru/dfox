@@ -11,7 +11,7 @@ mod tests;
 use std::cell::{Cell, RefCell};
 
 use dfox_core::{
-    catalog::{ColumnInfo, EntityInfo, Node, NodeKind, NodePath},
+    catalog::{EntityInfo, Node, NodeKind, NodePath},
     engine::Command as DbCommand,
     errors::DbError,
 };
@@ -57,8 +57,8 @@ impl<T> Load<T> {
 struct Entry {
     node: Node,
     children: Load<Vec<Entry>>,
-    /// For nodes with rows: their columns, from describing them.
-    columns: Load<Vec<ColumnInfo>>,
+    /// For nodes with rows: their columns, keys and indexes.
+    info: Load<EntityInfo>,
 }
 
 impl Entry {
@@ -66,7 +66,7 @@ impl Entry {
         Self {
             node,
             children: Load::NotLoaded,
-            columns: Load::NotLoaded,
+            info: Load::NotLoaded,
         }
     }
 
@@ -90,6 +90,100 @@ impl Entry {
     /// The entries shown under this one: a lone schema's, or its own.
     fn shown(&self) -> &Load<Vec<Entry>> {
         self.only_schema().map_or(&self.children, |s| &s.children)
+    }
+}
+
+/// Groups of objects under a schema, and folders of parts under a table:
+/// nodes that hold others and are nothing themselves.
+fn is_folder(id: &str) -> bool {
+    id.starts_with("g/") || id.starts_with("f/")
+}
+
+/// What a table is made of, each in a folder of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Part {
+    Column,
+    Constraint,
+    Index,
+    Trigger,
+    Policy,
+}
+
+impl Part {
+    /// In display order.
+    pub(crate) const ALL: [Part; 5] = [
+        Part::Column,
+        Part::Constraint,
+        Part::Index,
+        Part::Trigger,
+        Part::Policy,
+    ];
+
+    /// The start of its nodes' tree identifiers.
+    pub(crate) fn tag(self) -> &'static str {
+        match self {
+            Part::Column => "c",
+            Part::Constraint => "k",
+            Part::Index => "x",
+            Part::Trigger => "t",
+            Part::Policy => "y",
+        }
+    }
+
+    fn from_tag(tag: &str) -> Option<Part> {
+        Part::ALL.into_iter().find(|p| p.tag() == tag)
+    }
+
+    pub(crate) fn folder_id(self) -> String {
+        format!("f/{}", self.tag())
+    }
+
+    pub(crate) fn title(self) -> &'static str {
+        match self {
+            Part::Column => "Columns",
+            Part::Constraint => "Constraints",
+            Part::Index => "Indexes",
+            Part::Trigger => "Triggers",
+            Part::Policy => "Policies",
+        }
+    }
+
+    fn kind(self) -> NodeKind {
+        match self {
+            Part::Column => NodeKind::Column,
+            Part::Constraint => NodeKind::Constraint,
+            Part::Index => NodeKind::Index,
+            Part::Trigger => NodeKind::Trigger,
+            Part::Policy => NodeKind::Policy,
+        }
+    }
+
+    /// The SQL of the part named `name`.
+    fn definition(self, info: &EntityInfo, name: &str) -> Option<String> {
+        let found = match self {
+            Part::Column => None,
+            Part::Constraint => info
+                .constraints
+                .iter()
+                .find(|c| c.name == name)
+                .map(|c| &c.definition),
+            Part::Index => info
+                .indexes
+                .iter()
+                .find(|i| i.name == name)
+                .map(|i| &i.definition),
+            Part::Trigger => info
+                .triggers
+                .iter()
+                .find(|t| t.name == name)
+                .map(|t| &t.definition),
+            Part::Policy => info
+                .policies
+                .iter()
+                .find(|p| p.name == name)
+                .map(|p| &p.definition),
+        };
+        found.cloned()
     }
 }
 
@@ -151,6 +245,8 @@ pub struct Explorer {
     /// Being opened by itself after connecting: the active database, then
     /// its default schema, whose tables open once loaded.
     auto_open: Option<NodePath>,
+    /// An object to select once the nodes leading to it are loaded.
+    revealing: Option<NodePath>,
     pub focused: bool,
     visible: Cell<usize>,
 }
@@ -175,6 +271,7 @@ impl Explorer {
             selected_match: 0,
             matcher: RefCell::new(filter::matcher()),
             auto_open: None,
+            revealing: None,
             focused: false,
             visible: Cell::new(0),
         }
@@ -265,7 +362,7 @@ impl Explorer {
         let mut list = self.root.loaded()?.as_slice();
         let mut found = None;
         for id in ids {
-            if id.starts_with("g/") {
+            if is_folder(id) {
                 continue;
             }
             let entry = list.iter().find(|e| &e.id() == id)?;
@@ -343,6 +440,11 @@ impl Explorer {
             if self.auto_open.as_ref() == Some(path) {
                 self.continue_auto_open(path, ctx);
             }
+            if let Some(target) = self.revealing.clone() {
+                if target.parts().starts_with(path.parts()) {
+                    self.reveal(&target, ctx);
+                }
+            }
         }
         if let Some(filter) = self.filter.clone() {
             self.update_matches(&filter);
@@ -402,8 +504,83 @@ impl Explorer {
 
     pub fn on_described(&mut self, path: &NodePath, result: Result<EntityInfo, DbError>) {
         if let Some(entry) = self.entry_mut(path) {
-            entry.columns = Load::from_result(result.map(|info| info.columns));
+            entry.info = Load::from_result(result);
         }
+        // The columns show at once; the other folders wait to be opened.
+        if let Some(mut ids) = self.ids(path) {
+            ids.push(Part::Column.folder_id());
+            self.state.borrow_mut().open(ids);
+        }
+    }
+
+    /// Asks for the columns, keys and indexes of the table at `path`,
+    /// unless they are loaded or loading.
+    pub fn describe(&mut self, path: &NodePath, ctx: &mut Ctx) {
+        if let Some(entry) = self.entry_mut(path) {
+            if entry.info.wanted() {
+                entry.info = Load::Loading;
+                ctx.engine.send(DbCommand::Describe { path: path.clone() });
+            }
+        }
+    }
+
+    /// Loads the table at `path` again, and the list it is in.
+    pub fn refresh_table(&mut self, path: &NodePath, ctx: &mut Ctx) {
+        if let Some(entry) = self.entry_mut(path) {
+            entry.info = Load::NotLoaded;
+        }
+        self.describe(path, ctx);
+        let parent: NodePath = path.parts()[..path.parts().len().saturating_sub(1)]
+            .iter()
+            .collect();
+        ctx.engine.send(DbCommand::Children { path: parent });
+    }
+
+    /// The table at `path` holds exactly `rows` rows.
+    pub fn set_count(&mut self, path: &NodePath, rows: u64) {
+        if let Some(entry) = self.entry_mut(path) {
+            entry.node.detail = Some(rows.to_string());
+        }
+    }
+
+    /// What describing the table at `path` found, once it has.
+    pub fn described(&self, path: &NodePath) -> Option<&EntityInfo> {
+        self.entry(path)?.info.loaded()
+    }
+
+    /// Selects the object at `path` and opens the nodes leading to it,
+    /// loading them first when they aren't.
+    pub fn reveal(&mut self, path: &NodePath, ctx: &mut Ctx) {
+        self.revealing = None;
+        if let Some(ids) = self.ids(path) {
+            let mut state = self.state.borrow_mut();
+            for end in 1..ids.len() {
+                state.open(ids[..end].to_vec());
+            }
+            state.select(ids);
+            return;
+        }
+        // Load the first node on the way that isn't.
+        for end in 1..path.parts().len() {
+            let prefix: NodePath = path.parts()[..end].iter().collect();
+            let Some(entry) = self.entry(&prefix) else {
+                break;
+            };
+            match &entry.children {
+                Load::Loaded(_) => continue,
+                Load::Failed(_) => break,
+                Load::NotLoaded | Load::Loading => {
+                    self.revealing = Some(path.clone());
+                    self.open_container(&prefix, ctx);
+                    return;
+                }
+            }
+        }
+        let name = path.name().unwrap_or_default();
+        ctx.toast(
+            Level::Warning,
+            format!("Couldn't find {name} in the explorer"),
+        );
     }
 
     /// Reloads every loaded list of objects, after a query that may have
@@ -450,15 +627,42 @@ impl Explorer {
         None
     }
 
-    /// Enter: a table's rows, or else opening or closing the node.
+    /// The selected part of a table: a column, constraint, index, trigger
+    /// or policy, with the table's path.
+    fn selected_part(&self) -> Option<(NodePath, Part, String)> {
+        let ids = self.state.borrow().selected().to_vec();
+        let (last, parents) = ids.split_last()?;
+        let (tag, name) = last.split_once('/')?;
+        let part = Part::from_tag(tag)?;
+        let (table, _) = self.resolve(parents)?;
+        Some((table, part, name.to_string()))
+    }
+
+    /// Enter: a table's rows, a column's card, the SQL of a constraint,
+    /// index, trigger or routine, or else opening or closing the node.
     fn confirm(&mut self, ctx: &mut Ctx) -> Option<Command> {
+        if let Some((table, part, name)) = self.selected_part() {
+            if part == Part::Column {
+                return Some(Command::ColumnCard {
+                    table,
+                    column: name,
+                });
+            }
+            let info = self.described(&table)?;
+            let text = part.definition(info, &name)?;
+            return Some(Command::ShowSql {
+                path: table.child(name),
+                kind: part.kind(),
+                text,
+            });
+        }
         let ids = self.state.borrow().selected().to_vec();
         let on_object = ids.last().is_some_and(|id| id.starts_with("o/"));
         if let Some((path, entry)) = self.resolve(&ids).filter(|_| on_object) {
             let kind = entry.node.kind;
             if kind.has_rows() {
                 let name = self.sql_name(&path);
-                return Some(Command::Browse { path, name });
+                return Some(Command::TableMenu { path, kind, name });
             }
             if matches!(kind, NodeKind::Function | NodeKind::Procedure) {
                 return Some(Command::Definition { path, kind });
@@ -484,12 +688,11 @@ impl Explorer {
     /// own name, an object without the database and schema it is in when
     /// those are the ones in use.
     fn selected_name(&self) -> Option<Vec<String>> {
-        let ids = self.state.borrow().selected().to_vec();
-        let last = ids.last()?;
-        if let Some(column) = last.strip_prefix("c/") {
-            return Some(vec![column.to_string()]);
+        if let Some((_, _, name)) = self.selected_part() {
+            return Some(vec![name]);
         }
-        if last.starts_with("g/") {
+        let ids = self.state.borrow().selected().to_vec();
+        if is_folder(ids.last()?) {
             return None;
         }
         let (path, entry) = self.resolve(&ids)?;
@@ -543,16 +746,11 @@ impl Explorer {
         let (true, Some((path, node))) = (opened, resolved) else {
             return None;
         };
-        if ids.last().is_some_and(|id| id.starts_with("g/")) {
+        if ids.last().is_some_and(|id| is_folder(id)) {
             return None;
         }
         if node.kind.has_rows() {
-            if let Some(entry) = self.entry_mut(&path) {
-                if entry.columns.wanted() {
-                    entry.columns = Load::Loading;
-                    ctx.engine.send(DbCommand::Describe { path });
-                }
-            }
+            self.describe(&path, ctx);
         } else if node.has_children && !is_object(node.kind) {
             self.open_container(&path, ctx);
         }

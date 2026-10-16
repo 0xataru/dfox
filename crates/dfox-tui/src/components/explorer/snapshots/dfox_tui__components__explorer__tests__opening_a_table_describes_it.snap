@@ -6,13 +6,13 @@ expression: "snapshot(&explorer, 14)"
 │   ◆ postgres                         │
 │ ▾ ◆ shop ●                           │
 │   ▾ Tables 3                         │
-│       ▤ customers ~1.2k              │
-│       ▤ order_items ~48.2k           │
+│     ▸ ▤ customers ~1.2k              │
+│     ▸ ▤ order_items ~48.2k           │
 │     ▾ ▤ orders ~12.4k                │
-│         ├ id integer not null        │
+│       ▾ Columns 1                    │
+│           ├ id integer not null      │
 │   ▸ Views 1                          │
 │   ▸ Functions 1                      │
 │   ▸ Procedures 1                     │
-│                                      │
 │                                      │
 ╰──────────────────────────────────────╯

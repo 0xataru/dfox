@@ -9,8 +9,15 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
-- Enter on a table or view in the explorer shows its rows in the results;
-  → still lists its columns. Copy as INSERT names that table
+- Enter on a table or view opens a menu, as in pgAdmin: its first 100 rows,
+  its last 100 by primary key, all rows, rows matching a condition, an exact
+  row count, SELECT/INSERT/UPDATE/DELETE/CREATE scripts in a new tab,
+  inserting its name, its properties, refreshing it, and truncating or
+  dropping it (asked first, never on a read-only connection). Each item has
+  a letter; Enter twice shows the first rows. The rows come from a query put
+  in a tab named after the table, such as `SELECT * FROM calls ORDER BY id
+  DESC LIMIT 100`, to read, change and run again. Tables and views show ▸,
+  and → opens them
 - `i` in the explorer puts the selected name at the editor's cursor: a
   column by itself, a table without its schema when the schema is in use
 - Enter on a function or procedure, or `e` on a view, opens the SQL that
@@ -18,9 +25,21 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   function, `SHOW CREATE` on MySQL, the view's own SQL on SQLite
 - Functions and procedures show their arguments and result in the explorer,
   or how many overloads they have
+- A table opened in the explorer holds folders, as in pgAdmin: Columns,
+  Constraints (primary key, foreign keys, unique, check), Indexes, Triggers
+  and, on PostgreSQL, row-level security Policies. Enter on a constraint,
+  index, trigger or policy opens the SQL that creates it
+- Enter on a column shows a card with everything about it: type, null,
+  default, generated expression, keys, the column a foreign key points at
+  (Enter goes there), indexes, collation and comment. Below, what its values
+  look like: nulls, distinct values, the most common ones and how values
+  spread, from PostgreSQL's `pg_stats` or MySQL 8 histograms. `p` counts them
+  over the first 100k rows on any database
 
 ### Fixed
 
+- On MySQL, an error in a statement after one that returns no rows (`CREATE`,
+  `INSERT`, `DO`) was lost, and the script looked as if it had succeeded
 - Names that are reserved words, such as `order` or `user`, are quoted in
   completions and in copied INSERT statements
 

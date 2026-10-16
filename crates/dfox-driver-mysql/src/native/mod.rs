@@ -356,6 +356,9 @@ pub(crate) async fn stream_result(
             stream_rows(&mut result, &columns, limit, tx).await?;
         }
         if !result.more() {
+            // A later statement's error can still be waiting even though no
+            // result set is: reading once more brings it up.
+            result.next_row().await.map_err(db_error)?;
             return Ok(());
         }
     }

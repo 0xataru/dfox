@@ -1,0 +1,22 @@
+---
+source: dfox-tui/src/components/card.rs
+expression: snapshot(&card)
+---
+
+
+
+
+
+
+
+   ╭ orders.code ─────────────────────────────────────────────────╮
+   │ Type        text                                             │
+   │ Null        nullable                                         │
+   │ Key         unique                                           │
+   │ Indexes     orders_code_key, orders_customer_idx             │
+   │ Collation   C                                                │
+   │                                                              │
+   │ No planner statistics yet: p counts the first 100k rows.     │
+   │                                                              │
+   │  p  profile    Esc  close                                    │
+   ╰──────────────────────────────────────────────────────────────╯

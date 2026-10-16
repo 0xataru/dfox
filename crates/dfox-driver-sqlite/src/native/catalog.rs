@@ -6,8 +6,9 @@
 use dfox_core::{
     arrow::ResultStream,
     catalog::{
-        BrowseQuery, Catalog, ColumnInfo, EntityInfo, FilterOp, IndexInfo, Node, NodeKind,
-        NodePath, Order,
+        BrowseQuery, Catalog, ColumnInfo, ColumnStats, ConstraintInfo, ConstraintKind, Distinct,
+        EntityInfo, FilterOp, ForeignKey, IndexInfo, Node, NodeKind, NodePath, Order, RuleInfo,
+        StatsSource, PROFILE_ROWS,
     },
     errors::DbError,
     models::schema::TableColumn,
@@ -120,6 +121,7 @@ fn columns(conn: &Connection, database: &str, table: &str) -> Result<Vec<ColumnI
                 nullable: row.get::<_, i64>(2)? == 0,
                 default: row.get(3)?,
                 primary_key: row.get::<_, i64>(4)? > 0,
+                ..ColumnInfo::default()
             })
         })
         .map_err(db_error)?;
@@ -133,7 +135,7 @@ fn describe(conn: &Connection, database: &str, table: &str) -> Result<EntityInfo
     }
     let mut stmt = conn
         .prepare(
-            "SELECT il.name, il.\"unique\", ii.name \
+            "SELECT il.name, il.\"unique\", ii.name, il.origin \
              FROM pragma_index_list(?1, ?2) AS il \
              JOIN pragma_index_info(il.name, ?2) AS ii \
              ORDER BY il.name, ii.seqno",
@@ -145,27 +147,288 @@ fn describe(conn: &Connection, database: &str, table: &str) -> Result<EntityInfo
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)? == 1,
                 row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
             ))
         })
         .map_err(db_error)?;
     let mut indexes: Vec<IndexInfo> = Vec::new();
+    // How each index came to be: `c` CREATE INDEX, `u` UNIQUE, `pk`.
+    let mut origins: Vec<String> = Vec::new();
     for part in parts {
-        let (name, unique, column) = part.map_err(db_error)?;
+        let (name, unique, column, origin) = part.map_err(db_error)?;
         // An index on an expression has no column name.
         let column = column.unwrap_or_else(|| "(expression)".into());
         match indexes.last_mut() {
             Some(index) if index.name == name => index.columns.push(column),
-            _ => indexes.push(IndexInfo {
-                name,
-                columns: vec![column],
-                unique,
-            }),
+            _ => {
+                indexes.push(IndexInfo {
+                    name,
+                    columns: vec![column],
+                    unique,
+                    definition: String::new(),
+                });
+                origins.push(origin);
+            }
         }
     }
+    let target = quote(table);
+    for (index, origin) in indexes.iter_mut().zip(&origins) {
+        let columns = quote_all(&index.columns);
+        index.definition = match schema_sql(conn, database, "index", &index.name)? {
+            Some(sql) => format!("{};\n", sql.trim_end()),
+            // Indexes SQLite made for a key have no SQL of their own.
+            None => {
+                let clause = if origin == "pk" {
+                    "PRIMARY KEY"
+                } else {
+                    "UNIQUE"
+                };
+                format!("-- made for a key of {target}\n{clause} ({columns})\n")
+            }
+        };
+    }
+    let foreign_keys = foreign_keys(conn, database, table)?;
+
+    // SQLite can't add constraints to a table, so each is the clause in its
+    // CREATE TABLE.
+    let clause = |body: String| format!("-- in CREATE TABLE {target}\n{body}\n");
+    let mut constraints = Vec::new();
+    let mut key: Vec<&ColumnInfo> = columns.iter().filter(|c| c.primary_key).collect();
+    key.sort_by_key(|c| primary_position(conn, database, table, &c.name));
+    if !key.is_empty() {
+        let names: Vec<String> = key.iter().map(|c| c.name.clone()).collect();
+        constraints.push(ConstraintInfo {
+            name: format!("{table}_pkey"),
+            kind: ConstraintKind::PrimaryKey,
+            definition: clause(format!("PRIMARY KEY ({})", quote_all(&names))),
+        });
+    }
+    for key in &foreign_keys {
+        let target = key.target.name().unwrap_or_default();
+        constraints.push(ConstraintInfo {
+            name: key.name.clone(),
+            kind: ConstraintKind::ForeignKey,
+            definition: clause(format!(
+                "FOREIGN KEY ({}) REFERENCES {} ({})",
+                quote_all(&key.columns),
+                quote(target),
+                quote_all(&key.target_columns)
+            )),
+        });
+    }
+    for (index, origin) in indexes.iter().zip(&origins) {
+        if origin == "u" {
+            constraints.push(ConstraintInfo {
+                name: index.name.clone(),
+                kind: ConstraintKind::Unique,
+                definition: clause(format!("UNIQUE ({})", quote_all(&index.columns))),
+            });
+        }
+    }
+
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT name, sql FROM {}.sqlite_schema \
+             WHERE type = 'trigger' AND tbl_name = ?1 ORDER BY name",
+            quote(database)
+        ))
+        .map_err(db_error)?;
+    let triggers = stmt
+        .query_map([table], |row| {
+            Ok(RuleInfo {
+                name: row.get(0)?,
+                detail: None,
+                definition: format!("{};\n", row.get::<_, String>(1)?.trim_end()),
+            })
+        })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
     Ok(EntityInfo {
         columns,
         indexes,
         row_estimate: None,
+        foreign_keys,
+        constraints,
+        triggers,
+        policies: Vec::new(),
+        comment: None,
+    })
+}
+
+/// The table's own SQL, then its indexes' and triggers'.
+fn table_definition(conn: &Connection, database: &str, table: &str) -> Result<String, DbError> {
+    let sql = schema_sql(conn, database, "table", table)?
+        .ok_or_else(|| DbError::General(format!("no table {database}.{table}")))?;
+    let mut out = format!("{};\n", sql.trim_end());
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT sql FROM {}.sqlite_schema \
+             WHERE type IN ('index', 'trigger') AND tbl_name = ?1 AND sql IS NOT NULL \
+             ORDER BY type, name",
+            quote(database)
+        ))
+        .map_err(db_error)?;
+    let parts = stmt
+        .query_map([table], |row| row.get::<_, String>(0))
+        .map_err(db_error)?;
+    for part in parts {
+        out.push_str(&format!("\n{};\n", part.map_err(db_error)?.trim_end()));
+    }
+    Ok(out)
+}
+
+/// Where a column sits in its table's primary key, from 1.
+fn primary_position(conn: &Connection, database: &str, table: &str, column: &str) -> i64 {
+    conn.query_row(
+        "SELECT pk FROM pragma_table_info(?1, ?2) WHERE name = ?3",
+        params![table, database, column],
+        |row| row.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// The SQL SQLite keeps for an object of `kind` named `name`.
+fn schema_sql(
+    conn: &Connection,
+    database: &str,
+    kind: &str,
+    name: &str,
+) -> Result<Option<String>, DbError> {
+    let sql = format!(
+        "SELECT sql FROM {}.sqlite_schema WHERE type = ?1 AND name = ?2",
+        quote(database)
+    );
+    match conn.query_row(&sql, [kind, name], |row| row.get::<_, Option<String>>(0)) {
+        Ok(sql) => Ok(sql),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(err) => Err(db_error(err)),
+    }
+}
+
+/// `"a", "b"`: names quoted and listed.
+fn quote_all(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|n| quote(n))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn foreign_keys(
+    conn: &Connection,
+    database: &str,
+    table: &str,
+) -> Result<Vec<ForeignKey>, DbError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, \"table\", \"from\", \"to\" FROM pragma_foreign_key_list(?1, ?2) \
+             ORDER BY id, seq",
+        )
+        .map_err(db_error)?;
+    let parts = stmt
+        .query_map(params![table, database], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        })
+        .map_err(db_error)?;
+    let mut keys: Vec<(i64, ForeignKey)> = Vec::new();
+    for part in parts {
+        let (id, target, column, target_column) = part.map_err(db_error)?;
+        let key = match keys.last_mut() {
+            Some((last, key)) if *last == id => key,
+            _ => {
+                keys.push((
+                    id,
+                    ForeignKey {
+                        // SQLite keeps no names for them.
+                        name: format!("fk_{table}_{id}"),
+                        columns: Vec::new(),
+                        target: [database, target.as_str()].into_iter().collect(),
+                        target_columns: Vec::new(),
+                    },
+                ));
+                &mut keys.last_mut().expect("just pushed").1
+            }
+        };
+        key.columns.push(column);
+        key.target_columns.extend(target_column);
+    }
+    // A key without target columns points at the target's primary key.
+    for (_, key) in &mut keys {
+        if key.target_columns.is_empty() {
+            let target = key.target.name().unwrap_or_default();
+            key.target_columns = columns(conn, database, target)?
+                .into_iter()
+                .filter(|c| c.primary_key)
+                .map(|c| c.name)
+                .collect();
+        }
+    }
+    Ok(keys.into_iter().map(|(_, key)| key).collect())
+}
+
+/// Counts a column's values over the first rows of its table.
+fn profile(
+    conn: &Connection,
+    database: &str,
+    table: &str,
+    column: &str,
+) -> Result<ColumnStats, DbError> {
+    check_columns(conn, database, table, [&column.to_string()])?;
+    let sample = format!(
+        "(SELECT {} AS c FROM {}.{} LIMIT {PROFILE_ROWS})",
+        quote(column),
+        quote(database),
+        quote(table)
+    );
+    let (rows, values, distinct, min, max) = conn
+        .query_row(
+            &format!(
+                "SELECT count(*), count(c), count(DISTINCT c), \
+                        CAST(min(c) AS TEXT), CAST(max(c) AS TEXT) FROM {sample}"
+            ),
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            },
+        )
+        .map_err(db_error)?;
+    let mut stmt = conn
+        .prepare(&format!(
+            "SELECT CAST(c AS TEXT), count(*) AS n FROM {sample} WHERE c IS NOT NULL \
+             GROUP BY c HAVING n > 1 ORDER BY n DESC, 1 LIMIT 10"
+        ))
+        .map_err(db_error)?;
+    let common = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                row.get::<_, i64>(1)? as f64 / rows as f64,
+            ))
+        })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    Ok(ColumnStats {
+        source: StatsSource::Profile,
+        rows: Some(rows as u64),
+        null_fraction: (rows > 0).then(|| (rows - values) as f64 / rows as f64),
+        distinct: Some(Distinct::Count(distinct as f64)),
+        common,
+        histogram: Vec::new(),
+        min,
+        max,
     })
 }
 
@@ -422,6 +685,45 @@ impl Catalog for SqliteCatalog {
             self.worker.query(sql, params)
         })
     }
+    fn count_rows<'a>(&'a mut self, node: &'a NodePath) -> BoxFuture<'a, Result<u64, DbError>> {
+        let target = table(node);
+        Box::pin(async move {
+            let (database, table) = target?;
+            self.worker
+                .call(move |conn| {
+                    let sql = format!(
+                        "SELECT count(*) FROM {}.{}",
+                        quote(&database),
+                        quote(&table)
+                    );
+                    conn.query_row(&sql, [], |row| row.get::<_, i64>(0))
+                        .map(|n| n as u64)
+                        .map_err(db_error)
+                })
+                .await
+        })
+    }
+
+    fn column_stats<'a>(
+        &'a mut self,
+        node: &'a NodePath,
+        column: &'a str,
+        profile: bool,
+    ) -> BoxFuture<'a, Result<Option<ColumnStats>, DbError>> {
+        let target = table(node);
+        let column = column.to_string();
+        Box::pin(async move {
+            let (database, table) = target?;
+            // SQLite's own statistics cover indexes, not columns.
+            if !profile {
+                return Ok(None);
+            }
+            self.worker
+                .call(move |conn| self::profile(conn, &database, &table, &column).map(Some))
+                .await
+        })
+    }
+
     fn definition<'a>(
         &'a mut self,
         node: &'a NodePath,
@@ -429,16 +731,23 @@ impl Catalog for SqliteCatalog {
     ) -> BoxFuture<'a, Result<String, DbError>> {
         let target = table(node);
         Box::pin(async move {
-            let (database, view) = target?;
-            if kind != NodeKind::View {
-                return Err(DbError::General(format!(
+            let (database, name) = target?;
+            match kind {
+                NodeKind::View => {
+                    self.worker
+                        .call(move |conn| view_definition(conn, &database, &name))
+                        .await
+                }
+                NodeKind::Table => {
+                    self.worker
+                        .call(move |conn| table_definition(conn, &database, &name))
+                        .await
+                }
+                kind => Err(DbError::General(format!(
                     "SQLite can't show the definition of a {}",
                     kind.label()
-                )));
+                ))),
             }
-            self.worker
-                .call(move |conn| view_definition(conn, &database, &view))
-                .await
         })
     }
 

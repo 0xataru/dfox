@@ -6,9 +6,9 @@ expression: "test.snapshot(80, 20)"
 │   ◆ postgres       ││  1 delete from orders                                  │
 │ ▾ ◆ shop ●         ││                                                        │
 │   ▾ Tables 3       ││                                                        │
-│       ▤ customers  ││                                                        │
-│       ▤ ord╭ Destructive query ─────────────────────────────────╮            │
-│       ▤ ord│                                                    │n 1, Col 19 ╯
+│     ▸ ▤ customers  ││                                                        │
+│     ▸ ▤ ord╭ Destructive query ─────────────────────────────────╮            │
+│     ▸ ▤ ord│                                                    │n 1, Col 19 ╯
 │   ▸ Views 1│           DELETE without WHERE on orders           │────────────╮
 │   ▸ Functio│                                                    │            │
 │   ▸ Procedu│                   Run it anyway?                   │            │

@@ -1,10 +1,12 @@
 //! Screens and the panels inside them.
 
+pub mod card;
 pub mod editor;
 pub mod explorer;
 pub mod form;
 pub mod manager;
 pub mod results;
+pub mod table_menu;
 pub mod workspace;
 
 use ratatui::{

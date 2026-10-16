@@ -122,6 +122,7 @@ fn opening_a_table_describes_it() {
                 nullable: false,
                 default: None,
                 primary_key: true,
+                ..Default::default()
             }],
             ..Default::default()
         }),
@@ -213,8 +214,9 @@ fn enter_browses_objects_with_rows_and_opens_the_rest() {
     explorer.select(&["d/shop", "g/View", "o/active_customers"].map(String::from));
     assert_eq!(
         explorer.handle(Action::Confirm, &mut harness.ctx()),
-        Some(Command::Browse {
+        Some(Command::TableMenu {
             path: path(&["shop", "public", "active_customers"]),
+            kind: NodeKind::View,
             name: vec!["active_customers".into()],
         })
     );
@@ -249,7 +251,7 @@ fn names_leave_out_the_schema_and_database_in_use() {
         name(&audit),
         Some(vec!["audit".to_string(), "orders".to_string()])
     );
-    let column = ["d/shop", "s/audit", "g/Table", "o/orders", "c/total"];
+    let column = ["d/shop", "s/audit", "g/Table", "o/orders", "f/c", "c/total"];
     assert_eq!(name(&column), Some(vec!["total".to_string()]));
     assert_eq!(
         name(&["d/shop", "s/audit"]),
@@ -283,4 +285,96 @@ fn routines_and_views_open_their_definitions() {
     );
     explorer.select(&["d/shop", "g/Table", "o/orders"].map(String::from));
     assert_eq!(explorer.handle(Action::Edit, &mut harness.ctx()), None);
+}
+
+#[test]
+fn reveal_loads_the_schema_on_the_way() {
+    let mut harness = Harness::new();
+    let mut explorer = loaded(&mut harness, &["public", "audit"]);
+    objects(&mut explorer, &mut harness, "public");
+    harness.sent();
+
+    let target = path(&["shop", "audit", "orders"]);
+    explorer.reveal(&target, &mut harness.ctx());
+    assert_eq!(harness.sent(), [children(&["shop", "audit"])]);
+    objects(&mut explorer, &mut harness, "audit");
+    assert_eq!(
+        explorer.state.borrow().selected(),
+        ["d/shop", "s/audit", "g/Table", "o/orders"]
+    );
+
+    explorer.reveal(&path(&["shop", "audit", "nobody"]), &mut harness.ctx());
+    assert_eq!(
+        harness.toast_texts(),
+        ["Couldn't find nobody in the explorer"]
+    );
+}
+
+#[test]
+fn tables_hold_folders_of_their_parts() {
+    use dfox_core::catalog::{ConstraintInfo, ConstraintKind, IndexInfo, RuleInfo};
+
+    let mut harness = Harness::new();
+    let mut explorer = loaded(&mut harness, &["public"]);
+    objects(&mut explorer, &mut harness, "public");
+    let table = path(&["shop", "public", "orders"]);
+    let ids = |rest: &[&str]| -> Vec<String> {
+        ["d/shop", "g/Table", "o/orders"]
+            .iter()
+            .chain(rest)
+            .map(|s| s.to_string())
+            .collect()
+    };
+    explorer.state.borrow_mut().open(ids(&[])[..2].to_vec());
+    explorer.select(&ids(&[]));
+    explorer.handle(Action::Right, &mut harness.ctx());
+    explorer.on_described(
+        &table,
+        Ok(EntityInfo {
+            columns: vec![ColumnInfo {
+                name: "id".into(),
+                type_name: "integer".into(),
+                primary_key: true,
+                ..Default::default()
+            }],
+            indexes: vec![IndexInfo {
+                name: "orders_pkey".into(),
+                columns: vec!["id".into()],
+                unique: true,
+                definition: "CREATE UNIQUE INDEX orders_pkey ON orders USING btree (id);\n".into(),
+            }],
+            constraints: vec![ConstraintInfo {
+                name: "orders_pkey".into(),
+                kind: ConstraintKind::PrimaryKey,
+                definition: "ALTER TABLE orders ADD CONSTRAINT orders_pkey PRIMARY KEY (id);\n"
+                    .into(),
+            }],
+            triggers: vec![RuleInfo {
+                name: "audit".into(),
+                detail: Some("after update".into()),
+                definition: "CREATE TRIGGER audit …;\n".into(),
+            }],
+            ..Default::default()
+        }),
+    );
+    explorer.state.borrow_mut().open(ids(&["f/x"]));
+    insta::assert_snapshot!(snapshot(&explorer, 18));
+
+    explorer.select(&ids(&["f/x", "x/orders_pkey"]));
+    assert_eq!(
+        explorer.handle(Action::Confirm, &mut harness.ctx()),
+        Some(Command::ShowSql {
+            path: table.child("orders_pkey"),
+            kind: NodeKind::Index,
+            text: "CREATE UNIQUE INDEX orders_pkey ON orders USING btree (id);\n".into(),
+        })
+    );
+    assert_eq!(
+        explorer.handle(Action::Inspect, &mut harness.ctx()),
+        Some(Command::InsertName(vec!["orders_pkey".into()]))
+    );
+    // A folder opens and closes.
+    explorer.select(&ids(&["f/k"]));
+    assert_eq!(explorer.handle(Action::Confirm, &mut harness.ctx()), None);
+    assert!(explorer.state.borrow().opened().contains(&ids(&["f/k"])));
 }

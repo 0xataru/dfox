@@ -1,0 +1,20 @@
+---
+source: dfox-tui/src/components/workspace_tests.rs
+expression: "render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx))"
+---
+╭ Explorer ──────────╮╭ Query ─────────────────────────────────────────────────╮
+│   ◆ postgres       ││  1 Write SQL here · F5 runs the statement under the cu │
+│ ▾ ◆ shop ●         ││                                                        │
+│   ▾ Tables 3       ││                                                        │
+│     ▸ ╭ orders ──────────────────────────────────────────────────────╮       │
+│     ▸ │ Kind        table                                            │───────╯
+│     ▸ │ Rows        ≈ 12.4k                                          │───────╮
+│   ▸ Vi│ Columns     2                                                │       │
+│   ▸ Fu│ Key         id                                               │       │
+│   ▸ Pr│                                                              │       │
+│       │  Esc  close                                                  │       │
+│       ╰──────────────────────────────────────────────────────────────╯       │
+│                    ││                                                        │
+│                    ││                                                        │
+│                    ││                                                        │
+╰────────────────────╯╰────────────────────────────────────────────────────────╯

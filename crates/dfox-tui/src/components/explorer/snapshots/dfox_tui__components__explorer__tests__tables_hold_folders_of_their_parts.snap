@@ -1,0 +1,22 @@
+---
+source: dfox-tui/src/components/explorer/tests.rs
+expression: "snapshot(&explorer, 18)"
+---
+╭ Explorer ────────────────────────────╮
+│   ◆ postgres                         │
+│ ▾ ◆ shop ●                           │
+│   ▾ Tables 3                         │
+│     ▸ ▤ customers ~1.2k              │
+│     ▸ ▤ order_items ~48.2k           │
+│     ▾ ▤ orders ~12.4k                │
+│       ▾ Columns 1                    │
+│           ├ id integer not null      │
+│       ▸ Constraints 1                │
+│       ▾ Indexes 1                    │
+│           · orders_pkey (id) unique  │
+│       ▸ Triggers 1                   │
+│   ▸ Views 1                          │
+│   ▸ Functions 1                      │
+│   ▸ Procedures 1                     │
+│                                      │
+╰──────────────────────────────────────╯

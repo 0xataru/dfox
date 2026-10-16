@@ -3,7 +3,7 @@
 //! state, row limits and names that are attacks.
 
 use dfox_core::{
-    catalog::{NodeKind, NodePath},
+    catalog::{ConstraintKind, Distinct, NodeKind, NodePath, StatsSource},
     driver::Driver,
     models::connections::ConnectionParams,
     session::Session,
@@ -217,9 +217,26 @@ async fn catalog_names_are_parameters_not_sql() {
         .definition(&main.child("people"), NodeKind::View)
         .await
         .is_err());
-    assert!(s
+    let table = s
         .catalog()
         .definition(&main.child("people"), NodeKind::Table)
+        .await
+        .expect("table");
+    assert_eq!(
+        table,
+        "CREATE TABLE people (id INTEGER PRIMARY KEY AUTOINCREMENT, \
+         name TEXT NOT NULL DEFAULT 'x', note TEXT);\n"
+    );
+    assert_eq!(
+        s.catalog()
+            .count_rows(&main.child("people"))
+            .await
+            .expect("count"),
+        1
+    );
+    assert!(s
+        .catalog()
+        .definition(&main.child("people"), NodeKind::Function)
         .await
         .is_err());
 
@@ -229,4 +246,105 @@ async fn catalog_names_are_parameters_not_sql() {
         .await
         .expect("the table is still there");
     assert_eq!(scalar(&still), Some("1"));
+}
+
+#[tokio::test]
+async fn columns_know_their_keys_and_values() {
+    let mut s = session().await;
+    execute(
+        s.as_mut(),
+        "CREATE TABLE customers (id INTEGER PRIMARY KEY, region TEXT);
+         CREATE TABLE orders (id INTEGER PRIMARY KEY, customer INTEGER REFERENCES customers,
+             code TEXT UNIQUE);
+         CREATE INDEX by_customer ON orders (customer);
+         CREATE TRIGGER touch AFTER INSERT ON orders BEGIN SELECT 1; END;
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 200)
+             INSERT INTO customers SELECT i, CASE WHEN i % 4 = 0 THEN 'eu' ELSE 'us' END FROM n;
+         INSERT INTO customers VALUES (201, NULL);",
+    )
+    .await;
+    let main = NodePath::root().child("main");
+
+    let info = s
+        .catalog()
+        .describe(&main.child("orders"))
+        .await
+        .expect("describe");
+    assert_eq!(info.foreign_keys.len(), 1);
+    let key = &info.foreign_keys[0];
+    assert_eq!(key.columns, ["customer"]);
+    assert_eq!(key.target, main.child("customers"));
+    assert_eq!(key.target_columns, ["id"]);
+    let constraints: Vec<_> = info
+        .constraints
+        .iter()
+        .map(|c| (c.kind, c.definition.as_str()))
+        .collect();
+    assert_eq!(
+        constraints,
+        [
+            (
+                ConstraintKind::PrimaryKey,
+                "-- in CREATE TABLE \"orders\"\nPRIMARY KEY (\"id\")\n"
+            ),
+            (
+                ConstraintKind::ForeignKey,
+                "-- in CREATE TABLE \"orders\"\nFOREIGN KEY (\"customer\") REFERENCES \"customers\" (\"id\")\n"
+            ),
+            (
+                ConstraintKind::Unique,
+                "-- in CREATE TABLE \"orders\"\nUNIQUE (\"code\")\n"
+            ),
+        ]
+    );
+    let index = info
+        .indexes
+        .iter()
+        .find(|i| i.name == "by_customer")
+        .expect("index");
+    assert_eq!(
+        index.definition,
+        "CREATE INDEX by_customer ON orders (customer);\n"
+    );
+    assert_eq!(info.triggers.len(), 1);
+    assert_eq!(
+        info.triggers[0].definition,
+        "CREATE TRIGGER touch AFTER INSERT ON orders BEGIN SELECT 1; END;\n"
+    );
+
+    let customers = main.child("customers");
+    let planner = s.catalog().column_stats(&customers, "region", false).await;
+    assert_eq!(planner.expect("stats"), None);
+    let profile = s
+        .catalog()
+        .column_stats(&customers, "region", true)
+        .await
+        .expect("profile")
+        .expect("a profile");
+    assert_eq!(profile.source, StatsSource::Profile);
+    assert_eq!(profile.rows, Some(201));
+    assert_eq!(profile.distinct, Some(Distinct::Count(2.0)));
+    assert_eq!(
+        (profile.min.as_deref(), profile.max.as_deref()),
+        (Some("eu"), Some("us"))
+    );
+    let common: Vec<&str> = profile.common.iter().map(|(v, _)| v.as_str()).collect();
+    assert_eq!(common, ["us", "eu"]);
+    assert!(s
+        .catalog()
+        .column_stats(&customers, "nope", true)
+        .await
+        .is_err());
+}
+
+#[tokio::test]
+async fn an_error_later_in_a_script_fails_it() {
+    let mut s = session().await;
+    let out = run(
+        s.as_mut(),
+        "CREATE TABLE later_t (x INTEGER); SELECT * FROM no_such_table",
+        10,
+    )
+    .await;
+    assert!(out.is_err());
 }

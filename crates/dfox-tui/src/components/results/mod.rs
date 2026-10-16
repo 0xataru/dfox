@@ -10,7 +10,7 @@ use arrow_array::RecordBatch;
 use arrow_schema::{Schema, SchemaRef};
 use dfox_core::{
     arrow::ArrowResultSet,
-    catalog::NodePath,
+    catalog::{BrowseQuery, NodePath},
     engine::{Command as DbCommand, QueryId, QueryStats},
     errors::DbError,
     result::{ColumnMeta, OwnedCell, ResultSet},
@@ -115,14 +115,17 @@ impl ResultsPanel {
         self.sql = sql.to_string();
     }
 
-    /// Starts showing the rows of the table at `path` as query `id`;
-    /// `table` is its name as SQL.
-    pub fn browse(&mut self, id: QueryId, path: NodePath, table: String, ctx: &mut Ctx) {
-        ctx.engine.send(DbCommand::Browse {
-            id,
-            path,
-            row_limit: ctx.config.row_limit,
-        });
+    /// Starts showing the rows of the table at `path` that `query` picks,
+    /// as query `id`; `table` is its name as SQL.
+    pub fn browse(
+        &mut self,
+        id: QueryId,
+        path: NodePath,
+        query: BrowseQuery,
+        table: String,
+        ctx: &mut Ctx,
+    ) {
+        ctx.engine.send(DbCommand::Browse { id, path, query });
         self.start(id, ctx);
         self.table = Some(table);
     }

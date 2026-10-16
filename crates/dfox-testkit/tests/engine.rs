@@ -5,7 +5,7 @@ use std::{
 
 use dfox_core::{
     arrow::ArrowResultSet,
-    catalog::{NodeKind, NodePath},
+    catalog::{BrowseQuery, NodeKind, NodePath},
     driver::Drivers,
     engine::{self, Command, EngineEvent, EngineHandle, QueryId, QueryStats},
     errors::DbError,
@@ -315,7 +315,10 @@ async fn sqlite_tables_browse_like_queries() {
     engine.engine.send(Command::Browse {
         id,
         path: people.clone(),
-        row_limit: 2,
+        query: BrowseQuery {
+            limit: Some(2),
+            ..BrowseQuery::default()
+        },
     });
     let finished = engine.finish(id).await;
     let stats = finished.outcome.expect("browse");
@@ -334,7 +337,7 @@ async fn sqlite_tables_browse_like_queries() {
     engine.engine.send(Command::Browse {
         id,
         path: NodePath::root().child("main").child("nobody"),
-        row_limit: 0,
+        query: BrowseQuery::default(),
     });
     assert!(engine.finish(id).await.outcome.is_err());
 }

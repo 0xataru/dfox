@@ -40,11 +40,31 @@ impl App {
                     w.on_definition(path, kind, result, ctx);
                 }
             }),
-            EngineEvent::Described { path, result } => {
+            EngineEvent::ColumnStats {
+                path,
+                column,
+                profile,
+                result,
+            } => {
                 if let Some(w) = &mut self.workspace {
-                    w.explorer.on_described(&path, result);
+                    w.on_column_stats(&path, &column, profile, result);
                 }
             }
+            EngineEvent::Described { path, result } => {
+                let command = self.with_ctx(|app, ctx| {
+                    app.workspace
+                        .as_mut()
+                        .and_then(|w| w.on_described(&path, result, ctx))
+                });
+                if let Some(command) = command {
+                    self.apply_command(command);
+                }
+            }
+            EngineEvent::Counted { path, result } => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.on_counted(&path, result, ctx);
+                }
+            }),
             event @ (EngineEvent::Schema { .. }
             | EngineEvent::Batch { .. }
             | EngineEvent::Notice { .. }

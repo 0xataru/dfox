@@ -37,9 +37,11 @@ pub enum Command {
     },
     /// Runs SQL that was confirmed.
     RunConfirmed(String),
-    /// Shows the rows of the table at `path`; `name` is how SQL names it.
-    Browse {
+    /// Offers what can be done with the table or view at `path`, a `kind`;
+    /// `name` is how SQL names it.
+    TableMenu {
         path: NodePath,
+        kind: NodeKind,
         name: Vec<String>,
     },
     /// Puts a name, quoted for the dialect, at the editor's cursor.
@@ -48,5 +50,18 @@ pub enum Command {
     Definition {
         path: NodePath,
         kind: NodeKind,
+    },
+    /// Shows everything known about `column` of the table at `table`.
+    ColumnCard {
+        table: NodePath,
+        column: String,
+    },
+    /// Selects the object at `path` in the explorer.
+    Reveal(NodePath),
+    /// Opens SQL already at hand, the definition of `path`, in a tab.
+    ShowSql {
+        path: NodePath,
+        kind: NodeKind,
+        text: String,
     },
 }

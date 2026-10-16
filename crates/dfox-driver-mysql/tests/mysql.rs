@@ -4,7 +4,7 @@
 //! object. Each value's text is checked by the driver suite in `native.rs`.
 
 use dfox_core::{
-    catalog::{NodeKind, NodePath},
+    catalog::{ConstraintKind, Distinct, NodeKind, NodePath, StatsSource},
     driver::Driver,
     models::connections::ConnectionParams,
     session::Session,
@@ -292,7 +292,7 @@ async fn databases_hold_every_kind_of_object() {
         .is_err());
     assert!(s
         .catalog()
-        .definition(&at("_t"), NodeKind::Table)
+        .definition(&at("_t"), NodeKind::Column)
         .await
         .is_err());
 
@@ -327,4 +327,188 @@ async fn databases_hold_every_kind_of_object() {
         ),
     )
     .await;
+}
+
+#[tokio::test]
+async fn columns_know_their_keys_comments_and_values() {
+    let Some(mut s) = session().await else { return };
+    let database = database();
+    let prefix = unique("dfox_it_card");
+    execute(
+        s.as_mut(),
+        &format!(
+            "CREATE TABLE {prefix}_customers (id INT PRIMARY KEY, region VARCHAR(10), score INT);
+             CREATE TABLE {prefix}_orders (
+                 id INT PRIMARY KEY,
+                 customer INT,
+                 code VARCHAR(10) COLLATE utf8mb4_bin,
+                 total DECIMAL(10, 2) COMMENT 'in cents',
+                 doubled DECIMAL(12, 2) AS (total * 2),
+                 FOREIGN KEY (customer) REFERENCES {prefix}_customers (id) ON DELETE CASCADE,
+                 UNIQUE KEY one_code (code),
+                 KEY by_total (total),
+                 CONSTRAINT {prefix}_positive CHECK (total >= 0)
+             ) COMMENT 'what people bought';
+             CREATE TRIGGER {prefix}_touch BEFORE INSERT ON {prefix}_orders
+                 FOR EACH ROW SET NEW.total = ABS(NEW.total);
+             INSERT INTO {prefix}_customers
+                 WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 200)
+                 SELECT n, IF(n % 4 = 0, 'eu', 'us'), n FROM s;
+             INSERT INTO {prefix}_customers VALUES (201, NULL, NULL);
+             ANALYZE TABLE {prefix}_customers UPDATE HISTOGRAM ON region, score WITH 8 BUCKETS;"
+        ),
+    )
+    .await;
+
+    let at = |table: &str| {
+        NodePath::root()
+            .child(database.clone())
+            .child(format!("{prefix}_{table}"))
+    };
+    let info = s.catalog().describe(&at("orders")).await.expect("describe");
+    assert_eq!(info.comment.as_deref(), Some("what people bought"));
+    let column = |name: &str| info.columns.iter().find(|c| c.name == name).expect(name);
+    assert_eq!(column("total").comment.as_deref(), Some("in cents"));
+    assert_eq!(column("code").collation.as_deref(), Some("utf8mb4_bin"));
+    assert_eq!(column("total").collation, None);
+    assert_eq!(
+        column("doubled").generated.as_deref(),
+        Some("(`total` * 2)")
+    );
+    assert_eq!(info.foreign_keys.len(), 1);
+    let key = &info.foreign_keys[0];
+    assert_eq!(key.columns, ["customer"]);
+    assert_eq!(key.target, at("customers"));
+    assert_eq!(key.target_columns, ["id"]);
+
+    let constraints: Vec<_> = info
+        .constraints
+        .iter()
+        .map(|c| (c.name.as_str(), c.kind, c.definition.as_str()))
+        .collect();
+    let check = format!("{prefix}_positive");
+    let fk = format!(
+        "ALTER TABLE `{prefix}_orders`\n    ADD CONSTRAINT `{}` FOREIGN KEY (`customer`) \
+         REFERENCES `{database}`.`{prefix}_customers` (`id`) ON DELETE CASCADE;\n",
+        key.name
+    );
+    assert_eq!(
+        constraints,
+        [
+            (
+                "PRIMARY",
+                ConstraintKind::PrimaryKey,
+                format!("ALTER TABLE `{prefix}_orders` ADD PRIMARY KEY (`id`);\n").as_str()
+            ),
+            (key.name.as_str(), ConstraintKind::ForeignKey, fk.as_str()),
+            (
+                "one_code",
+                ConstraintKind::Unique,
+                format!("ALTER TABLE `{prefix}_orders`\n    ADD CONSTRAINT `one_code` UNIQUE (`code`);\n").as_str()
+            ),
+            (
+                check.as_str(),
+                ConstraintKind::Check,
+                format!("ALTER TABLE `{prefix}_orders`\n    ADD CONSTRAINT `{check}` CHECK (`total` >= 0);\n").as_str()
+            ),
+        ]
+    );
+    let by_total = info
+        .indexes
+        .iter()
+        .find(|i| i.name == "by_total")
+        .expect("index");
+    assert_eq!(
+        by_total.definition,
+        format!("CREATE INDEX `by_total` ON `{prefix}_orders` (`total`);\n")
+    );
+    assert_eq!(info.indexes[0].name, "PRIMARY");
+    assert_eq!(info.triggers.len(), 1);
+    assert_eq!(info.triggers[0].detail.as_deref(), Some("before insert"));
+    assert_eq!(
+        info.triggers[0].definition,
+        format!(
+            "CREATE TRIGGER `{prefix}_touch` BEFORE INSERT ON `{prefix}_orders`\n    \
+             FOR EACH ROW SET NEW.total = ABS(NEW.total);\n"
+        )
+    );
+
+    let stats = s
+        .catalog()
+        .column_stats(&at("customers"), "region", false)
+        .await
+        .expect("stats")
+        .expect("a histogram");
+    assert!((stats.null_fraction.expect("nulls") - 1.0 / 201.0).abs() < 1e-6);
+    assert_eq!(stats.distinct, Some(Distinct::Count(2.0)));
+    let common: Vec<&str> = stats.common.iter().map(|(v, _)| v.as_str()).collect();
+    assert_eq!(common, ["us", "eu"]);
+    let ids = s
+        .catalog()
+        .column_stats(&at("customers"), "score", false)
+        .await
+        .expect("stats")
+        .expect("a histogram");
+    assert_eq!(ids.histogram.len(), 8);
+    assert_eq!(ids.histogram[0].low, "1");
+    let create = s
+        .catalog()
+        .definition(&at("orders"), NodeKind::Table)
+        .await
+        .expect("create");
+    assert!(
+        create.starts_with(&format!("CREATE TABLE `{prefix}_orders` (")),
+        "{create}"
+    );
+    assert!(create.contains("COMMENT 'in cents'"), "{create}");
+    let count = s.catalog().count_rows(&at("customers")).await;
+    assert_eq!(count.expect("count"), 201);
+    let none = s.catalog().column_stats(&at("orders"), "id", false).await;
+    assert_eq!(none.expect("stats"), None);
+
+    let profile = s
+        .catalog()
+        .column_stats(&at("customers"), "region", true)
+        .await
+        .expect("profile")
+        .expect("a profile");
+    assert_eq!(profile.source, StatsSource::Profile);
+    assert_eq!(profile.rows, Some(201));
+    assert_eq!(profile.distinct, Some(Distinct::Count(2.0)));
+    assert_eq!(
+        (profile.min.as_deref(), profile.max.as_deref()),
+        (Some("eu"), Some("us"))
+    );
+    assert_eq!(profile.common[0].0, "us");
+    assert!(s
+        .catalog()
+        .column_stats(&at("orders"), "nope", true)
+        .await
+        .is_err());
+
+    execute(
+        s.as_mut(),
+        &format!("DROP TABLE {prefix}_orders; DROP TABLE {prefix}_customers;"),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn an_error_later_in_a_script_fails_it() {
+    let Some(mut s) = session().await else { return };
+    let table = unique("dfox_it_later");
+    let out = run(
+        s.as_mut(),
+        &format!("CREATE TEMPORARY TABLE {table} (x INT); SELECT * FROM no_such_table"),
+        10,
+    )
+    .await;
+    assert!(out.is_err(), "{:?}", out.map(|o| o.columns));
+    let ddl = run(
+        s.as_mut(),
+        &format!("CREATE TEMPORARY TABLE {table}_b (x INT); CREATE TABLE {table}_c (x NOPE)"),
+        10,
+    )
+    .await;
+    assert!(ddl.is_err());
 }
