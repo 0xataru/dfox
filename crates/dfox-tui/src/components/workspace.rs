@@ -48,6 +48,8 @@ pub struct Tab {
     pub editor: EditorPanel,
     pub results: ResultsPanel,
     number: usize,
+    /// The view or routine whose definition it was opened with.
+    source: Option<(NodePath, NodeKind)>,
 }
 
 #[derive(Debug)]
@@ -225,6 +227,7 @@ impl Workspace {
             editor: EditorPanel::new(self.dialect),
             results: ResultsPanel::new(self.dialect),
             number: self.next_tab,
+            source: None,
         });
         self.active = self.tabs.len() - 1;
         self.sync_focus();
@@ -303,7 +306,62 @@ impl Workspace {
     }
 
     fn title(&self, i: usize) -> String {
-        format!("Query {}", self.tabs[i].number)
+        let tab = &self.tabs[i];
+        match tab.source.as_ref().and_then(|(path, _)| path.name()) {
+            Some(name) => name.to_string(),
+            None => format!("Query {}", tab.number),
+        }
+    }
+
+    pub(crate) fn label(&self, i: usize) -> TabLabel {
+        let tab = &self.tabs[i];
+        TabLabel {
+            named: tab.source.is_some(),
+            title: self.title(i),
+            active: i == self.active,
+            running: tab.results.running.is_some(),
+        }
+    }
+
+    /// The tab opened with the definition of `path`, a `kind`.
+    fn definition_tab(&self, path: &NodePath, kind: NodeKind) -> Option<usize> {
+        self.tabs
+            .iter()
+            .position(|t| t.source.as_ref() == Some(&(path.clone(), kind)))
+    }
+
+    /// The definition of `path` arrived: it opens in a tab of its own, or
+    /// in the current one while that is empty.
+    pub fn on_definition(
+        &mut self,
+        path: NodePath,
+        kind: NodeKind,
+        result: Result<String, DbError>,
+        ctx: &mut Ctx,
+    ) {
+        let text = match result {
+            Ok(text) => text,
+            Err(err) => {
+                let name = path.name().unwrap_or_default();
+                ctx.toast(Level::Error, format!("Couldn't open {name}: {err}"));
+                return;
+            }
+        };
+        if let Some(i) = self.definition_tab(&path, kind) {
+            self.active = i;
+        } else {
+            let tab = self.tab();
+            let blank = tab.source.is_none()
+                && tab.editor.text().trim().is_empty()
+                && tab.results.running.is_none();
+            if !blank {
+                self.new_tab();
+            }
+            let tab = self.tab_mut();
+            tab.source = Some((path, kind));
+            tab.editor.open(&text);
+        }
+        self.set_focus(Panel::Editor);
     }
 
     fn results_for(&mut self, id: QueryId) -> Option<&mut ResultsPanel> {
@@ -397,6 +455,13 @@ impl Workspace {
                 let text = self.quote(&name);
                 self.editor_mut().paste(&text);
             }
+            Command::Definition { path, kind } => match self.definition_tab(&path, kind) {
+                Some(i) => {
+                    self.active = i;
+                    self.set_focus(Panel::Editor);
+                }
+                None => ctx.engine.send(DbCommand::Definition { path, kind }),
+            },
             command => return Some(command),
         }
         None
@@ -596,16 +661,7 @@ impl Component for Workspace {
         let [editor, results] =
             Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right);
         self.areas.set([left, editor, results]);
-        let labels: Vec<TabLabel> = self
-            .tabs
-            .iter()
-            .enumerate()
-            .map(|(i, tab)| TabLabel {
-                title: self.title(i),
-                active: i == self.active,
-                running: tab.results.running.is_some(),
-            })
-            .collect();
+        let labels: Vec<TabLabel> = (0..self.tabs.len()).map(|i| self.label(i)).collect();
         self.explorer.render(f, left, ctx);
         self.editor().render_with(f, editor, ctx, &labels);
         self.results().render(f, results, ctx);

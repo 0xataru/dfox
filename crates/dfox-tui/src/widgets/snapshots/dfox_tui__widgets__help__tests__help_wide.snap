@@ -34,7 +34,7 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
                │ /                 Filter                   Shift+→           Select right              │
                │ R                 Refresh                  Shift+↑           Select up                 │
                │ n                 New connection           Shift+↓           Select down               │
-               │ e                 Edit connection          Shift+Home        Select to line start      │
+               │ e                 Edit / show definition   Shift+Home        Select to line start      │
                │ Delete d          Delete connection        Shift+End         Select to line end        │
                │                                                                                        │
                ╰─────────────────────────────────── any key to close ───────────────────────────────────╯

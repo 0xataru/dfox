@@ -35,6 +35,11 @@ impl App {
                     w.on_children(&path, result, ctx);
                 }
             }),
+            EngineEvent::Definition { path, kind, result } => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.on_definition(path, kind, result, ctx);
+                }
+            }),
             EngineEvent::Described { path, result } => {
                 if let Some(w) = &mut self.workspace {
                     w.explorer.on_described(&path, result);

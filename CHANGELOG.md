@@ -13,6 +13,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   → still lists its columns. Copy as INSERT names that table
 - `i` in the explorer puts the selected name at the editor's cursor: a
   column by itself, a table without its schema when the schema is in use
+- Enter on a function or procedure, or `e` on a view, opens the SQL that
+  creates it in a tab named after it: every overload of a PostgreSQL
+  function, `SHOW CREATE` on MySQL, the view's own SQL on SQLite
+- Functions and procedures show their arguments and result in the explorer,
+  or how many overloads they have
 
 ### Fixed
 

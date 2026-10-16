@@ -1,0 +1,10 @@
+---
+source: dfox-tui/src/components/workspace_tests.rs
+expression: "render(&test, 60, 6, |f, area, ctx|\nw.editor().render_with(f, area, ctx, &[w.label(0)]))"
+---
+╭ total_spent ─────────────────────────────────────────────╮
+│  1 CREATE FUNCTION total_spent() RETURNS int             │
+│  2 AS 'select 1';                                        │
+│  3                                                       │
+│                                                          │
+╰───────────────────────────────────────────── Ln 1, Col 1 ╯

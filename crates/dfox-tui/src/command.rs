@@ -1,6 +1,6 @@
 //! What a component asks the app to do in response to an action.
 
-use dfox_core::catalog::NodePath;
+use dfox_core::catalog::{NodeKind, NodePath};
 
 use crate::{components::manager::EntryKey, connections::Connection};
 
@@ -44,4 +44,9 @@ pub enum Command {
     },
     /// Puts a name, quoted for the dialect, at the editor's cursor.
     InsertName(Vec<String>),
+    /// Opens the SQL that creates the view or routine at `path` in a tab.
+    Definition {
+        path: NodePath,
+        kind: NodeKind,
+    },
 }

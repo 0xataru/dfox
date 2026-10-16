@@ -30,6 +30,8 @@ use crate::{
 /// A query tab, as its label in the editor's title.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabLabel {
+    /// The tab holds a definition, named for its object.
+    pub named: bool,
     pub title: String,
     pub active: bool,
     pub running: bool,
@@ -86,6 +88,12 @@ impl EditorPanel {
     #[cfg(test)]
     pub fn set_text(&mut self, text: &str) {
         self.buffer.set_text(text);
+    }
+
+    /// Replaces the text, with the cursor at the start.
+    pub fn open(&mut self, text: &str) {
+        self.buffer.set_text(text);
+        self.buffer.set_cursor((0, 0), false);
     }
 
     /// What to run: the selection, or else the statement under the cursor.

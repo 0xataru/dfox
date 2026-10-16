@@ -176,11 +176,13 @@ fn editor_scrolled_sideways_with_tabs() {
     e.focused = true;
     let tabs = [
         TabLabel {
+            named: false,
             title: "Query 1".into(),
             active: false,
             running: true,
         },
         TabLabel {
+            named: false,
             title: "Query 2".into(),
             active: true,
             running: false,

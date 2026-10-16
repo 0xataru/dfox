@@ -585,3 +585,73 @@ fn names_from_the_explorer_go_into_the_editor_quoted() {
     assert_eq!(w.editor().text(), "select * from \"order\"");
     assert_eq!(w.focused(), Panel::Explorer);
 }
+
+#[test]
+fn definitions_open_in_tabs_named_for_their_object() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    answer_catalog(&mut w, &mut harness);
+    harness.sent();
+    let at = |name: &str| -> NodePath { ["shop", "public", name].into_iter().collect() };
+    let open = |w: &mut Workspace, harness: &mut Harness, name: &str, kind| {
+        w.explorer_command(
+            Command::Definition {
+                path: at(name),
+                kind,
+            },
+            &mut harness.ctx(),
+        );
+    };
+
+    open(&mut w, &mut harness, "total_spent", NodeKind::Function);
+    assert_eq!(
+        harness.sent(),
+        [DbCommand::Definition {
+            path: at("total_spent"),
+            kind: NodeKind::Function,
+        }]
+    );
+    // The empty first tab takes it.
+    let body = "CREATE FUNCTION total_spent() RETURNS int\nAS 'select 1';\n";
+    w.on_definition(
+        at("total_spent"),
+        NodeKind::Function,
+        Ok(body.into()),
+        &mut harness.ctx(),
+    );
+    assert_eq!((w.tab_count(), w.focused()), (1, Panel::Editor));
+    assert_eq!(w.editor().text(), body);
+    let test = TestCtx::new();
+    insta::assert_snapshot!(render(&test, 60, 6, |f, area, ctx| w.editor().render_with(
+        f,
+        area,
+        ctx,
+        &[w.label(0)]
+    )));
+
+    w.on_definition(
+        at("active_customers"),
+        NodeKind::View,
+        Ok("CREATE VIEW active_customers AS SELECT 1;\n".into()),
+        &mut harness.ctx(),
+    );
+    assert_eq!((w.tab_count(), w.active_tab()), (2, 1));
+    assert_eq!(w.title(1), "active_customers");
+
+    // Asking again goes back to its tab.
+    open(&mut w, &mut harness, "total_spent", NodeKind::Function);
+    assert!(harness.sent().is_empty());
+    assert_eq!(w.active_tab(), 0);
+
+    w.on_definition(
+        at("place_order"),
+        NodeKind::Procedure,
+        Err(DbError::General("permission denied".into())),
+        &mut harness.ctx(),
+    );
+    assert_eq!(w.tab_count(), 2);
+    assert_eq!(
+        harness.toast_texts(),
+        ["Couldn't open place_order: Error: permission denied"]
+    );
+}
