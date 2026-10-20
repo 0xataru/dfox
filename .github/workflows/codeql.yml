@@ -1,11 +1,11 @@
 name: CodeQL
 
-# Static analysis on every push to main and every pull request, plus a weekly
-# run so new CodeQL queries are applied to code that has not changed.
+# Static analysis on every push to main, plus a weekly run so new CodeQL
+# queries are applied to code that has not changed. Not on pull requests:
+# clippy and cargo audit cover them, and this is the slowest job.
 on:
   push:
     branches: [main]
-  pull_request:
   schedule:
     - cron: '23 5 * * 1'
 

@@ -1,6 +1,5 @@
-# Coverage is reported, never enforced: a drop should start a conversation in
-# the PR comment rather than block the merge. Each part of the workspace is its
-# own component.
+# Coverage is reported for main, never enforced. Each part of the workspace is
+# its own component.
 coverage:
   status:
     project:
@@ -29,6 +28,3 @@ component_management:
       paths:
         - crates/dfox-tui/**
 
-comment:
-  layout: "diff, components, files"
-  require_changes: true

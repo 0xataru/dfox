@@ -85,8 +85,7 @@ docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
    make check   # rustfmt check, clippy with -D warnings, guards, tests: exactly what CI runs
    ```
 
-   `make cover` shows which lines your tests reach. Pull requests also get a
-   Codecov comment with the coverage of the changed lines.
+   `make cover` shows which lines your tests reach.
 
 4. **Run it:** `make run`, and try the screens your change touches.
 
