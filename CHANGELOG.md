@@ -7,6 +7,14 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Fixed
+
+- The update notice tells Homebrew users `brew update && brew upgrade dfox`:
+  Homebrew refreshes taps only once a day, so `brew upgrade dfox` alone could
+  miss the new version.
+- The `.deb` and `.rpm` packages are attached to releases again (v0.3.6 got
+  them after the fact).
+
 ## [0.3.6] - 2026-10-20
 
 ### Added

@@ -2,11 +2,17 @@ name: Linux packages
 
 # Called by release.yml after dist publishes a release: repackages its Linux
 # archives as .deb and .rpm with nfpm (see nfpm.yaml) and adds them, with
-# their checksums, to the release.
+# their checksums, to the release. Can be run by hand for a release's tag.
 on:
   workflow_call:
     inputs:
       plan:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, for example v0.3.6
         required: true
         type: string
 
@@ -36,13 +42,13 @@ jobs:
       - name: package
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ fromJson(inputs.plan).announcement_tag }}
+          TAG: ${{ inputs.tag || fromJson(inputs.plan).announcement_tag }}
         run: |
           export VERSION="${TAG#v}"
           mkdir out
           for pair in x86_64:amd64 aarch64:arm64; do
             export ARCH="${pair#*:}"
-            gh release download "$TAG" -p "dfox-${pair%%:*}-unknown-linux-gnu.tar.xz" -O dfox.tar.xz
+            gh release download "$TAG" -p "dfox-${pair%%:*}-unknown-linux-gnu.tar.xz" -O dfox.tar.xz --clobber
             rm -rf pkg && mkdir pkg && tar -xJf dfox.tar.xz -C pkg --strip-components 1
             # The newest glibc the binary links against is the oldest it runs on.
             export GLIBC="$(readelf -V --wide pkg/dfox | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)"

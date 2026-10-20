@@ -2,10 +2,10 @@ name: Package repositories
 
 # Publishes the latest release's .deb and .rpm packages as signed APT and dnf
 # repositories on GitHub Pages (see scripts/package-repos.sh). Runs after the
-# Release workflow, or by hand to republish.
+# Release workflow or a manual Linux packages run, or by hand to republish.
 on:
   workflow_run:
-    workflows: [Release]
+    workflows: [Release, Linux packages]
     types: [completed]
   workflow_dispatch:
 
