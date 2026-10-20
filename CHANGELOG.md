@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-10-20
+
 ### Added
 
 - Commands: `dfox connect <name>` opens a saved connection, `dfox list` lists
