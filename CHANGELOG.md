@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-10-20
+
 ### Added
 
 - Install with Homebrew (`brew install 0xataru/tap/dfox`), an install script
