@@ -30,13 +30,27 @@ pub fn notice(state_dir: Option<&Path>) -> Option<String> {
     if !newer(env!("CARGO_PKG_VERSION"), latest) {
         return None;
     }
-    let homebrew =
-        std::env::current_exe().is_ok_and(|exe| exe.to_string_lossy().contains("/Cellar/"));
-    Some(if homebrew {
-        format!("{latest} is out: brew upgrade dfox")
+    let how = std::env::current_exe().map_or(RELEASES, |exe| how_to_upgrade(&exe));
+    Some(format!("{latest} is out: {how}"))
+}
+
+const RELEASES: &str = "github.com/0xataru/dfox/releases";
+
+/// How to upgrade the dfox at `exe`, told by how it was installed.
+fn how_to_upgrade(exe: &Path) -> &'static str {
+    if exe.to_string_lossy().contains("/Cellar/") {
+        return "brew upgrade dfox";
+    }
+    // The install scripts put their updater next to dfox.
+    let updater = if cfg!(windows) {
+        "dfox-update.exe"
     } else {
-        format!("{latest} is out")
-    })
+        "dfox-update"
+    };
+    if exe.with_file_name(updater).exists() {
+        return "dfox-update";
+    }
+    RELEASES
 }
 
 /// Asks GitHub for the latest release in the background, unless that was
@@ -130,6 +144,24 @@ fn newer(current: &str, latest: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_upgrade_command_matches_how_dfox_was_installed() {
+        let brew = Path::new("/opt/homebrew/Cellar/dfox/0.3.5/bin/dfox");
+        assert_eq!(how_to_upgrade(brew), "brew upgrade dfox");
+        let dir = std::env::temp_dir().join(format!("dfox-upgrade-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exe = dir.join("dfox");
+        assert_eq!(how_to_upgrade(&exe), RELEASES);
+        let updater = if cfg!(windows) {
+            "dfox-update.exe"
+        } else {
+            "dfox-update"
+        };
+        std::fs::write(dir.join(updater), "").expect("updater");
+        assert_eq!(how_to_upgrade(&exe), "dfox-update");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn only_a_higher_release_version_is_newer() {
