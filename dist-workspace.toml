@@ -28,3 +28,5 @@ github-action-commits = { "actions/checkout" = "3d3c42e5aac5ba805825da76410c1812
 precise-builds = true
 # The release workflow runs only for tags, not on pull requests
 pr-run-mode = "skip"
+# Jobs to run after the release is published: title it with the tag
+post-announce-jobs = ["./release-title"]
