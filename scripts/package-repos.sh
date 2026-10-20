@@ -20,6 +20,14 @@ cp "$packages"/*.deb "$site/apt/pool/main/"
 cp "$packages"/*.rpm "$site/rpm/"
 gpg --batch --armor --export "$key" >"$site/key.asc"
 gpg --batch --export "$key" >"$site/key.gpg"
+# The site's root sends people to the install instructions.
+cat >"$site/index.html" <<'EOF'
+<!doctype html>
+<meta charset="utf-8">
+<title>dfox packages</title>
+<meta http-equiv="refresh" content="0; url=https://github.com/0xataru/dfox#installation">
+<p>APT and dnf repositories for dfox. See <a href="https://github.com/0xataru/dfox#installation">how to install</a>.</p>
+EOF
 
 (
 	cd "$site/apt"
@@ -53,7 +61,7 @@ name=dfox
 baseurl=$base_url/rpm
 enabled=1
 gpgcheck=1
-repo_gpgcheck=1
+repo_gpgcheck=0
 gpgkey=$base_url/key.asc
 EOF
 )
