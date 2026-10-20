@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-10-20
+
 ### Changed
 
 - The binary is now called `dfox` (it was `dfox-tui`).
