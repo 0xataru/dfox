@@ -1,0 +1,28 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.33.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "homebrew", "msi"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Where to host releases
+hosting = "github"
+# Whether to install an updater program
+install-updater = false
+# The Homebrew tap the formula is pushed to, and the formula's name
+tap = "0xataru/homebrew-tap"
+formula = "dfox"
+# Publish jobs to run in CI
+publish-jobs = ["homebrew"]
+# Actions pinned to commits, as in the other workflows
+github-action-commits = { "actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/upload-artifact" = "cf430e030ddbb5b0abf93d22962f4752f3646cd9", "actions/download-artifact" = "9000827ccba6bdab643e8b6fd33ac0654aef8333" }
+# Build only the dfox package, not the whole workspace
+precise-builds = true

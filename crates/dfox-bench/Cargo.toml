@@ -14,7 +14,7 @@ dfox-core = { path = "../dfox-core" }
 dfox-driver-mysql = { path = "../dfox-driver-mysql" }
 dfox-driver-postgres = { path = "../dfox-driver-postgres" }
 dfox-driver-sqlite = { path = "../dfox-driver-sqlite" }
-dfox-tui = { path = "../dfox-tui", default-features = false }
+dfox = { path = "../dfox-tui", default-features = false }
 ratatui = "0.30.2"
 tokio = { version = "1.40.0", features = ["full"] }
 

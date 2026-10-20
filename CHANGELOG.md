@@ -7,6 +7,17 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Install with Homebrew (`brew install 0xataru/tap/dfox`), an install script
+  for macOS and Linux, a PowerShell script or an `.msi` for Windows. Releases
+  now include Linux ARM64.
+
+### Changed
+
+- Release archives are named `dfox-<platform>.tar.xz` (`.zip` on Windows),
+  each with a `.sha256` file and all listed in `sha256.sum`, in place of `SHA256SUMS`.
+
 ## [0.3.4] - 2026-10-20
 
 ### Changed

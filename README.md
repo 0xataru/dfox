@@ -34,12 +34,33 @@ The grid streams 50,000 rows, moves by cell, selects rows, widens columns and co
 
 ## Installation
 
+### Homebrew (macOS, Linux)
+
+```bash
+brew install 0xataru/tap/dfox
+```
+
+### Install script
+
+macOS and Linux:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/0xataru/dfox/releases/latest/download/dfox-installer.sh | sh
+```
+
+Windows (PowerShell), or download the `.msi` installer from the
+[latest release](https://github.com/0xataru/dfox/releases/latest):
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/0xataru/dfox/releases/latest/download/dfox-installer.ps1 | iex"
+```
+
 ### Prebuilt binaries
 
 Download the archive for your platform from the
-[latest release](https://github.com/0xataru/dfox/releases/latest) (Linux x86_64,
-macOS Intel and Apple silicon, Windows x86_64), extract it and run `dfox`.
-Each release includes a `SHA256SUMS` file to verify the download.
+[latest release](https://github.com/0xataru/dfox/releases/latest) (Linux x86_64
+and ARM64, macOS Intel and Apple silicon, Windows x86_64), extract it and run
+`dfox`. Each archive has a `.sha256` file next to it to verify the download.
 
 ### From source
 
