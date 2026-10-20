@@ -191,6 +191,9 @@ The version lives in one place, `[workspace.package]` in the root
    `HOMEBREW_TAP_TOKEN` secret. Two jobs of ours run after it:
    `release-title.yml` titles the release with its tag, and `linux-packages.yml`
    adds `.deb` and `.rpm` packages made by nfpm (`nfpm.yaml`).
+   When the release is done, [package-repos.yml](.github/workflows/package-repos.yml)
+   publishes those packages as the APT and dnf repositories on GitHub Pages,
+   signed with the `APT_GPG_KEY` secret (`scripts/package-repos.sh`).
 
    After changing `dist-workspace.toml` or upgrading dist, run `dist generate`
    and commit the result: the workflow runs only on tags, so nothing else catches it.

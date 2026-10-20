@@ -30,16 +30,27 @@ pub fn notice(state_dir: Option<&Path>) -> Option<String> {
     if !newer(env!("CARGO_PKG_VERSION"), latest) {
         return None;
     }
-    let how = std::env::current_exe().map_or(RELEASES, |exe| how_to_upgrade(&exe));
+    let how =
+        std::env::current_exe().map_or(RELEASES, |exe| how_to_upgrade(&exe, Path::new("/etc")));
     Some(format!("{latest} is out: {how}"))
 }
 
 const RELEASES: &str = "github.com/0xataru/dfox/releases";
 
-/// How to upgrade the dfox at `exe`, told by how it was installed.
-fn how_to_upgrade(exe: &Path) -> &'static str {
+/// How to upgrade the dfox at `exe`, told by how it was installed. `etc`
+/// holds the package managers' settings.
+fn how_to_upgrade(exe: &Path, etc: &Path) -> &'static str {
     if exe.to_string_lossy().contains("/Cellar/") {
         return "brew upgrade dfox";
+    }
+    // From the APT or dnf repository, once it is set up as the README says.
+    if exe == Path::new("/usr/bin/dfox") {
+        if etc.join("apt/sources.list.d/dfox.list").exists() {
+            return "sudo apt update && sudo apt upgrade dfox";
+        }
+        if etc.join("yum.repos.d/dfox.repo").exists() {
+            return "sudo dnf upgrade dfox";
+        }
     }
     // The install scripts put their updater next to dfox.
     let updater = if cfg!(windows) {
@@ -147,19 +158,33 @@ mod tests {
 
     #[test]
     fn the_upgrade_command_matches_how_dfox_was_installed() {
-        let brew = Path::new("/opt/homebrew/Cellar/dfox/0.3.5/bin/dfox");
-        assert_eq!(how_to_upgrade(brew), "brew upgrade dfox");
         let dir = std::env::temp_dir().join(format!("dfox-upgrade-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("dir");
+        let etc = dir.join("etc");
+        std::fs::create_dir_all(&etc).expect("dir");
+        let how = |exe: &Path| how_to_upgrade(exe, &etc);
+
+        let brew = Path::new("/opt/homebrew/Cellar/dfox/0.3.5/bin/dfox");
+        assert_eq!(how(brew), "brew upgrade dfox");
+
         let exe = dir.join("dfox");
-        assert_eq!(how_to_upgrade(&exe), RELEASES);
+        assert_eq!(how(&exe), RELEASES);
         let updater = if cfg!(windows) {
             "dfox-update.exe"
         } else {
             "dfox-update"
         };
         std::fs::write(dir.join(updater), "").expect("updater");
-        assert_eq!(how_to_upgrade(&exe), "dfox-update");
+        assert_eq!(how(&exe), "dfox-update");
+
+        // A .deb or .rpm installed by hand: no repository to upgrade from.
+        let system = Path::new("/usr/bin/dfox");
+        assert_eq!(how(system), RELEASES);
+        std::fs::create_dir_all(etc.join("yum.repos.d")).expect("dir");
+        std::fs::write(etc.join("yum.repos.d/dfox.repo"), "").expect("repo");
+        assert_eq!(how(system), "sudo dnf upgrade dfox");
+        std::fs::create_dir_all(etc.join("apt/sources.list.d")).expect("dir");
+        std::fs::write(etc.join("apt/sources.list.d/dfox.list"), "").expect("list");
+        assert_eq!(how(system), "sudo apt update && sudo apt upgrade dfox");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
