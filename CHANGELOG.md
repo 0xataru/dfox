@@ -9,8 +9,17 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Commands: `dfox connect <name>` opens a saved connection, `dfox list` lists
+  them, `dfox paths` shows where settings and history live, and `dfox version`
+  and `dfox help` work without dashes. `dfox version` also lists the databases
+  the build supports.
 - `.deb` and `.rpm` packages for x86_64 and ARM64 in every release, for
   Debian, Ubuntu, Fedora, RHEL and others (glibc 2.34 or newer).
+
+### Changed
+
+- An unknown command or a bad URL on the command line is reported in the
+  terminal before the TUI starts, instead of as a warning inside it.
 
 ## [0.3.5] - 2026-10-20
 
