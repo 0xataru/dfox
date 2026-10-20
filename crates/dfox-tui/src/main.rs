@@ -4,6 +4,7 @@ use dfox_core::driver::{Driver, Drivers};
 
 use dfox_tui::{
     app::{App, Detected, Setup},
+    cli::{self, Cli, Open, USAGE},
     clipboard,
     components::manager::EntryKey,
     config::Config,
@@ -17,27 +18,8 @@ use dfox_tui::{
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-const USAGE: &str = "\
-dfox — a terminal database client
-
-Usage: dfox [OPTIONS] [URL]
-
-  URL                connect right away, for example
-                     postgres://user@localhost:5432/shop
-                     mysql://root@127.0.0.1/app
-                     sqlite:///path/to/file.db  (or just the path)
-
-  --reduced-motion   no splash, transitions or spinners (also with NO_COLOR
-                     set, or animations = false in config.toml)
-  -h, --help         show this help
-  -V, --version      show the version
-
-Saved connections and settings live in ~/.config/dfox/, the query
-history in ~/.local/state/dfox/.
-";
-
 /// The drivers this build has, picked by cargo features.
-fn drivers() -> Drivers {
+fn drivers() -> Vec<Arc<dyn Driver>> {
     let drivers: Vec<Option<Arc<dyn Driver>>> = vec![
         #[cfg(feature = "postgres")]
         Some(Arc::new(dfox_driver_postgres::PostgresDriver)),
@@ -51,31 +33,85 @@ fn drivers() -> Drivers {
         Some(Arc::new(dfox_driver_cassandra::CassandraDriver)),
         None,
     ];
-    Drivers::new(drivers.into_iter().flatten().collect())
+    drivers.into_iter().flatten().collect()
+}
+
+/// Ends the program with `message` and the usage, as a command-line mistake.
+fn usage_error(message: &str) -> ! {
+    eprintln!("dfox: {message}\n\n{USAGE}");
+    std::process::exit(2);
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut argument = None;
-    let mut reduced_motion = env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
-    for arg in env::args().skip(1) {
-        match arg.as_str() {
-            "-h" | "--help" => {
-                print!("{USAGE}");
-                return Ok(());
-            }
-            "-V" | "--version" => {
-                println!("dfox {}", env!("CARGO_PKG_VERSION"));
-                return Ok(());
-            }
-            "--reduced-motion" => reduced_motion = true,
-            flag if flag.starts_with("--") => {
-                eprintln!("dfox: unknown option {flag}\n\n{USAGE}");
-                std::process::exit(2);
-            }
-            _ => argument = Some(arg),
+    let (open, reduced_motion) = match cli::parse(env::args().skip(1)) {
+        Err(err) => usage_error(&err),
+        Ok(Cli::Help) => {
+            print!("{USAGE}");
+            return Ok(());
         }
-    }
+        Ok(Cli::Version) => {
+            let names: Vec<_> = drivers().iter().map(|d| d.info().name).collect();
+            println!("dfox {}", env!("CARGO_PKG_VERSION"));
+            println!("databases: {}", names.join(", "));
+            return Ok(());
+        }
+        Ok(Cli::Paths) => {
+            let show = |path: Option<std::path::PathBuf>| {
+                path.map_or("unknown".to_string(), |p| p.display().to_string())
+            };
+            let config = Config::dir();
+            println!(
+                "config       {}",
+                show(config.as_ref().map(|d| d.join("config.toml")))
+            );
+            println!(
+                "connections  {}",
+                show(config.as_ref().map(|d| d.join("connections.toml")))
+            );
+            println!(
+                "themes       {}",
+                show(config.as_ref().map(|d| d.join("themes")))
+            );
+            println!("history      {}", show(History::dir()));
+            return Ok(());
+        }
+        Ok(Cli::List) => {
+            let (store, problem) = Store::load(Config::dir().as_deref());
+            if let Some(problem) = problem {
+                eprintln!("dfox: {problem}");
+                std::process::exit(1);
+            }
+            if store.connections.is_empty() {
+                println!("No saved connections. Add one in the connection manager: run dfox.");
+            }
+            let width = store
+                .connections
+                .iter()
+                .map(|c| c.name.chars().count())
+                .max();
+            for connection in &store.connections {
+                let driver = drivers()
+                    .iter()
+                    .find(|d| d.db_type() == connection.driver)
+                    .map_or(format!("{:?}", connection.driver), |d| {
+                        d.info().name.to_string()
+                    });
+                println!(
+                    "{:width$}  {driver:10}  {}",
+                    connection.name,
+                    connection.address(),
+                    width = width.unwrap_or(0)
+                );
+            }
+            return Ok(());
+        }
+        Ok(Cli::Run {
+            open,
+            reduced_motion,
+        }) => (open, reduced_motion),
+    };
+    let reduced_motion = reduced_motion || env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
 
     dotenvy::dotenv().ok();
     if env::var("RUST_LOG").is_err() {
@@ -107,8 +143,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pgpass = pgpass::load();
     let mut detected = Vec::new();
     let mut connect = None;
-    if let Some(url) = argument {
-        match connections::url::parse("command line", &url) {
+    match open {
+        None => {}
+        // Mistakes on the command line end here, before the TUI starts.
+        Some(Open::Url(url)) => match connections::url::parse("command line", &url) {
             Ok((connection, password)) => {
                 connect = Some(EntryKey::Detected(detected.len()));
                 detected.push(Detected {
@@ -117,8 +155,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     source: "the command line".to_string(),
                 });
             }
-            Err(err) => problems.push(err),
-        }
+            Err(err) => usage_error(&err),
+        },
+        Some(Open::Saved(name)) => match store.get(&name) {
+            Some(_) => connect = Some(EntryKey::Saved(name)),
+            None => {
+                eprintln!("dfox: no saved connection named {name:?}; `dfox list` shows them");
+                std::process::exit(2);
+            }
+        },
     }
     if let Some(url) = env::var("DATABASE_URL")
         .ok()
@@ -145,10 +190,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mouse = config.mouse;
     // Sessions go through an SSH tunnel when the connection has one.
-    let open: dfox_core::engine::Opener = std::sync::Arc::new(|driver, params| {
+    let opener: dfox_core::engine::Opener = std::sync::Arc::new(|driver, params| {
         Box::pin(async move { dfox_ssh::open(driver.as_ref(), &params).await })
     });
-    let (engine, events) = dfox_core::engine::spawn_with(drivers(), open);
+    let (engine, events) = dfox_core::engine::spawn_with(Drivers::new(drivers()), opener);
     let mut app = App::new(
         engine,
         Setup {

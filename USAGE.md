@@ -16,6 +16,20 @@ dfox cassandra://cassandra@127.0.0.1:9042/shop  # Cassandra or ScyllaDB; the pat
 
 From a source checkout, `make run` (or `cargo run --bin dfox`).
 
+### Commands
+
+```bash
+dfox connect "local pg"   # open a saved connection by name
+dfox list                 # the saved connections
+dfox paths                # where settings, connections and history live
+dfox version              # the version and the databases this build supports
+dfox help                 # all commands and options
+```
+
+`--version`, `-V`, `--help` and `-h` work too. A mistake on the command line,
+such as an unknown command or a bad URL, is reported in the terminal before
+the TUI starts.
+
 ### Saved connections
 
 Every query run is added to `history.jsonl` in `~/.local/state/dfox/` (or
