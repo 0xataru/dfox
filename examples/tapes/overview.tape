@@ -8,7 +8,7 @@ Hide
 Type "rm -f target/demo/state/history.jsonl && clear" Enter
 Show
 
-Type "./target/release/dfox-tui" Sleep 300ms Enter
+Type "./target/release/dfox" Sleep 300ms Enter
 Sleep 2s
 
 # Connect to the saved shop database.

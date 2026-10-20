@@ -1,6 +1,6 @@
 name: Release
 
-# Runs when `make publish` pushes a vX.Y.Z tag: builds dfox-tui for each platform
+# Runs when `make publish` pushes a vX.Y.Z tag: builds dfox for each platform
 # and publishes the GitHub release, with the CHANGELOG.md section as its notes.
 on:
   push:
@@ -58,7 +58,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: build
-        run: cargo build --release --locked --bin dfox-tui --target ${{ matrix.target }}
+        run: cargo build --release --locked --bin dfox --target ${{ matrix.target }}
 
       - name: package
         shell: bash
@@ -70,10 +70,10 @@ jobs:
           mkdir -p "dist/$name"
           cp README.md LICENSE CHANGELOG.md "dist/$name/"
           if [[ "$TARGET" == *windows* ]]; then
-            cp "target/$TARGET/release/dfox-tui.exe" "dist/$name/"
+            cp "target/$TARGET/release/dfox.exe" "dist/$name/"
             (cd dist && 7z a -bd "$name.zip" "$name" >/dev/null)
           else
-            cp "target/$TARGET/release/dfox-tui" "dist/$name/"
+            cp "target/$TARGET/release/dfox" "dist/$name/"
             tar -C dist -czf "dist/$name.tar.gz" "$name"
           fi
           rm -rf "dist/$name"

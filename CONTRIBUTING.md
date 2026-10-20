@@ -125,7 +125,7 @@ on `main`**.
 | `make lint` | clippy with warnings as errors |
 | `make cover` | Line coverage with an HTML report (needs `cargo-llvm-cov`) |
 | `make build` | Build the workspace |
-| `make release-build` | Optimised build of `dfox-tui` |
+| `make release-build` | Optimised build of the `dfox` binary |
 | `make audit` | Check dependencies against the RustSec advisory database |
 | `make clean` | Remove build artefacts |
 | `make release VERSION=X.Y.Z` | Maintainer only: open the release pull request |
@@ -183,7 +183,7 @@ The version lives in one place, `[workspace.package]` in the root
    ```
 
    This runs `make check` again, then tags `main` as `v0.2.0` and pushes the
-   tag. The [release workflow](.github/workflows/release.yml) builds `dfox-tui`
+   tag. The [release workflow](.github/workflows/release.yml) builds `dfox`
    for Linux, macOS (Intel and Apple silicon) and Windows, and publishes the
    GitHub release with the changelog section as its notes.
 
