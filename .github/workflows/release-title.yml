@@ -1,0 +1,24 @@
+name: Release title
+
+# Called by release.yml after dist publishes a release. dist titles the release
+# with the changelog heading ("0.3.5 - 2026-10-20"); this sets it to the tag.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # edit the release
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ fromJson(inputs.plan).announcement_tag }}
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG"
