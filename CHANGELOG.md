@@ -11,6 +11,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 - The binary is now called `dfox` (it was `dfox-tui`).
 
+### Security
+
+- Updated `rustls-webpki` and `webpki-roots` so TLS connections no longer
+  trust distrusted intermediate certificates (RUSTSEC-2026-0381, RUSTSEC-2026-0382).
+
 ## [0.3.3] - 2026-10-16
 
 ### Added
