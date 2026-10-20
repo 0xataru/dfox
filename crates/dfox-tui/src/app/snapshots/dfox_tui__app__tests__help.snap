@@ -33,4 +33,4 @@ expression: "test.snapshot(120, 32)"
 │              │ Delete d          Delete connection        Shift+End         Select to line end        │              │
 │              │                                                                                        │              │
 ╰──────────────╰─────────────────────────────────── any key to close ───────────────────────────────────╯──────────────╯
- dfox                                                                              Enter connect  n new  e edit  ? keys
+ dfox 0.0.0                                                                        Enter connect  n new  e edit  ? keys

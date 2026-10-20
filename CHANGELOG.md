@@ -7,6 +7,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- The connection manager's status bar shows the version, next to the update
+  notice when there is one.
+
 ### Fixed
 
 - The update notice tells Homebrew users `brew update && brew upgrade dfox`:
@@ -14,6 +19,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   miss the new version.
 - The `.deb` and `.rpm` packages are attached to releases again (v0.3.6 got
   them after the fact).
+- `dfox version | head -1` and other commands piped into a program that
+  stops reading early no longer end with a panic.
+- Installing from the dnf repository no longer prints a signature error
+  first: dnf checks every package's signature, and no longer the
+  repository index's, which dnf 5 checks against a keyring of its own.
+- The repositories' site, 0xataru.github.io/dfox, leads to the install
+  instructions instead of a 404.
 
 ## [0.3.6] - 2026-10-20
 

@@ -15,6 +15,14 @@ use crate::{
     widgets::{status_bar::StatusBar, throbber::spinner},
 };
 
+/// The version the manager shows. Fixed in tests, so screen snapshots don't
+/// change with every release.
+pub(super) const VERSION: &str = if cfg!(test) {
+    "0.0.0"
+} else {
+    env!("CARGO_PKG_VERSION")
+};
+
 impl App {
     pub(super) fn status_bar(&self, ctx: &RenderCtx) -> StatusBar<'_> {
         let theme = ctx.theme;
@@ -30,12 +38,11 @@ impl App {
                 format!(" connecting to {target}…"),
                 theme.dim(),
             ));
-        } else if let Some(update) = self
-            .update
-            .as_ref()
-            .filter(|_| self.screen == Screen::Manager)
-        {
-            location.push(Span::styled(format!("  ↑ {update}"), theme.dim()));
+        } else if self.screen == Screen::Manager && self.session.is_none() {
+            location.push(Span::styled(format!(" {VERSION}"), theme.dim()));
+            if let Some(update) = &self.update {
+                location.push(Span::styled(format!("  ↑ {update}"), theme.key()));
+            }
         } else if let Some(session) = &self.session {
             location.push(Span::raw("  "));
             if session.connection.tag != Tag::None {

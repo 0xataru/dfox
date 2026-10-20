@@ -36,6 +36,15 @@ fn drivers() -> Vec<Arc<dyn Driver>> {
     drivers.into_iter().flatten().collect()
 }
 
+/// Prints a line of a command's output. A closed pipe (`dfox list | head -1`)
+/// ends the output quietly instead of panicking.
+macro_rules! out {
+    ($($arg:tt)*) => {{
+        use std::io::Write;
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    }};
+}
+
 /// Ends the program with `message` and the usage, as a command-line mistake.
 fn usage_error(message: &str) -> ! {
     eprintln!("dfox: {message}\n\n{USAGE}");
@@ -47,13 +56,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (open, reduced_motion) = match cli::parse(env::args().skip(1)) {
         Err(err) => usage_error(&err),
         Ok(Cli::Help) => {
-            print!("{USAGE}");
+            out!("{}", USAGE.trim_end());
             return Ok(());
         }
         Ok(Cli::Version) => {
             let names: Vec<_> = drivers().iter().map(|d| d.info().name).collect();
-            println!("dfox {}", env!("CARGO_PKG_VERSION"));
-            println!("databases: {}", names.join(", "));
+            out!("dfox {}", env!("CARGO_PKG_VERSION"));
+            out!("databases: {}", names.join(", "));
             return Ok(());
         }
         Ok(Cli::Paths) => {
@@ -61,19 +70,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 path.map_or("unknown".to_string(), |p| p.display().to_string())
             };
             let config = Config::dir();
-            println!(
+            out!(
                 "config       {}",
                 show(config.as_ref().map(|d| d.join("config.toml")))
             );
-            println!(
+            out!(
                 "connections  {}",
                 show(config.as_ref().map(|d| d.join("connections.toml")))
             );
-            println!(
+            out!(
                 "themes       {}",
                 show(config.as_ref().map(|d| d.join("themes")))
             );
-            println!("history      {}", show(History::dir()));
+            out!("history      {}", show(History::dir()));
             return Ok(());
         }
         Ok(Cli::List) => {
@@ -83,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
             if store.connections.is_empty() {
-                println!("No saved connections. Add one in the connection manager: run dfox.");
+                out!("No saved connections. Add one in the connection manager: run dfox.");
             }
             let width = store
                 .connections
@@ -97,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map_or(format!("{:?}", connection.driver), |d| {
                         d.info().name.to_string()
                     });
-                println!(
+                out!(
                     "{:width$}  {driver:10}  {}",
                     connection.name,
                     connection.address(),

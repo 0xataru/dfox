@@ -926,12 +926,18 @@ fn path(parts: &[&str]) -> NodePath {
 #[test]
 fn a_newer_release_shows_in_the_managers_status_bar() {
     let mut test = test_app("update", None, "");
-    assert!(!test.snapshot(100, 10).contains("is out"));
-    test.app.update = Some("0.3.6 is out: brew upgrade dfox".into());
+    let version = format!("dfox {}", super::status::VERSION);
     let screen = test.snapshot(100, 10);
     let status = screen.lines().last().unwrap_or_default();
     assert!(
-        status.contains("dfox  ↑ 0.3.6 is out: brew upgrade dfox"),
+        status.contains(&version) && !status.contains("is out"),
+        "{status}"
+    );
+    test.app.update = Some("9.9.9 is out: brew upgrade dfox".into());
+    let screen = test.snapshot(100, 10);
+    let status = screen.lines().last().unwrap_or_default();
+    assert!(
+        status.contains(&format!("{version}  ↑ 9.9.9 is out: brew upgrade dfox")),
         "{status}"
     );
 }
