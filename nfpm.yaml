@@ -1,0 +1,36 @@
+# The .deb and .rpm packages, made by nfpm from the Linux binaries dist built
+# (see .github/workflows/linux-packages.yml), unpacked into pkg/. ARCH, VERSION
+# and GLIBC come from that job.
+name: dfox
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: database
+priority: optional
+maintainer: 0xataru <0xataru@proton.me>
+description: Blazing-fast database client for your terminal, SQL and NoSQL in one TUI
+homepage: https://github.com/0xataru/dfox
+license: Apache-2.0
+contents:
+  - src: pkg/dfox
+    dst: /usr/bin/dfox
+    file_info:
+      mode: 0755
+  - src: pkg/README.md
+    dst: /usr/share/doc/dfox/README.md
+  - src: pkg/CHANGELOG.md
+    dst: /usr/share/doc/dfox/CHANGELOG.md
+  - src: pkg/LICENSE
+    dst: /usr/share/doc/dfox/copyright
+    packager: deb
+  - src: pkg/LICENSE
+    dst: /usr/share/licenses/dfox/LICENSE
+    packager: rpm
+    type: license
+overrides:
+  deb:
+    depends:
+      - libc6 (>= ${GLIBC})
+  rpm:
+    depends:
+      - glibc >= ${GLIBC}

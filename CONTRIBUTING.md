@@ -188,7 +188,9 @@ The version lives in one place, `[workspace.package]` in the root
    Windows, with the install scripts and the `.msi`. It publishes the GitHub
    release with the changelog section as its notes and pushes the formula to
    [0xataru/homebrew-tap](https://github.com/0xataru/homebrew-tap), using the
-   `HOMEBREW_TAP_TOKEN` secret.
+   `HOMEBREW_TAP_TOKEN` secret. Two jobs of ours run after it:
+   `release-title.yml` titles the release with its tag, and `linux-packages.yml`
+   adds `.deb` and `.rpm` packages made by nfpm (`nfpm.yaml`).
 
    After changing `dist-workspace.toml` or upgrading dist, run `dist generate`
    and commit the result: the workflow runs only on tags, so nothing else catches it.

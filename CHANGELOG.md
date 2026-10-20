@@ -7,6 +7,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- `.deb` and `.rpm` packages for x86_64 and ARM64 in every release, for
+  Debian, Ubuntu, Fedora, RHEL and others (glibc 2.34 or newer).
+
 ## [0.3.5] - 2026-10-20
 
 ### Added

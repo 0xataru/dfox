@@ -1,0 +1,54 @@
+name: Linux packages
+
+# Called by release.yml after dist publishes a release: repackages its Linux
+# archives as .deb and .rpm with nfpm (see nfpm.yaml) and adds them, with
+# their checksums, to the release.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NFPM_VERSION: 2.48.0
+  NFPM_SHA256: 6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # upload to the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: install nfpm
+        run: |
+          curl -fsSLo nfpm.tar.gz "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          echo "$NFPM_SHA256  nfpm.tar.gz" | sha256sum -c -
+          tar -xzf nfpm.tar.gz nfpm
+
+      - name: package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ fromJson(inputs.plan).announcement_tag }}
+        run: |
+          export VERSION="${TAG#v}"
+          mkdir out
+          for pair in x86_64:amd64 aarch64:arm64; do
+            export ARCH="${pair#*:}"
+            gh release download "$TAG" -p "dfox-${pair%%:*}-unknown-linux-gnu.tar.xz" -O dfox.tar.xz
+            rm -rf pkg && mkdir pkg && tar -xJf dfox.tar.xz -C pkg --strip-components 1
+            # The newest glibc the binary links against is the oldest it runs on.
+            export GLIBC="$(readelf -V --wide pkg/dfox | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)"
+            ./nfpm package -f nfpm.yaml -p deb -t out/
+            ./nfpm package -f nfpm.yaml -p rpm -t out/
+          done
+          cd out
+          for f in *; do sha256sum "$f" > "$f.sha256"; done
+          gh release upload "$TAG" * --repo "$GITHUB_REPOSITORY" --clobber

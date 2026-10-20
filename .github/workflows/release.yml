@@ -349,3 +349,12 @@ jobs:
     with:
       plan: ${{ needs.plan.outputs.val }}
     secrets: inherit
+
+  custom-linux-packages:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/linux-packages.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit
