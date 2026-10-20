@@ -31,3 +31,5 @@ pr-run-mode = "skip"
 # Jobs to run after the release is published: title it with the tag, and add
 # the .deb and .rpm packages
 post-announce-jobs = ["./release-title", "./linux-packages"]
+# Intel Macs build on Apple silicon: GitHub's Intel runners take twice as long
+github-custom-runners = { x86_64-apple-darwin = "macos-14" }

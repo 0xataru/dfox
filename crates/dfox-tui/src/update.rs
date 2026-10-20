@@ -23,7 +23,7 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const FILE: &str = "latest-version";
 
 /// The newer version and how to get it, as the status bar says it, when the
-/// last check found one: `0.3.6 is out: brew upgrade dfox`.
+/// last check found one: `0.3.6 is out: brew update && brew upgrade dfox`.
 pub fn notice(state_dir: Option<&Path>) -> Option<String> {
     let latest = std::fs::read_to_string(state_dir?.join(FILE)).ok()?;
     let latest = latest.trim();
@@ -41,7 +41,7 @@ const RELEASES: &str = "github.com/0xataru/dfox/releases";
 /// holds the package managers' settings.
 fn how_to_upgrade(exe: &Path, etc: &Path) -> &'static str {
     if exe.to_string_lossy().contains("/Cellar/") {
-        return "brew upgrade dfox";
+        return "brew update && brew upgrade dfox";
     }
     // From the APT or dnf repository, once it is set up as the README says.
     if exe == Path::new("/usr/bin/dfox") {
@@ -164,7 +164,7 @@ mod tests {
         let how = |exe: &Path| how_to_upgrade(exe, &etc);
 
         let brew = Path::new("/opt/homebrew/Cellar/dfox/0.3.5/bin/dfox");
-        assert_eq!(how(brew), "brew upgrade dfox");
+        assert_eq!(how(brew), "brew update && brew upgrade dfox");
 
         let exe = dir.join("dfox");
         assert_eq!(how(&exe), RELEASES);
