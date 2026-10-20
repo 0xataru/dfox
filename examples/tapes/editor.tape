@@ -8,7 +8,7 @@ Hide
 Type "rm -f target/demo/state/history.jsonl && clear" Enter
 Show
 
-Type "./target/release/dfox-tui --reduced-motion" Enter
+Type "./target/release/dfox --reduced-motion" Enter
 Sleep 1s
 Enter
 Sleep 1s

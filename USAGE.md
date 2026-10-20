@@ -14,7 +14,7 @@ dfox mongodb://root@127.0.0.1:27017/shop
 dfox cassandra://cassandra@127.0.0.1:9042/shop  # Cassandra or ScyllaDB; the path is the keyspace
 ```
 
-From a source checkout, `make run` (or `cargo run --bin dfox-tui`).
+From a source checkout, `make run` (or `cargo run --bin dfox`).
 
 ### Saved connections
 

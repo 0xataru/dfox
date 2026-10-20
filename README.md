@@ -38,7 +38,7 @@ The grid streams 50,000 rows, moves by cell, selects rows, widens columns and co
 
 Download the archive for your platform from the
 [latest release](https://github.com/0xataru/dfox/releases/latest) (Linux x86_64,
-macOS Intel and Apple silicon, Windows x86_64), extract it and run `dfox-tui`.
+macOS Intel and Apple silicon, Windows x86_64), extract it and run `dfox`.
 Each release includes a `SHA256SUMS` file to verify the download.
 
 ### From source
@@ -49,11 +49,11 @@ You need stable [Rust](https://www.rust-lang.org/tools/install):
 git clone https://github.com/0xataru/dfox.git
 cd dfox
 cargo build --release
-./target/release/dfox-tui
+./target/release/dfox
 ```
 
-Then `dfox-tui` opens the connection manager, or connects right away to a URL:
-`dfox-tui postgres://user@localhost:5432/shop`, `mysql://…`, `mongodb://…`, or a SQLite file.
+Then `dfox` opens the connection manager, or connects right away to a URL:
+`dfox postgres://user@localhost:5432/shop`, `mysql://…`, `mongodb://…`, or a SQLite file.
 
 ## More
 
