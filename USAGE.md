@@ -172,8 +172,8 @@ execute = ["f5", "ctrl+r"]
 Once a day dfox asks GitHub, in the background, for the latest release. When
 a newer one is out, the connection manager's status bar says so from the next
 start, with the way to upgrade that fits how dfox was installed: `brew
-upgrade dfox` for Homebrew, `dfox-update` for the install scripts, or the
-releases page. Nothing is sent but the request itself.
+upgrade dfox` for Homebrew, `apt` or `dnf` for their repositories,
+`dfox-update` for the install scripts, or the releases page. Nothing is sent but the request itself.
 
 A theme file in `themes/<name>.toml` sets any colours as `"#rrggbb"` and takes
 the rest from the theme it `extends`:

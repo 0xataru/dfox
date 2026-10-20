@@ -1,0 +1,55 @@
+name: Package repositories
+
+# Publishes the latest release's .deb and .rpm packages as signed APT and dnf
+# repositories on GitHub Pages (see scripts/package-repos.sh). Runs after the
+# Release workflow, or by hand to republish.
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cut one short.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APT_GPG_KEY: ${{ secrets.APT_GPG_KEY }}
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y apt-utils createrepo-c rpm
+          echo "$APT_GPG_KEY" | gpg --batch --import
+          gh release download --repo "$GITHUB_REPOSITORY" -p '*.deb' -p '*.rpm' -D packages
+          ./scripts/package-repos.sh packages site
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write # publish the site
+      id-token: write # prove the deploy comes from this workflow
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

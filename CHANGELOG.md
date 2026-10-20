@@ -21,6 +21,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   `update_check = false` in `config.toml` turns it off.
 - The install scripts also install `dfox-update`, which upgrades dfox to the
   latest release.
+- APT and dnf repositories: `sudo apt install dfox` and `sudo dnf install dfox`
+  after adding the repository as the README shows, and upgrades with the rest
+  of the system. The update notice then says `sudo apt upgrade dfox` or
+  `sudo dnf upgrade dfox`.
 
 ### Changed
 
