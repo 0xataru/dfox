@@ -40,6 +40,16 @@ The grid streams 50,000 rows, moves by cell, selects rows, widens columns and co
 brew install 0xataru/tap/dfox
 ```
 
+### Debian, Ubuntu, Fedora, RHEL
+
+Download the `.deb` or `.rpm` for your architecture from the
+[latest release](https://github.com/0xataru/dfox/releases/latest), then:
+
+```bash
+sudo apt install ./dfox_*_amd64.deb      # Debian, Ubuntu
+sudo dnf install ./dfox-*.x86_64.rpm     # Fedora, RHEL, Rocky
+```
+
 ### Install script
 
 macOS and Linux:
