@@ -16,7 +16,7 @@ install-path = "CARGO_HOME"
 # Where to host releases
 hosting = "github"
 # Whether to install an updater program
-install-updater = false
+install-updater = true
 # The Homebrew tap the formula is pushed to, and the formula's name
 tap = "0xataru/homebrew-tap"
 formula = "dfox"
