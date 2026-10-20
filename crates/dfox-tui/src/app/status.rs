@@ -30,6 +30,12 @@ impl App {
                 format!(" connecting to {target}…"),
                 theme.dim(),
             ));
+        } else if let Some(update) = self
+            .update
+            .as_ref()
+            .filter(|_| self.screen == Screen::Manager)
+        {
+            location.push(Span::styled(format!("  ↑ {update}"), theme.dim()));
         } else if let Some(session) = &self.session {
             location.push(Span::raw("  "));
             if session.connection.tag != Tag::None {

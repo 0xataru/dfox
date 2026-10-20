@@ -20,4 +20,5 @@ pub mod terminal;
 #[cfg(test)]
 mod testing;
 pub mod theme;
+pub mod update;
 pub mod widgets;

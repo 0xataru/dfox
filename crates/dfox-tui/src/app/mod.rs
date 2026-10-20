@@ -140,6 +140,8 @@ pub struct Setup {
     pub problems: Vec<String>,
     /// Show the splash first, when animations are on.
     pub splash: bool,
+    /// A newer dfox is out: `0.3.6 is out: brew upgrade dfox`.
+    pub update: Option<String>,
 }
 
 pub struct App {
@@ -164,6 +166,8 @@ pub struct App {
     clipboard: Box<dyn Clipboard>,
     history: History,
     overlay: Option<Overlay>,
+    /// Shown in the manager's status bar when a newer dfox is out.
+    update: Option<String>,
     pub should_quit: bool,
     frame: u64,
     motion: crate::motion::Motion,
@@ -192,6 +196,7 @@ impl App {
             connect,
             problems,
             splash,
+            update,
         } = setup;
         let (keymap, key_problems) = Keymap::new(config.keymap, &config.keys);
         let mut problems: Vec<String> = problems.into_iter().chain(key_problems).collect();
@@ -231,6 +236,7 @@ impl App {
             clipboard,
             history,
             overlay: None,
+            update,
             should_quit: false,
             frame: 0,
         };

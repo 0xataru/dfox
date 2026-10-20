@@ -62,6 +62,7 @@ fn test_app(name: &str, password: Option<&str>, pgpass_text: &str) -> Test {
             detected: Vec::new(),
             connect: None,
             problems: Vec::new(),
+            update: None,
             splash: false,
         },
     );
@@ -160,6 +161,7 @@ fn the_manager_pings_every_connection_on_start() {
             detected: Vec::new(),
             connect: None,
             problems: Vec::new(),
+            update: None,
             splash: false,
         },
     );
@@ -413,6 +415,7 @@ fn a_url_on_the_command_line_connects_right_away() {
             }],
             connect: Some(EntryKey::Detected(0)),
             problems: Vec::new(),
+            update: None,
             splash: false,
         },
     );
@@ -541,6 +544,7 @@ fn setup_problems_show_as_toasts() {
             connect: None,
             problems: vec!["connections.toml: oops".into()],
             splash: false,
+            update: None,
         },
     );
     let texts: Vec<_> = app.toasts.items().iter().map(|t| t.text.as_str()).collect();
@@ -757,6 +761,7 @@ fn splash_app(name: &str, animations: bool) -> Test {
             detected: Vec::new(),
             connect: None,
             problems: Vec::new(),
+            update: None,
             splash: true,
         },
     );
@@ -916,4 +921,17 @@ fn session_info() -> dfox_core::engine::SessionInfo {
 
 fn path(parts: &[&str]) -> NodePath {
     parts.iter().copied().collect()
+}
+
+#[test]
+fn a_newer_release_shows_in_the_managers_status_bar() {
+    let mut test = test_app("update", None, "");
+    assert!(!test.snapshot(100, 10).contains("is out"));
+    test.app.update = Some("0.3.6 is out: brew upgrade dfox".into());
+    let screen = test.snapshot(100, 10);
+    let status = screen.lines().last().unwrap_or_default();
+    assert!(
+        status.contains("dfox  ↑ 0.3.6 is out: brew upgrade dfox"),
+        "{status}"
+    );
 }

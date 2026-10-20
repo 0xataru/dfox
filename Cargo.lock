@@ -1493,16 +1493,19 @@ dependencies = [
  "nucleo-matcher",
  "percent-encoding",
  "ratatui",
+ "rustls",
  "serde",
  "serde_json",
  "tachyonfx",
  "throbber-widgets-tui",
  "tokio",
+ "tokio-rustls",
  "toml",
  "tui-big-text",
  "tui-tree-widget",
  "unicode-width",
  "url",
+ "webpki-roots",
 ]
 
 [[package]]

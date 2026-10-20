@@ -189,6 +189,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mouse = config.mouse;
+    let update = config.update_check;
+    if update {
+        dfox_tui::update::refresh(History::dir());
+    }
     // Sessions go through an SSH tunnel when the connection has one.
     let opener: dfox_core::engine::Opener = std::sync::Arc::new(|driver, params| {
         Box::pin(async move { dfox_ssh::open(driver.as_ref(), &params).await })
@@ -209,6 +213,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             connect,
             problems,
             splash: true,
+            update: update
+                .then(|| dfox_tui::update::notice(History::dir().as_deref()))
+                .flatten(),
         },
     );
 
