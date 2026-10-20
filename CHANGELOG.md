@@ -15,6 +15,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   the build supports.
 - `.deb` and `.rpm` packages for x86_64 and ARM64 in every release, for
   Debian, Ubuntu, Fedora, RHEL and others (glibc 2.34 or newer).
+- The connection manager's status bar tells when a newer dfox is out, with
+  the command to upgrade for Homebrew installs. dfox checks GitHub at most
+  once a day, in the background; `update_check = false` in `config.toml`
+  turns it off.
 
 ### Changed
 

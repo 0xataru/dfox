@@ -1,0 +1,156 @@
+//! Tells when a newer dfox is out. GitHub is asked at most once a day, in
+//! the background; the answer is kept in `latest-version` in the state
+//! directory and shown from the next start. `update_check = false` in
+//! `config.toml` turns it off.
+
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+
+use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpStream,
+};
+
+const HOST: &str = "api.github.com";
+const REQUEST: &[u8] = b"GET /repos/0xataru/dfox/releases/latest HTTP/1.0\r\n\
+Host: api.github.com\r\nUser-Agent: dfox\r\nAccept: application/vnd.github+json\r\n\r\n";
+const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+const TIMEOUT: Duration = Duration::from_secs(10);
+const FILE: &str = "latest-version";
+
+/// The newer version and how to get it, as the status bar says it, when the
+/// last check found one: `0.3.6 is out: brew upgrade dfox`.
+pub fn notice(state_dir: Option<&Path>) -> Option<String> {
+    let latest = std::fs::read_to_string(state_dir?.join(FILE)).ok()?;
+    let latest = latest.trim();
+    if !newer(env!("CARGO_PKG_VERSION"), latest) {
+        return None;
+    }
+    let homebrew =
+        std::env::current_exe().is_ok_and(|exe| exe.to_string_lossy().contains("/Cellar/"));
+    Some(if homebrew {
+        format!("{latest} is out: brew upgrade dfox")
+    } else {
+        format!("{latest} is out")
+    })
+}
+
+/// Asks GitHub for the latest release in the background, unless that was
+/// done less than a day ago.
+pub fn refresh(state_dir: Option<PathBuf>) {
+    let Some(path) = state_dir.map(|dir| dir.join(FILE)) else {
+        return;
+    };
+    let checked = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    if checked
+        .is_some_and(|t| SystemTime::now().duration_since(t).unwrap_or_default() < CHECK_EVERY)
+    {
+        return;
+    }
+    tokio::spawn(async move {
+        let latest = match tokio::time::timeout(TIMEOUT, latest()).await {
+            Ok(Ok(version)) => version,
+            Ok(Err(err)) => {
+                log::info!("update check: {err}");
+                // Keep the last answer, and wait a day before asking again.
+                std::fs::read_to_string(&path).unwrap_or_default()
+            }
+            Err(_) => {
+                log::info!("update check: timed out");
+                std::fs::read_to_string(&path).unwrap_or_default()
+            }
+        };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&path, latest.trim());
+    });
+}
+
+/// The version of the latest GitHub release, without the `v`.
+async fn latest() -> Result<String, String> {
+    let mut roots = RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    let config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|err| err.to_string())?
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+    let server = ServerName::try_from(HOST).map_err(|err| err.to_string())?;
+    let tcp = TcpStream::connect((HOST, 443))
+        .await
+        .map_err(|err| err.to_string())?;
+    let mut tls = tokio_rustls::TlsConnector::from(Arc::new(config))
+        .connect(server, tcp)
+        .await
+        .map_err(|err| err.to_string())?;
+    tls.write_all(REQUEST)
+        .await
+        .map_err(|err| err.to_string())?;
+    let mut response = Vec::new();
+    // HTTP/1.0: the server closes the connection after the body. Some close
+    // without TLS's goodbye, which is fine once the response is in.
+    if let Err(err) = tls.read_to_end(&mut response).await {
+        if err.kind() != std::io::ErrorKind::UnexpectedEof || response.is_empty() {
+            return Err(err.to_string());
+        }
+    }
+    version_in(&String::from_utf8_lossy(&response))
+}
+
+/// The release's version from GitHub's HTTP response.
+fn version_in(response: &str) -> Result<String, String> {
+    let (head, body) = response.split_once("\r\n\r\n").ok_or("no HTTP response")?;
+    let status = head.lines().next().unwrap_or_default();
+    if !status.contains(" 200 ") {
+        return Err(format!("GitHub answered {status}"));
+    }
+    let release: serde_json::Value = serde_json::from_str(body).map_err(|err| err.to_string())?;
+    let tag = release["tag_name"].as_str().ok_or("no tag_name")?;
+    Ok(tag.trim_start_matches('v').to_string())
+}
+
+/// Whether `latest` is a newer `major.minor.patch` than `current`.
+fn newer(current: &str, latest: &str) -> bool {
+    let parse = |v: &str| -> Option<Vec<u64>> {
+        let parts: Vec<u64> = v
+            .split('.')
+            .map(|p| p.parse().ok())
+            .collect::<Option<_>>()?;
+        (parts.len() == 3).then_some(parts)
+    };
+    matches!((parse(current), parse(latest)), (Some(c), Some(l)) if l > c)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_higher_release_version_is_newer() {
+        assert!(newer("0.3.5", "0.3.6"));
+        assert!(newer("0.3.5", "0.4.0"));
+        assert!(newer("0.9.9", "0.10.0"));
+        assert!(!newer("0.3.5", "0.3.5"));
+        assert!(!newer("0.3.6", "0.3.5"));
+        assert!(!newer("0.3.5", ""));
+        assert!(!newer("0.3.5", "0.4.0-rc.1"));
+    }
+
+    #[test]
+    fn the_version_comes_from_the_release_tag() {
+        let ok = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n\r\n{\"tag_name\":\"v0.3.6\",\"name\":\"v0.3.6\"}";
+        assert_eq!(version_in(ok), Ok("0.3.6".into()));
+        let limited = "HTTP/1.0 403 Forbidden\r\n\r\n{}";
+        assert_eq!(
+            version_in(limited),
+            Err("GitHub answered HTTP/1.0 403 Forbidden".into())
+        );
+        assert!(version_in("garbage").is_err());
+    }
+}

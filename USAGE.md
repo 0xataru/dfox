@@ -163,10 +163,16 @@ icons = "auto"        # "nerd" for Nerd Font glyphs, "ascii" for plain text
 mouse = true          # false leaves the mouse to the terminal
 confirm_destructive = true  # false runs DELETE without WHERE, DROP, … without asking
 row_limit = 100000    # rows kept from a query; the rest are read and dropped
+update_check = true   # false: never ask GitHub whether a newer dfox is out
 
 [keys]                # replaces all keys of an action
 execute = ["f5", "ctrl+r"]
 ```
+
+Once a day dfox asks GitHub, in the background, for the latest release. When
+a newer one is out, the connection manager's status bar says so from the next
+start, for example `↑ 0.3.6 is out: brew upgrade dfox`. Nothing is sent but
+the request itself.
 
 A theme file in `themes/<name>.toml` sets any colours as `"#rrggbb"` and takes
 the rest from the theme it `extends`:

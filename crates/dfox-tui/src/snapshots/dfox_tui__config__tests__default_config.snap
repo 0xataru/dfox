@@ -9,5 +9,6 @@ icons = "auto"
 mouse = true
 row_limit = 100000
 confirm_destructive = true
+update_check = true
 
 [keys]
