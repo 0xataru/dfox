@@ -1,13 +1,12 @@
 name: Coverage
 
 # Measures line coverage with cargo-llvm-cov and uploads it to Codecov, which
-# serves the README badge and comments the change on pull requests. Runs with
-# the same database services as the integration job in ci.yml, so the client
-# code is measured too.
+# serves the README badge. Runs with the same database services as the
+# integration job in ci.yml, so the client code is measured too. Only on main:
+# pull requests already run the tests in ci.yml.
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:

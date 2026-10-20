@@ -85,8 +85,7 @@ docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
    make check   # rustfmt check, clippy with -D warnings, guards, tests: exactly what CI runs
    ```
 
-   `make cover` shows which lines your tests reach. Pull requests also get a
-   Codecov comment with the coverage of the changed lines.
+   `make cover` shows which lines your tests reach.
 
 4. **Run it:** `make run`, and try the screens your change touches.
 
@@ -192,7 +191,7 @@ The version lives in one place, `[workspace.package]` in the root
    `HOMEBREW_TAP_TOKEN` secret.
 
    After changing `dist-workspace.toml` or upgrading dist, run `dist generate`
-   and commit the result; pull requests fail when the workflow is out of date.
+   and commit the result: the workflow runs only on tags, so nothing else catches it.
 
 `make bump VERSION=X.Y.Z` runs only the file edits from step 1, if you want to
 do the rest by hand.
