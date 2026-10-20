@@ -233,7 +233,7 @@ fn values_are_shown_for_reading() {
     assert_eq!(group_digits("12345abc"), "12345abc");
 }
 
-/// `cargo test -p dfox-tui --release -- --ignored grid_render_time`
+/// `cargo test -p dfox --release -- --ignored grid_render_time`
 #[test]
 #[ignore = "timing; run in release"]
 fn grid_render_time() {
@@ -330,7 +330,7 @@ fn arrow_results_draw_like_any_other() {
     insta::assert_snapshot!(screen);
 }
 
-/// `cargo test -p dfox-tui --release -- --ignored arrow_grid_render_time`
+/// `cargo test -p dfox --release -- --ignored arrow_grid_render_time`
 #[test]
 #[ignore = "timing; run in release"]
 fn arrow_grid_render_time() {

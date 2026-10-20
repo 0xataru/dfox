@@ -1467,18 +1467,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "dfox"
+version = "0.3.4"
+dependencies = [
+ "arboard",
+ "arrow-array",
+ "arrow-schema",
+ "crossterm",
+ "dfox-core",
+ "dfox-driver-cassandra",
+ "dfox-driver-mongo",
+ "dfox-driver-mysql",
+ "dfox-driver-postgres",
+ "dfox-driver-sqlite",
+ "dfox-sql",
+ "dfox-ssh",
+ "directories",
+ "dotenvy",
+ "env_logger",
+ "futures-util",
+ "insta",
+ "keyring",
+ "log",
+ "mimalloc",
+ "nucleo-matcher",
+ "percent-encoding",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tachyonfx",
+ "throbber-widgets-tui",
+ "tokio",
+ "toml",
+ "tui-big-text",
+ "tui-tree-widget",
+ "unicode-width",
+ "url",
+]
+
+[[package]]
 name = "dfox-bench"
 version = "0.3.4"
 dependencies = [
  "arrow-array",
  "arrow-schema",
  "criterion",
+ "dfox",
  "dfox-core",
  "dfox-driver-mysql",
  "dfox-driver-postgres",
  "dfox-driver-sqlite",
  "dfox-testkit",
- "dfox-tui",
  "futures-util",
  "ratatui",
  "tokio",
@@ -1617,45 +1656,6 @@ dependencies = [
  "dfox-driver-sqlite",
  "futures-util",
  "tokio",
-]
-
-[[package]]
-name = "dfox-tui"
-version = "0.3.4"
-dependencies = [
- "arboard",
- "arrow-array",
- "arrow-schema",
- "crossterm",
- "dfox-core",
- "dfox-driver-cassandra",
- "dfox-driver-mongo",
- "dfox-driver-mysql",
- "dfox-driver-postgres",
- "dfox-driver-sqlite",
- "dfox-sql",
- "dfox-ssh",
- "directories",
- "dotenvy",
- "env_logger",
- "futures-util",
- "insta",
- "keyring",
- "log",
- "mimalloc",
- "nucleo-matcher",
- "percent-encoding",
- "ratatui",
- "serde",
- "serde_json",
- "tachyonfx",
- "throbber-widgets-tui",
- "tokio",
- "toml",
- "tui-big-text",
- "tui-tree-widget",
- "unicode-width",
- "url",
 ]
 
 [[package]]

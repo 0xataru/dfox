@@ -30,3 +30,7 @@ strip = true
 [profile.bench]
 lto = "thin"
 codegen-units = 16
+
+# Release builds made by `dist` (the release workflow), the same as `release`.
+[profile.dist]
+inherits = "release"

@@ -1,9 +1,23 @@
 [package]
-name = "dfox-tui"
+name = "dfox"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description = "Blazing-fast database client for your terminal: SQL and NoSQL in one TUI"
+authors = ["0xataru"]
+homepage = "https://github.com/0xataru/dfox"
 repository.workspace = true
+
+[package.metadata.wix]
+upgrade-guid = "11757CB6-7E42-46BD-B4C8-BF77CA4D6D69"
+path-guid = "E37A6B9A-9138-43C9-86D6-0B06F2EB062B"
+license = false
+eula = false
+
+# The code keeps the library name it had as `dfox-tui`.
+[lib]
+name = "dfox_tui"
+path = "src/lib.rs"
 
 [[bin]]
 name = "dfox"
