@@ -192,7 +192,7 @@ The version lives in one place, `[workspace.package]` in the root
    `HOMEBREW_TAP_TOKEN` secret.
 
    After changing `dist-workspace.toml` or upgrading dist, run `dist generate`
-   and commit the result; pull requests fail when the workflow is out of date.
+   and commit the result: the workflow runs only on tags, so nothing else catches it.
 
 `make bump VERSION=X.Y.Z` runs only the file edits from step 1, if you want to
 do the rest by hand.
