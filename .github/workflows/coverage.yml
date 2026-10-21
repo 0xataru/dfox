@@ -23,7 +23,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: dfox
-        ports: ["55432:5432"]
+        ports: ["15432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s --health-retries 30
@@ -32,7 +32,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: dfox
           MYSQL_DATABASE: dfox
-        ports: ["53306:3306"]
+        ports: ["13306:3306"]
         options: >-
           --health-cmd "mysqladmin ping -h 127.0.0.1 -pdfox"
           --health-interval 2s --health-retries 60
@@ -41,18 +41,18 @@ jobs:
         env:
           MONGO_INITDB_ROOT_USERNAME: root
           MONGO_INITDB_ROOT_PASSWORD: dfox
-        ports: ["57017:27017"]
+        ports: ["17017:27017"]
         options: >-
           --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
           --health-interval 2s --health-retries 60
     env:
       DFOX_IT_REQUIRED: "1"
-      DFOX_TEST_CASSANDRA_URL: cassandra://cassandra:cassandra@127.0.0.1:59042
-      DFOX_TEST_REDIS_URL: redis://:dfox@127.0.0.1:56379
-      DFOX_TEST_MONGO_URL: mongodb://root:dfox@127.0.0.1:57017
-      DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:55432/postgres
-      DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:53306/dfox
-      DFOX_TEST_POSTGRES_TLS_URL: postgres://postgres:dfox@localhost:55433/postgres
+      DFOX_TEST_CASSANDRA_URL: cassandra://cassandra:cassandra@127.0.0.1:19042
+      DFOX_TEST_REDIS_URL: redis://:dfox@127.0.0.1:16379
+      DFOX_TEST_MONGO_URL: mongodb://root:dfox@127.0.0.1:17017
+      DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:15432/postgres
+      DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:13306/dfox
+      DFOX_TEST_POSTGRES_TLS_URL: postgres://postgres:dfox@localhost:15433/postgres
       DFOX_TEST_POSTGRES_CA: ${{ github.workspace }}/target/tls/ca.pem
       DFOX_TEST_SSH_DIR: ${{ github.workspace }}/target/ssh
     steps:

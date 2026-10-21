@@ -36,13 +36,13 @@ test-it: ## Run the test suite against real Postgres, MySQL, MongoDB, ScyllaDB a
 	./scripts/ssh-server.sh
 	DFOX_IT_REQUIRED=1 \
 	DFOX_TEST_SSH_DIR=$(CURDIR)/target/ssh \
-	DFOX_TEST_POSTGRES_TLS_URL=postgres://postgres:dfox@localhost:55433/postgres \
+	DFOX_TEST_POSTGRES_TLS_URL=postgres://postgres:dfox@localhost:15433/postgres \
 	DFOX_TEST_POSTGRES_CA=$(CURDIR)/target/tls/ca.pem \
-	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:55432/postgres \
-	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:53306/dfox \
-	DFOX_TEST_MONGO_URL=mongodb://root:dfox@127.0.0.1:57017 \
-	DFOX_TEST_CASSANDRA_URL=cassandra://cassandra:cassandra@127.0.0.1:59042 \
-	DFOX_TEST_REDIS_URL=redis://:dfox@127.0.0.1:56379 \
+	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:15432/postgres \
+	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:13306/dfox \
+	DFOX_TEST_MONGO_URL=mongodb://root:dfox@127.0.0.1:17017 \
+	DFOX_TEST_CASSANDRA_URL=cassandra://cassandra:cassandra@127.0.0.1:19042 \
+	DFOX_TEST_REDIS_URL=redis://:dfox@127.0.0.1:16379 \
 	cargo test --workspace --locked
 
 test-it-down: ## Stop the integration-test databases
@@ -51,8 +51,8 @@ test-it-down: ## Stop the integration-test databases
 	./scripts/ssh-server.sh down
 
 bench: ## Benchmarks; Postgres and MySQL ones run against `make test-it`'s databases
-	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:55432/postgres \
-	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:53306/dfox \
+	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:15432/postgres \
+	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:13306/dfox \
 	cargo bench -p dfox-bench --benches
 
 cover: ## Line coverage; HTML report in target/llvm-cov/html (needs cargo-llvm-cov)

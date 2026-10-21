@@ -1,11 +1,13 @@
 # Databases for the integration tests (`make test-it`).
-# Ports are offset so they don't clash with servers already running locally.
+# Ports are offset so they don't clash with servers already running locally,
+# and kept below 32768: Linux hands out ports above it to outgoing connections,
+# which could take one before its container binds it.
 services:
   postgres:
     image: postgres:16
     environment:
       POSTGRES_PASSWORD: dfox
-    ports: ["55432:5432"]
+    ports: ["15432:5432"]
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres"]
       interval: 2s
@@ -16,7 +18,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: dfox
       MYSQL_DATABASE: dfox
-    ports: ["53306:3306"]
+    ports: ["13306:3306"]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pdfox"]
       interval: 2s
@@ -27,7 +29,7 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: dfox
-    ports: ["57017:27017"]
+    ports: ["17017:27017"]
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 2s
@@ -36,7 +38,7 @@ services:
   scylla:
     image: scylladb/scylla:2025.1
     command: --smp 1 --memory 750M --overprovisioned 1 --developer-mode 1 --authenticator PasswordAuthenticator
-    ports: ["59042:9042"]
+    ports: ["19042:9042"]
     healthcheck:
       test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'SELECT now() FROM system.local'"]
       interval: 5s
@@ -45,7 +47,7 @@ services:
   valkey:
     image: valkey/valkey:8.1
     command: --requirepass dfox
-    ports: ["56379:6379"]
+    ports: ["16379:6379"]
     healthcheck:
       test: ["CMD", "valkey-cli", "-a", "dfox", "--no-auth-warning", "ping"]
       interval: 2s
