@@ -88,8 +88,15 @@ fn entry_item<'a>(explorer: &Explorer, entry: &'a Entry, ctx: &RenderCtx) -> Tre
         return object_item(entry, ctx);
     }
     let theme = ctx.theme;
-    let mut text = match entry.node.kind {
-        NodeKind::Database => vec![Span::raw(format!(
+    let mut text = match (entry.node.kind, explorer.driver) {
+        (NodeKind::Database, Some(driver)) => vec![
+            Span::styled(
+                format!("{} ", ctx.icons.engine(driver)),
+                theme.engine(driver),
+            ),
+            Span::raw(entry.node.name.as_str()),
+        ],
+        (NodeKind::Database, None) => vec![Span::raw(format!(
             "{} {}",
             ctx.icons.database, entry.node.name
         ))],

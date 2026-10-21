@@ -1645,6 +1645,7 @@ dependencies = [
  "log",
  "redis",
  "rustls",
+ "serde_json",
  "tokio",
 ]
 

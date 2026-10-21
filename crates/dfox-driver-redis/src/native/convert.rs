@@ -2,7 +2,7 @@
 //! item; a map, a row per pair. Columns are named for the command when it
 //! is known (`HGETALL` gives `field` and `value`, `ZRANGE … WITHSCORES`
 //! `member` and `score`), and typed as integers or numbers when every value
-//! in them is one.
+//! in them is one, or as JSON when every value is a list or map.
 
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, SchemaRef};
 use dfox_core::{
-    arrow::{field, schema},
+    arrow::{field, json_field, schema, JSON},
     errors::DbError,
 };
 use redis::Value;
@@ -58,7 +58,7 @@ pub fn table(command: &[String], value: Value) -> Table {
                 && items
                     .iter()
                     .all(|item| matches!(item, Value::Array(a) if a.len() == 2));
-            let rows = || {
+            let rows = || -> Vec<Vec<Value>> {
                 items
                     .clone()
                     .into_iter()
@@ -69,7 +69,25 @@ pub fn table(command: &[String], value: Value) -> Table {
                     .collect()
             };
             match name.as_str() {
-                "XRANGE" | "XREVRANGE" if pairs => Table::new(&["id", "fields"], rows()),
+                "XRANGE" | "XREVRANGE" if pairs => {
+                    // An entry's fields come as [field, value, …]: a map.
+                    let rows = rows()
+                        .into_iter()
+                        .map(|mut row| {
+                            if let Some(Value::Array(flat)) = row.get(1) {
+                                let fields = flat
+                                    .chunks(2)
+                                    .map(|kv| {
+                                        (kv[0].clone(), kv.get(1).cloned().unwrap_or(Value::Nil))
+                                    })
+                                    .collect();
+                                row[1] = Value::Map(fields);
+                            }
+                            row
+                        })
+                        .collect();
+                    Table::new(&["id", "fields"], rows)
+                }
                 _ if pairs && with_scores => Table::new(&["member", "score"], rows()),
                 _ => Table::new(&["value"], items.into_iter().map(|v| vec![v]).collect()),
             }
@@ -125,19 +143,52 @@ pub fn text(value: &Value) -> String {
     }
 }
 
+/// A value as JSON: lists as arrays, maps as objects, bytes as text.
+pub fn json(value: &Value) -> serde_json::Value {
+    use serde_json::Value as Json;
+    match value {
+        Value::Nil => Json::Null,
+        Value::Int(n) => (*n).into(),
+        Value::Double(n) => serde_json::Number::from_f64(*n).map_or(Json::Null, Json::Number),
+        Value::Boolean(b) => Json::Bool(*b),
+        Value::Array(items) | Value::Set(items) | Value::Push { data: items, .. } => {
+            Json::Array(items.iter().map(json).collect())
+        }
+        Value::Map(pairs) => Json::Object(pairs.iter().map(|(k, v)| (text(k), json(v))).collect()),
+        Value::Attribute { data, .. } => json(data),
+        other => Json::String(text(other)),
+    }
+}
+
+fn is_container(value: &Value) -> bool {
+    matches!(
+        value,
+        Value::Array(_) | Value::Set(_) | Value::Map(_) | Value::Push { .. }
+    )
+}
+
 /// How a column's values are kept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Int,
     Float,
+    Json,
     Text,
 }
 
 fn kind(rows: &[Vec<Value>], column: usize) -> Kind {
+    let values: Vec<&Value> = rows
+        .iter()
+        .filter_map(|row| row.get(column))
+        .filter(|v| !matches!(v, Value::Nil))
+        .collect();
+    if !values.is_empty() && values.iter().all(|v| is_container(v)) {
+        return Kind::Json;
+    }
     let mut kind = Kind::Int;
-    for value in rows.iter().filter_map(|row| row.get(column)) {
+    for value in values {
         match value {
-            Value::Nil | Value::Int(_) => {}
+            Value::Int(_) => {}
             Value::Double(_) => kind = Kind::Float,
             _ => return Kind::Text,
         }
@@ -155,6 +206,7 @@ impl Table {
                 .map(|(i, name)| match kind(&self.rows, i) {
                     Kind::Int => field(name, DataType::Int64, "integer"),
                     Kind::Float => field(name, DataType::Float64, "double"),
+                    Kind::Json => json_field(name, "json"),
                     Kind::Text => field(name, DataType::Utf8, "string"),
                 })
                 .collect(),
@@ -192,10 +244,12 @@ impl Table {
                         Arc::new(b.finish())
                     }
                     _ => {
+                        let as_json = field.metadata().contains_key(JSON);
                         let mut b = StringBuilder::new();
                         for cell in cells {
                             match cell {
                                 Value::Nil => b.append_null(),
+                                cell if as_json => b.append_value(json(cell).to_string()),
                                 cell => b.append_value(text(cell)),
                             }
                         }
@@ -253,7 +307,15 @@ mod tests {
             ])]),
         );
         assert_eq!(stream.columns, ["id", "fields"]);
-        assert_eq!(text(&stream.rows[0][1]), "[temp, 20]");
+        let schema = stream.schema();
+        assert!(schema.field(1).metadata().contains_key(JSON));
+        let batch = stream.batch(&schema, &stream.rows).expect("batch");
+        let fields = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<arrow_array::StringArray>()
+            .expect("text");
+        assert_eq!(fields.value(0), r#"{"temp":"20"}"#);
 
         let one = table(&words("INCR n"), Value::Int(5));
         assert_eq!(one.schema().field(0).data_type(), &DataType::Int64);

@@ -1256,3 +1256,68 @@ fn redis_keys_open_with_the_command_for_their_type() {
         Some(Command::ConfirmRun { .. })
     ));
 }
+
+#[test]
+fn a_redis_string_of_json_opens_as_json_with_its_details() {
+    use std::sync::Arc;
+
+    use arrow_array::{RecordBatch, StringArray};
+    use arrow_schema::{DataType, Field, Schema};
+    use dfox_core::{catalog::EntityInfo, session::QueryLanguage};
+
+    let mut harness = Harness::new();
+    let mut w = Workspace::new("local", DbType::Redis, "0").with_language(QueryLanguage::RedisCmd);
+    w.on_children(
+        &NodePath::root(),
+        Ok(vec![Node::new(NodeKind::Database, "0", true)]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["0"].into_iter().collect(),
+        Ok(vec![
+            Node::new(NodeKind::Key, "settings", false).with_detail("string")
+        ]),
+        &mut harness.ctx(),
+    );
+    let key: NodePath = ["0", "settings"].into_iter().collect();
+    w.explorer.on_described(
+        &key,
+        Ok(EntityInfo {
+            comment: Some("string, 32 bytes, no expiry".into()),
+            ..EntityInfo::default()
+        }),
+    );
+    harness.sent();
+    w.set_focus(Panel::Explorer);
+    w.explorer.select(&["d/0", "o/settings"].map(String::from));
+    w.handle(Action::Confirm, &mut harness.ctx());
+    w.handle(Action::Input('f'), &mut harness.ctx());
+    let id = match harness.sent().as_slice() {
+        [.., DbCommand::Run { id, sql, .. }] if sql == "GET settings" => *id,
+        other => panic!("expected GET settings, got {other:?}"),
+    };
+    assert_eq!(
+        w.results().note.as_deref(),
+        Some("string, 32 bytes, no expiry")
+    );
+
+    let schema = Arc::new(Schema::new(vec![Field::new("value", DataType::Utf8, true)]));
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![Arc::new(StringArray::from(vec![
+            r#"{"theme":"dark","size":14}"#,
+        ]))],
+    )
+    .expect("batch");
+    let results = &mut w.tab_mut().results;
+    results.on_schema(id, schema);
+    results.on_batch(id, batch);
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
+    assert!(w.results().shows_json(), "a JSON string opens as JSON");
+}

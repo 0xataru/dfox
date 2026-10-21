@@ -52,7 +52,11 @@ impl App {
                 ));
             }
             location.push(Span::styled(
-                format!("{} {}", ctx.icons.database, session.connection.name),
+                format!("{} ", ctx.icons.engine(session.connection.driver)),
+                theme.engine(session.connection.driver).bg(theme.surface),
+            ));
+            location.push(Span::styled(
+                session.connection.name.as_str(),
                 theme.base().bg(theme.surface),
             ));
             location.push(Span::styled(

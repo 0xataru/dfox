@@ -101,6 +101,15 @@ pub fn document(result: &impl ResultSet, row: usize) -> Value {
     Value::Object(fields)
 }
 
+/// True when `result` is one value, and that value is a JSON object or list.
+pub fn holds_json(result: &impl ResultSet) -> bool {
+    result.row_count() == 1
+        && result.columns().len() == 1
+        && result
+            .cell(0, 0)
+            .is_some_and(|cell| is_container(&json(cell)))
+}
+
 /// The fields of an object or the items of a list, with their labels.
 fn children(value: &Value) -> Vec<(String, &Value)> {
     match value {
