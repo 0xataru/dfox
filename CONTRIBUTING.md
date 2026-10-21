@@ -16,36 +16,47 @@ Questions and open-ended ideas belong in
 
 ## Project layout
 
-DFox is a Cargo workspace; every crate lives in `crates/`:
+DFox is a Cargo workspace. Its crates live in `crates/`, grouped by kind:
 
-- **`dfox-core`**: the driver interfaces, query results, connection models,
-  and the engine that runs database work in the background. It knows no
-  particular database. The app runs on `Session` + `Catalog`: Arrow
+```
+crates/
+  core/     dfox-core
+  drivers/  dfox-driver-postgres, -mysql, -sqlite, -mongo, -cassandra, -redis
+  libs/     dfox-sql, dfox-ssh
+  ui/       dfox-tui (the dfox binary)
+  dev/      dfox-testkit, dfox-bench
+```
+
+- **`dfox-core`** (`core/`): the driver interfaces, query results, connection
+  models, and the engine that runs database work in the background. It knows
+  no particular database. The app runs on `Session` + `Catalog`: Arrow
   batches, a catalog tree, edits by primary key. The engine holds one
   session and opens it through an `Opener`, which the app points at
   `dfox_ssh::open` for tunnels.
-- **`dfox-driver-postgres`**, **`dfox-driver-mysql`**, **`dfox-driver-sqlite`**,
-  **`dfox-driver-mongo`**: one crate per database, each with its integration
-  tests.
-- **`dfox-ssh`**: SSH tunnels on `russh`, for any driver: `dfox_ssh::open`
-  logs in to the jump host (agent, key or password), checks its key against
-  `known_hosts`, and opens the driver's session through a forwarded local
-  port. A driver connects to `ConnectionParams::tunnel` when it is set, but
-  keeps the original host name for TLS.
-- **`dfox-sql`**: reading SQL and mongo shell commands without running
-  them: highlighting, splitting scripts, autocomplete context and the
-  destructive-statement guard.
-- **`dfox`** (`crates/dfox-tui`): the terminal interface, built with `ratatui` and `crossterm`.
-  Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, `mongo`, `cassandra`, `redis`, all
-  on by default), so `cargo build -p dfox --no-default-features --features
-  sqlite` builds a SQLite-only binary.
-- **`dfox-bench`**: benchmarks of decoding, memory and drawing (`make
-  bench`), with the numbers to beat in `crates/dfox-bench/BASELINE.md`. Pull
-  requests run them against `main` and fail on a clear slowdown of more than
-  10%. Not published.
-- **`dfox-testkit`**: helpers for the driver tests, the conformance suite
-  every driver's `Session` must pass, a mock driver that passes it without a
-  server, and tests of the engine over every driver. Not published.
+- **`dfox-driver-*`** (`drivers/`): one crate per database (PostgreSQL,
+  MySQL, SQLite, MongoDB, Cassandra/ScyllaDB, Redis/Valkey), each with its
+  integration tests.
+- **`dfox-sql`** (`libs/`): reading SQL, CQL, mongo shell and Redis commands
+  without running them: highlighting, splitting scripts, autocomplete
+  context and the destructive-statement guard.
+- **`dfox-ssh`** (`libs/`): SSH tunnels on `russh`, for any driver:
+  `dfox_ssh::open` logs in to the jump host (agent, key or password), checks
+  its key against `known_hosts`, and opens the driver's session through a
+  forwarded local port. A driver connects to `ConnectionParams::tunnel` when
+  it is set, but keeps the original host name for TLS.
+- **`dfox`** (`ui/dfox-tui`): the terminal interface, built with `ratatui`
+  and `crossterm`. Each driver is a cargo feature (`postgres`, `mysql`,
+  `sqlite`, `mongo`, `cassandra`, `redis`, all on by default), so `cargo
+  build -p dfox --no-default-features --features sqlite` builds a
+  SQLite-only binary.
+- **`dfox-testkit`** (`dev/`): helpers for the driver tests, the conformance
+  suite every driver's `Session` must pass, a mock driver that passes it
+  without a server, and tests of the engine over every driver. Not
+  published.
+- **`dfox-bench`** (`dev/`): benchmarks of decoding, memory and drawing
+  (`make bench`), with the numbers to beat in
+  `crates/dev/dfox-bench/BASELINE.md`. Pull requests run them against
+  `main` and fail on a clear slowdown of more than 10%. Not published.
 
 New database support is a new driver crate implementing `Driver` (with
 `open` returning a `Session`), a test that runs
@@ -75,7 +86,7 @@ docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres
    gets an `insta` snapshot test; after changing how something looks, run
    `cargo insta review` (from `cargo install cargo-insta`) and accept the
    snapshots that show what you meant. Colours come only from the theme in
-   `crates/dfox-tui/src/theme/`, and components never `.await`; `scripts/guards.sh`
+   `crates/ui/dfox-tui/src/theme/`, and components never `.await`; `scripts/guards.sh`
    checks both.
 
 3. **Run what CI runs:**

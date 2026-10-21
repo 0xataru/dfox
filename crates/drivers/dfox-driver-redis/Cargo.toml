@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dfox-core = { path = "../dfox-core" }
-dfox-sql = { path = "../dfox-sql" }
+dfox-core = { path = "../../core/dfox-core" }
+dfox-sql = { path = "../../libs/dfox-sql" }
 futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
 log = "0.4.21"
 tokio = { version = "1.40.0", features = ["full"] }
@@ -19,7 +19,7 @@ arrow-schema = "60.0.0"
 serde_json = "1"
 
 [dev-dependencies]
-dfox-testkit = { path = "../dfox-testkit" }
+dfox-testkit = { path = "../../dev/dfox-testkit" }
 
 [lints]
 workspace = true

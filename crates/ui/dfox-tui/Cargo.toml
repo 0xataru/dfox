@@ -26,17 +26,17 @@ path = "src/main.rs"
 [dependencies]
 ratatui = "0.30.2"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
-dfox-core = { path = "../dfox-core" }
-dfox-sql = { path = "../dfox-sql" }
-dfox-ssh = { path = "../dfox-ssh" }
+dfox-core = { path = "../../core/dfox-core" }
+dfox-sql = { path = "../../libs/dfox-sql" }
+dfox-ssh = { path = "../../libs/dfox-ssh" }
 arrow-array = "60.0.0"
 arrow-schema = "60.0.0"
-dfox-driver-postgres = { path = "../dfox-driver-postgres", optional = true }
-dfox-driver-mysql = { path = "../dfox-driver-mysql", optional = true }
-dfox-driver-sqlite = { path = "../dfox-driver-sqlite", optional = true }
-dfox-driver-mongo = { path = "../dfox-driver-mongo", optional = true }
-dfox-driver-cassandra = { path = "../dfox-driver-cassandra", optional = true }
-dfox-driver-redis = { path = "../dfox-driver-redis", optional = true }
+dfox-driver-postgres = { path = "../../drivers/dfox-driver-postgres", optional = true }
+dfox-driver-mysql = { path = "../../drivers/dfox-driver-mysql", optional = true }
+dfox-driver-sqlite = { path = "../../drivers/dfox-driver-sqlite", optional = true }
+dfox-driver-mongo = { path = "../../drivers/dfox-driver-mongo", optional = true }
+dfox-driver-cassandra = { path = "../../drivers/dfox-driver-cassandra", optional = true }
+dfox-driver-redis = { path = "../../drivers/dfox-driver-redis", optional = true }
 tokio = { version = "1.40.0", features = ["full"] }
 futures-util = { version = "0.3.31", default-features = false }
 arboard = "3.3.0"

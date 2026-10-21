@@ -14,17 +14,17 @@ component_management:
     - component_id: core
       name: dfox-core
       paths:
-        - crates/dfox-core/**
+        - crates/core/dfox-core/**
     - component_id: drivers
       name: drivers
       paths:
-        - crates/dfox-driver-*/**
+        - crates/drivers/dfox-driver-*/**
     - component_id: sql
       name: dfox-sql
       paths:
-        - crates/dfox-sql/**
+        - crates/libs/dfox-sql/**
     - component_id: tui
       name: dfox-tui
       paths:
-        - crates/dfox-tui/**
+        - crates/ui/dfox-tui/**
 
