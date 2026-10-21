@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Starts an SSH jump host on 127.0.0.1:52222 for the tunnel tests. It
+# Starts an SSH jump host on 127.0.0.1:12222 for the tunnel tests. It
 # forwards to the host's ports through host.docker.internal, so the test
-# Postgres on 55432 is reachable through it. Keys and known_hosts are written
+# Postgres on 15432 is reachable through it. Keys and known_hosts are written
 # to target/ssh:
 #
 #   id_ed25519        authorized, no passphrase
@@ -21,7 +21,7 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 name=dfox-ssh
-port=52222
+port=12222
 
 if [ "${1:-}" = down ]; then
 	docker rm -f "$name" >/dev/null 2>&1 || true

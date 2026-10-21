@@ -22,7 +22,7 @@ use dfox_driver_postgres::PostgresDriver;
 use dfox_ssh::Tunnel;
 use dfox_testkit::{params_from_url, server_url};
 
-const PORT: u16 = 52222;
+const PORT: u16 = 12222;
 /// How the jump host reaches the machine running the tests.
 const HOST_FROM_JUMP: &str = "host.docker.internal";
 
@@ -163,7 +163,7 @@ async fn an_unknown_host_key_is_refused_with_the_command_that_adds_it() {
     assert!(message.contains("not in known_hosts"), "{message}");
     assert!(message.contains("SHA256:"), "{message}");
     assert!(
-        message.contains("ssh-keyscan -p 52222 127.0.0.1"),
+        message.contains("ssh-keyscan -p 12222 127.0.0.1"),
         "{message}"
     );
 }
@@ -178,7 +178,7 @@ async fn a_changed_host_key_is_refused() {
     let err = tunnel(&setup, &ssh).await.expect_err("refused");
     let message = err.to_string();
     assert!(message.contains("has changed"), "{message}");
-    assert!(message.contains("[127.0.0.1]:52222"), "{message}");
+    assert!(message.contains("[127.0.0.1]:12222"), "{message}");
 }
 
 #[cfg(unix)]

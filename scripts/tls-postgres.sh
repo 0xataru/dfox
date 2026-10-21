@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Starts PostgreSQL with TLS on port 55433, with a certificate for
+# Starts PostgreSQL with TLS on port 15433, with a certificate for
 # "localhost" signed by a throwaway test CA, for the verify-full tests. The
 # CA is written to target/tls/ca.pem.
 #
@@ -34,7 +34,7 @@ mkdir -p "$dir"
 
 docker rm -f "$name" >/dev/null 2>&1 || true
 # The server wants its key owned by postgres and private, so copy it in.
-docker run -d --name "$name" -p 55433:5432 -e POSTGRES_PASSWORD=dfox \
+docker run -d --name "$name" -p 15433:5432 -e POSTGRES_PASSWORD=dfox \
 	-v "$PWD/$dir:/certs:ro" --entrypoint sh postgres:16 -c '
 		cp /certs/server.pem /certs/server.key /var/lib/postgresql/ &&
 		chown postgres /var/lib/postgresql/server.pem /var/lib/postgresql/server.key &&
@@ -45,7 +45,7 @@ docker run -d --name "$name" -p 55433:5432 -e POSTGRES_PASSWORD=dfox \
 
 for _ in $(seq 60); do
 	if docker exec "$name" psql -U postgres -h 127.0.0.1 -c 'SELECT 1' >/dev/null 2>&1; then
-		echo "TLS Postgres is up on 55433; CA in $dir/ca.pem"
+		echo "TLS Postgres is up on 15433; CA in $dir/ca.pem"
 		exit 0
 	fi
 	sleep 1
