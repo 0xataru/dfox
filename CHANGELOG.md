@@ -17,11 +17,15 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   commands, one a line, with colours and command completion; replies show as tables.
   Read-only connections refuse anything the server doesn't mark read-only, and
   `FLUSHDB`, `FLUSHALL` and `SHUTDOWN` ask first.
-
-### Added
-
+- A JSON view of results: **J** shows each row as a document, one line each, that opens
+  field by field, with nested objects and lists opening too. MongoDB's nested documents
+  and Redis strings of JSON show as JSON; **Ctrl+C** copies the JSON at the cursor.
 - The connection manager's status bar shows the version, next to the update
   notice when there is one.
+
+### Changed
+
+- JSON keeps its fields in their order in the record inspector, instead of sorting them.
 
 ### Fixed
 

@@ -22,7 +22,7 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx)
                  │ Ctrl+Z            Undo                      │
                  │ Ctrl+Y            Redo                      │
                  │ i                 Inspect / insert name     │
+                 │ J                 Results as JSON / grid    │
                  │ >                 Widen column              │
-                 │ <                 Narrow column             │
                  │                                             │
                  ╰───── ↑↓ scroll · any other key closes ──────╯

@@ -6,7 +6,6 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
 
 
 
-
                ╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮
                │                                                                                        │
                │ Ctrl+P            Command palette          Ctrl+S            Save                      │
@@ -27,14 +26,15 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
                │ Ctrl+Z            Undo                     Home              First row / line start    │
                │ Ctrl+Y            Redo                     End               Last row / line end       │
                │ i                 Inspect / insert name    Backspace         Delete back               │
-               │ >                 Widen column             Alt+Backspace     Delete a word             │
-               │ <                 Narrow column            Alt+B Alt+←       Previous word             │
-               │ Tab               Next panel               Alt+F Alt+→       Next word                 │
-               │ Shift+Tab         Previous panel           Shift+←           Select left               │
-               │ /                 Filter                   Shift+→           Select right              │
-               │ R                 Refresh                  Shift+↑           Select up                 │
-               │ n                 New connection           Shift+↓           Select down               │
-               │ e                 Edit / show definition   Shift+Home        Select to line start      │
-               │ Delete d          Delete connection        Shift+End         Select to line end        │
+               │ J                 Results as JSON / grid   Alt+Backspace     Delete a word             │
+               │ >                 Widen column             Alt+B Alt+←       Previous word             │
+               │ <                 Narrow column            Alt+F Alt+→       Next word                 │
+               │ Tab               Next panel               Shift+←           Select left               │
+               │ Shift+Tab         Previous panel           Shift+→           Select right              │
+               │ /                 Filter                   Shift+↑           Select up                 │
+               │ R                 Refresh                  Shift+↓           Select down               │
+               │ n                 New connection           Shift+Home        Select to line start      │
+               │ e                 Edit / show definition   Shift+End         Select to line end        │
+               │ Delete d          Delete connection                                                    │
                │                                                                                        │
                ╰─────────────────────────────────── any key to close ───────────────────────────────────╯

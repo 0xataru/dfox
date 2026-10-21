@@ -147,6 +147,10 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **y** - Copy as TSV, CSV, JSON, Markdown or `INSERT` statements (the selection, or every row)
 - **>** / **<** - Widen / narrow the column
 - **Enter** or **i** - Inspect the row: every field in full, JSON pretty-printed, binary as a hex dump
+- **J** - Show the rows as JSON documents, and back to the grid. Each row is a document
+  shown on one line; **→** or **Enter** opens it, and the objects and lists in it, **←**
+  closes them or goes up. Columns that hold JSON (MongoDB's nested documents, a Redis
+  string of JSON) open as JSON. **Ctrl+C** copies the JSON at the cursor
 
 ### Interface Controls
 - **F1** - Back to the connections

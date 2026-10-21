@@ -316,3 +316,48 @@ fn inspector_over_a_narrow_grid() {
     assert!(results.scroll_inspector(30, 5, 3));
     assert!(!results.scroll_inspector(0, 0, 3));
 }
+
+#[test]
+fn rows_show_as_json_documents() {
+    let test = TestCtx::new();
+    let mut harness = Harness::new();
+    let store = ArrowResultSet::from_cells(
+        vec![
+            ColumnMeta::new("_id", "objectId"),
+            ColumnMeta::new("name", "string"),
+            ColumnMeta::new("address", "object"),
+        ],
+        vec![
+            vec![
+                OwnedCell::Text("6650a1".into()),
+                OwnedCell::Text("Ann".into()),
+                OwnedCell::Json(r#"{"city":"Kyiv","geo":{"lat":50.45,"lon":30.52}}"#.into()),
+            ],
+            vec![
+                OwnedCell::Text("6650a2".into()),
+                OwnedCell::Text("Bob".into()),
+                OwnedCell::Null,
+            ],
+        ],
+    );
+    let mut results = showing(store);
+    results.focused = true;
+    results.handle(Action::JsonView, &mut harness.ctx());
+    // Open the first document and its address.
+    results.handle(Action::Right, &mut harness.ctx());
+    for _ in 0..3 {
+        results.handle(Action::Down, &mut harness.ctx());
+    }
+    results.handle(Action::Confirm, &mut harness.ctx());
+    insta::assert_snapshot!(render(&test, 60, 10, |f, area, ctx| results.render(f, area, ctx)));
+
+    // Copy takes the JSON at the cursor; J goes back to the grid.
+    results.handle(Action::Copy, &mut harness.ctx());
+    assert!(harness
+        .clipboard
+        .text
+        .as_deref()
+        .is_some_and(|text| text.starts_with("{\n  \"city\": \"Kyiv\"")));
+    results.handle(Action::JsonView, &mut harness.ctx());
+    assert!(results.json.is_none());
+}
