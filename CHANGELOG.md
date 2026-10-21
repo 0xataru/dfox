@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-21
+
 ### Added
 
 - Editing rows in the grid. In rows opened from a table with a primary key, **e** edits
