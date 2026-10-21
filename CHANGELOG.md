@@ -14,6 +14,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   Changes show in the grid until **Ctrl+S**, which lists them for a last look and saves
   them in one transaction, then loads the rows again. Postgres, MySQL and SQLite.
 
+### Fixed
+
+- The connection form hints each database's own port and database (MongoDB 27017 and
+  `test`, Cassandra 9042 and the `system` keyspace, Redis 6379 and `0`), instead of
+  PostgreSQL's for every database but MySQL.
+
 ## [0.4.0] - 2026-10-21
 
 ### Added

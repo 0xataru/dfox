@@ -428,7 +428,11 @@ impl Component for ConnectionForm {
 
 impl ConnectionForm {
     /// A field's label, its value as shown, and what shows when it is empty.
-    fn row(&self, field: Field, editing_saved: bool) -> (&'static str, String, &'static str) {
+    fn row(
+        &self,
+        field: Field,
+        editing_saved: bool,
+    ) -> (&'static str, String, std::borrow::Cow<'static, str>) {
         let choice = |value: &str| format!("‹ {value} ›");
         let hidden = |text: &str| "•".repeat(text.chars().count());
         let unchanged = if editing_saved {
@@ -436,24 +440,29 @@ impl ConnectionForm {
         } else {
             "asked when connecting"
         };
-        let mysql = self.driver == DbType::MySql;
+        // What dfox connects to when they are left empty.
         match field {
+            Field::Port => {
+                let port = Connection::default_port(self.driver).to_string();
+                return ("Port", self.port.clone(), port.into());
+            }
+            Field::Database if self.driver != DbType::Sqlite => {
+                let label = if self.driver == DbType::Cassandra {
+                    "Keyspace"
+                } else {
+                    "Database"
+                };
+                let database = Connection::default_database_of(self.driver);
+                return (label, self.database.clone(), database.into());
+            }
+            _ => {}
+        }
+        let (label, value, hint) = match field {
             Field::Name => ("Name", self.name.clone(), "my database"),
             Field::Driver => ("Driver", choice(driver_name(self.driver)), ""),
             Field::Host => ("Host", self.host.clone(), "localhost"),
-            Field::Port => (
-                "Port",
-                self.port.clone(),
-                if mysql { "3306" } else { "5432" },
-            ),
-            Field::Database if self.driver == DbType::Sqlite => {
-                ("File", self.database.clone(), "/path/to/file.db")
-            }
-            Field::Database => (
-                "Database",
-                self.database.clone(),
-                if mysql { "mysql" } else { "postgres" },
-            ),
+            // SQLite's file: the port and other databases are answered above.
+            Field::Port | Field::Database => ("File", self.database.clone(), "/path/to/file.db"),
             Field::User => ("User", self.user.clone(), ""),
             Field::Password => ("Password", hidden(&self.password), unchanged),
             Field::Tls => (
@@ -489,7 +498,8 @@ impl ConnectionForm {
                 "",
             ),
             Field::Tag => ("Tag", choice(self.tag.name()), ""),
-        }
+        };
+        (label, value, hint.into())
     }
 }
 
@@ -543,6 +553,33 @@ mod tests {
             }
             other => panic!("expected a save, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn hints_are_what_each_database_connects_to() {
+        let mut form = ConnectionForm::new();
+        let hints = |form: &ConnectionForm| {
+            let (_, _, port) = form.row(Field::Port, false);
+            let (label, _, database) = form.row(Field::Database, false);
+            (port.into_owned(), label, database.into_owned())
+        };
+        let expected = [
+            (DbType::Postgres, "5432", "Database", "postgres"),
+            (DbType::MySql, "3306", "Database", "mysql"),
+            (DbType::Mongo, "27017", "Database", "test"),
+            (DbType::Cassandra, "9042", "Keyspace", "system"),
+            (DbType::Redis, "6379", "Database", "0"),
+        ];
+        for (driver, port, label, database) in expected {
+            form.driver = driver;
+            assert_eq!(
+                hints(&form),
+                (port.to_string(), label, database.to_string()),
+                "{driver:?}"
+            );
+        }
+        form.driver = DbType::Sqlite;
+        assert_eq!(form.row(Field::Database, false).0, "File");
     }
 
     #[test]

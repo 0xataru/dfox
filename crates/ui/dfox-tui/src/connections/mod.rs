@@ -191,7 +191,12 @@ impl Connection {
 
     /// The database opened when none is set: one every server has.
     pub fn default_database(&self) -> &str {
-        match self.driver {
+        Self::default_database_of(self.driver)
+    }
+
+    /// The database a `driver` connection opens when none is set.
+    pub fn default_database_of(driver: DbType) -> &'static str {
+        match driver {
             DbType::MySql => "mysql",
             // As in mongosh.
             DbType::Mongo => "test",
