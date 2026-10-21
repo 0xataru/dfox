@@ -1,0 +1,14 @@
+---
+source: dfox-tui/src/components/results/tests.rs
+expression: "render(&test, 60, 10, |f, area, ctx| results.render(f, area, ctx))"
+---
+╭ Results 2 rows · JSON ───────────────────────────────────╮
+│ ▾ 1 {3}                                                  │
+│     _id: "6650a1"                                        │
+│     name: "Ann"                                          │
+│   ▾ address: {2}                                         │
+│       city: "Kyiv"                                       │
+│     ▸ geo: {lat: 50.45, lon: 30.52}                      │
+│ ▸ 2 {_id: "6650a2", name: "Bob", address: null}          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯

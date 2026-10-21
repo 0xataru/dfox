@@ -118,6 +118,7 @@ impl App {
                 ],
                 _ => &[
                     (Action::Inspect, "inspect"),
+                    (Action::JsonView, "json"),
                     (Action::CopyAs, "copy as"),
                     (Action::Connections, "connections"),
                     (Action::Help, "keys"),

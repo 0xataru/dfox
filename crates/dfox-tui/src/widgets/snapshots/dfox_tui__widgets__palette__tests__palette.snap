@@ -10,6 +10,7 @@ expression: "render(&test, 80, 16, |f, area, ctx| palette.render(f, area, ctx))"
           │                                                          │
           │ Run statement/selection                               F5 │
           │ Run the whole script                            Shift+F5 │
+          │ Results as JSON / grid                                 J │
           │ Narrow column                                          < │
           │ Previous panel                                 Shift+Tab │
           ╰──────────────────────────────────────────────────────────╯

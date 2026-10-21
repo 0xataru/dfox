@@ -3,6 +3,7 @@
 pub mod export;
 pub mod grid;
 mod inspector;
+mod json;
 
 use std::{cell::Cell, sync::Arc, time::Duration};
 
@@ -83,6 +84,10 @@ pub struct ResultsPanel {
     inspect_scroll: Cell<usize>,
     /// Where the inspector was drawn, for the mouse wheel.
     inspector_area: Cell<Rect>,
+    /// Rows show as JSON documents rather than in the grid.
+    json: Option<json::JsonView>,
+    /// Lines the JSON view showed, for paging.
+    json_height: Cell<usize>,
 }
 
 impl ResultsPanel {
@@ -101,6 +106,8 @@ impl ResultsPanel {
             inspecting: false,
             inspect_scroll: Cell::new(0),
             inspector_area: Cell::new(Rect::default()),
+            json: None,
+            json_height: Cell::new(0),
         }
     }
 
@@ -165,6 +172,10 @@ impl ResultsPanel {
         self.error = None;
         self.message = None;
         self.grid = Grid::default();
+        // New rows, the same view.
+        if self.json.is_some() {
+            self.json = Some(json::JsonView::default());
+        }
         self.picker = false;
         self.inspect_scroll.set(0);
     }
@@ -282,6 +293,14 @@ impl ResultsPanel {
             ctx.toast(Level::Warning, "No results to copy");
             return;
         }
+        if let Some(text) = self
+            .json
+            .as_ref()
+            .and_then(|view| view.selected(&self.store))
+        {
+            ctx.copy(text, "the JSON");
+            return;
+        }
         let region = self.grid.region(self.store.columns().len());
         let what = describe(region.rows.len(), region.cells());
         ctx.copy(export::plain(&self.store, &region), &what);
@@ -368,6 +387,24 @@ impl Component for ResultsPanel {
             }
             return None;
         }
+        if action == Action::JsonView {
+            self.json = match self.json {
+                Some(_) => None,
+                None => Some(json::JsonView::default()),
+            };
+            self.inspecting = false;
+            return None;
+        }
+        if let Some(view) = &mut self.json {
+            match action {
+                Action::Copy => self.copy(ctx),
+                Action::CopyAs if self.store.row_count() > 0 => self.picker = true,
+                action => {
+                    view.handle(action, &self.store, self.json_height.get());
+                }
+            }
+            return None;
+        }
         match action {
             Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
                 self.inspecting = !self.inspecting;
@@ -406,7 +443,10 @@ impl Component for ResultsPanel {
         }
         let rows = self.store.row_count();
         let columns = self.store.columns().len();
-        if rows > 0 {
+        if rows > 0 && self.json.is_some() {
+            title.push(Span::styled(format!(" {rows} rows"), theme.dim()));
+            title.push(Span::styled(" · JSON", theme.key()));
+        } else if rows > 0 {
             let (row, col) = self.grid.cursor();
             title.push(Span::styled(
                 format!(" {}/{rows}", (row + 1).min(rows)),
@@ -436,6 +476,11 @@ impl Component for ResultsPanel {
             .wrap(Wrap { trim: false })
             .block(block);
             f.render_widget(text, area);
+        } else if let (Some(view), true) = (&self.json, rows > 0) {
+            f.render_widget(block, area);
+            let room = inner(area);
+            self.json_height.set(room.height as usize);
+            view.render(f.buffer_mut(), room, &self.store, self.focused, ctx);
         } else if rows > 0 {
             f.render_widget(block, area);
             let mut grid_area = inner(area);
