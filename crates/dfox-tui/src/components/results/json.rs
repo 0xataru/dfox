@@ -7,7 +7,7 @@
 
 use std::{
     cell::Cell as Shared,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
 };
 
 use dfox_core::result::{Cell, ResultSet};
@@ -23,33 +23,30 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{action::Action, component::RenderCtx};
 
-/// Where a line is: the row, then the keys and indexes into it.
+/// Where a line is in its document: the keys and indexes into it, none
+/// for the document itself.
 type Path = Vec<String>;
 
-/// The JSON view's place: the line at the cursor, what is open, and the
-/// first line shown.
+/// The JSON view's place: the line at the cursor, the open documents with
+/// their lines, and the first line shown.
 #[derive(Debug, Default)]
 pub struct JsonView {
     pub cursor: usize,
-    opened: HashSet<Path>,
+    /// What is open in each open document, the document itself as the
+    /// empty path.
+    opened: HashMap<usize, HashSet<Path>>,
+    /// The lines of each open document, its own line first.
+    lines: BTreeMap<usize, Vec<Entry>>,
     top: Shared<usize>,
 }
 
-/// One line of the tree.
+/// One line of an open document.
 #[derive(Debug, Clone, PartialEq)]
 struct Entry {
     path: Path,
-    /// The field's name or the item's index; `None` for a document.
+    /// The field's name or the item's index; `None` for the document.
     label: Option<String>,
-    /// The value, for lines inside an open document; read when shown for
-    /// the documents themselves.
-    value: Option<Value>,
-}
-
-impl Entry {
-    fn depth(&self) -> usize {
-        self.path.len() - 1
-    }
+    value: Value,
 }
 
 /// The value of `cell` as JSON. Text that is a JSON object or list is
@@ -188,67 +185,87 @@ fn key_text(key: &str) -> String {
 }
 
 impl JsonView {
-    /// Every line of the tree, with the open documents read.
-    fn entries(&self, result: &impl ResultSet) -> Vec<Entry> {
-        let mut out = Vec::new();
-        for row in 0..result.row_count() {
-            let path = vec![row.to_string()];
-            if !self.opened.contains(&path) {
-                out.push(Entry {
-                    path,
-                    label: None,
-                    value: None,
-                });
-                continue;
-            }
-            let doc = document(result, row);
-            out.push(Entry {
-                path: path.clone(),
-                label: None,
-                value: Some(doc.clone()),
-            });
-            self.walk(&doc, &path, &mut out);
-        }
-        out
+    /// How many lines the tree has: a line a document, and the lines of
+    /// the open ones.
+    fn total(&self, result: &impl ResultSet) -> usize {
+        result.row_count() + self.lines.values().map(|l| l.len() - 1).sum::<usize>()
     }
 
-    fn walk(&self, value: &Value, path: &Path, out: &mut Vec<Entry>) {
-        for (label, child) in children(value) {
-            let mut path = path.clone();
-            path.push(label.clone());
-            let open = is_container(child) && self.opened.contains(&path);
-            out.push(Entry {
-                path: path.clone(),
-                label: Some(label),
-                value: Some(child.clone()),
-            });
-            if open {
-                self.walk(child, &path, out);
+    /// The row of `line`, and which of its lines it is: 0 for the
+    /// document's own.
+    fn locate(&self, line: usize) -> (usize, usize) {
+        let mut before = 0;
+        for (&row, lines) in &self.lines {
+            let start = row + before;
+            if line < start {
+                break;
             }
+            if line < start + lines.len() {
+                return (row, line - start);
+            }
+            before += lines.len() - 1;
         }
+        (line - before, 0)
+    }
+
+    /// The first line of `row`.
+    fn line_of(&self, row: usize) -> usize {
+        row + self
+            .lines
+            .range(..row)
+            .map(|(_, l)| l.len() - 1)
+            .sum::<usize>()
+    }
+
+    /// Reads `row` again after something in it opened or closed.
+    fn relist(&mut self, result: &impl ResultSet, row: usize) {
+        let opened = self.opened.get(&row);
+        if !opened.is_some_and(|o| o.contains(&Path::new())) {
+            self.opened.remove(&row);
+            self.lines.remove(&row);
+            return;
+        }
+        let doc = document(result, row);
+        let mut lines = vec![Entry {
+            path: Path::new(),
+            label: None,
+            value: doc.clone(),
+        }];
+        walk(
+            &doc,
+            &Path::new(),
+            opened.unwrap_or(&HashSet::new()),
+            &mut lines,
+        );
+        self.lines.insert(row, lines);
+    }
+
+    /// The line at `line`: of an open document, or `None` for a closed one.
+    fn entry(&self, line: usize) -> (usize, Option<&Entry>) {
+        let (row, inner) = self.locate(line);
+        (row, self.lines.get(&row).and_then(|l| l.get(inner)))
     }
 
     /// The JSON at the cursor, pretty-printed: for copying.
     pub fn selected(&self, result: &impl ResultSet) -> Option<String> {
-        let entries = self.entries(result);
-        let entry = entries.get(self.cursor.min(entries.len().checked_sub(1)?))?;
-        let value = match &entry.value {
-            Some(value) => value.clone(),
-            None => document(result, entry.path[0].parse().ok()?),
+        let last = self.total(result).checked_sub(1)?;
+        let value = match self.entry(self.cursor.min(last)) {
+            (_, Some(entry)) => entry.value.clone(),
+            (row, None) => document(result, row),
         };
         serde_json::to_string_pretty(&value).ok()
     }
 
     /// Moves, opens and closes. Returns false for keys it doesn't use.
     pub fn handle(&mut self, action: Action, result: &impl ResultSet, page: usize) -> bool {
-        let entries = self.entries(result);
-        let Some(last) = entries.len().checked_sub(1) else {
+        let Some(last) = self.total(result).checked_sub(1) else {
             return false;
         };
         self.cursor = self.cursor.min(last);
-        let entry = &entries[self.cursor];
-        let container = |e: &Entry| e.value.as_ref().is_none_or(is_container);
-        let open = self.opened.contains(&entry.path);
+        let (row, entry) = self.entry(self.cursor);
+        let path = entry.map_or(Path::new(), |e| e.path.clone());
+        let container = entry.is_none_or(|e| is_container(&e.value));
+        let open = self.opened.get(&row).is_some_and(|o| o.contains(&path));
         match action {
             Action::Up => self.cursor = self.cursor.saturating_sub(1),
             Action::Down => self.cursor = (self.cursor + 1).min(last),
@@ -256,27 +273,31 @@ impl JsonView {
             Action::PageDown => self.cursor = (self.cursor + page.max(1)).min(last),
             Action::Home => self.cursor = 0,
             Action::End => self.cursor = last,
-            Action::Right if container(entry) && !open => {
-                self.opened.insert(entry.path.clone());
-            }
+            Action::Right if container && !open => self.toggle(result, row, path),
             Action::Right if open => self.cursor = (self.cursor + 1).min(last),
-            Action::Left if open => {
-                self.opened.remove(&entry.path);
-            }
-            Action::Left if entry.path.len() > 1 => {
-                let parent = &entry.path[..entry.path.len() - 1];
-                if let Some(i) = entries.iter().position(|e| e.path == parent) {
-                    self.cursor = i;
+            Action::Left if open => self.toggle(result, row, path),
+            Action::Left if !path.is_empty() => {
+                let parent = &path[..path.len() - 1];
+                if let Some(i) = self.lines[&row].iter().position(|e| e.path == parent) {
+                    self.cursor = self.line_of(row) + i;
                 }
             }
-            Action::Confirm if container(entry) => {
-                if !self.opened.remove(&entry.path) {
-                    self.opened.insert(entry.path.clone());
-                }
-            }
+            Action::Confirm if container => self.toggle(result, row, path),
             _ => return false,
         }
         true
+    }
+
+    /// Opens `path` of `row` when closed, closes it when open.
+    fn toggle(&mut self, result: &impl ResultSet, row: usize, path: Path) {
+        let opened = self.opened.entry(row).or_default();
+        if path.is_empty() && opened.contains(&path) {
+            // Closing a document forgets what was open in it.
+            opened.clear();
+        } else if !opened.remove(&path) {
+            opened.insert(path);
+        }
+        self.relist(result, row);
     }
 
     pub fn render(
@@ -288,9 +309,9 @@ impl JsonView {
         ctx: &RenderCtx,
     ) {
         let theme = ctx.theme;
-        let entries = self.entries(result);
+        let total = self.total(result);
         let height = area.height as usize;
-        let cursor = self.cursor.min(entries.len().saturating_sub(1));
+        let cursor = self.cursor.min(total.saturating_sub(1));
         // Keep the cursor in sight.
         let mut top = self.top.get();
         if cursor < top {
@@ -299,22 +320,20 @@ impl JsonView {
             top = cursor + 1 - height;
         }
         self.top.set(top);
-        // Documents on screen, read once each.
-        let mut docs: HashMap<usize, Value> = HashMap::new();
         let width = area.width as usize;
-        let lines: Vec<Line> = entries
-            .iter()
-            .enumerate()
-            .skip(top)
-            .take(height)
-            .map(|(i, entry)| {
-                let row: usize = entry.path[0].parse().unwrap_or(0);
-                let value = match &entry.value {
-                    Some(value) => value,
-                    None => docs.entry(row).or_insert_with(|| document(result, row)),
+        let lines: Vec<Line> = (top..total.min(top + height))
+            .map(|i| {
+                let (row, entry) = self.entry(i);
+                let closed;
+                let (path, label, value) = match entry {
+                    Some(e) => (&e.path, e.label.as_ref(), &e.value),
+                    None => {
+                        closed = document(result, row);
+                        (&Path::new(), None, &closed)
+                    }
                 };
-                let mut spans = vec![Span::raw("  ".repeat(entry.depth()))];
-                let open = self.opened.contains(&entry.path);
+                let open = self.opened.get(&row).is_some_and(|o| o.contains(path));
+                let mut spans = vec![Span::raw("  ".repeat(path.len()))];
                 spans.push(Span::styled(
                     match (is_container(value), open) {
                         (true, true) => "▾ ",
@@ -323,7 +342,7 @@ impl JsonView {
                     },
                     theme.dim(),
                 ));
-                match &entry.label {
+                match label {
                     None => spans.push(Span::styled(format!("{} ", row + 1), theme.dim())),
                     Some(label) => spans.push(Span::styled(
                         format!("{}: ", key_text(label)),
@@ -335,10 +354,7 @@ impl JsonView {
                 let (text, style) = match value {
                     Value::Object(fields) if open => (format!("{{{}}}", fields.len()), theme.dim()),
                     Value::Array(items) if open => (format!("[{}]", items.len()), theme.dim()),
-                    Value::String(s) => (
-                        Value::String(s.clone()).to_string(),
-                        Style::default().fg(theme.string),
-                    ),
+                    Value::String(_) => (value.to_string(), Style::default().fg(theme.string)),
                     Value::Number(_) => (value.to_string(), Style::default().fg(theme.number)),
                     Value::Bool(_) => (value.to_string(), Style::default().fg(theme.keyword)),
                     Value::Null => ("null".to_string(), Style::default().fg(theme.null)),
@@ -347,18 +363,34 @@ impl JsonView {
                 spans.push(Span::styled(crate::widgets::truncate(&text, room), style));
                 let line = Line::from(spans);
                 if i == cursor {
-                    let selected = if focused {
+                    line.style(if focused {
                         theme.selection()
                     } else {
                         theme.surface()
-                    };
-                    line.style(selected)
+                    })
                 } else {
                     line
                 }
             })
             .collect();
         Paragraph::new(lines).render(area, buf);
+    }
+}
+
+/// The lines under `value` at `path`, and under what of it is `opened`.
+fn walk(value: &Value, path: &Path, opened: &HashSet<Path>, out: &mut Vec<Entry>) {
+    for (label, child) in children(value) {
+        let mut path = path.clone();
+        path.push(label.clone());
+        let open = is_container(child) && opened.contains(&path);
+        out.push(Entry {
+            path: path.clone(),
+            label: Some(label),
+            value: child.clone(),
+        });
+        if open {
+            walk(child, &path, opened, out);
+        }
     }
 }
 
@@ -394,9 +426,13 @@ mod tests {
     }
 
     fn paths(view: &JsonView, result: &ArrowResultSet) -> Vec<String> {
-        view.entries(result)
-            .iter()
-            .map(|e| e.path.join("/"))
+        (0..view.total(result))
+            .map(|i| {
+                let (row, entry) = view.entry(i);
+                let mut parts = vec![row.to_string()];
+                parts.extend(entry.iter().flat_map(|e| e.path.clone()));
+                parts.join("/")
+            })
             .collect()
     }
 
@@ -467,4 +503,97 @@ mod tests {
         view.handle(Action::Right, &result, 10);
         assert_eq!(paths(&view, &result).len(), 5);
     }
+}
+
+/// `cargo test -p dfox --release -- --ignored json_view_time --nocapture`
+#[cfg(test)]
+#[test]
+#[ignore = "timing; run in release"]
+fn json_view_time() {
+    use std::time::{Duration, Instant};
+
+    use dfox_core::{
+        arrow::ArrowResultSet,
+        result::{ColumnMeta, OwnedCell},
+    };
+
+    use crate::testing::TestCtx;
+
+    // 100,000 documents as MongoDB sends them: scalars and nested JSON.
+    let rows = 100_000;
+    let result = ArrowResultSet::from_cells(
+        ["_id", "name", "age", "email", "address", "tags", "orders"]
+            .iter()
+            .map(|c| ColumnMeta::new(*c, "string"))
+            .collect(),
+        (0..rows)
+            .map(|i| {
+                vec![
+                    OwnedCell::Text(format!("6650a1{i:06}").into()),
+                    OwnedCell::Text(format!("user {i}").into()),
+                    OwnedCell::Int(i as i64 % 90),
+                    OwnedCell::Text(format!("user{i}@example.com").into()),
+                    OwnedCell::Json(
+                        format!(
+                            r#"{{"city":"Kyiv","zip":"{i:05}","geo":{{"lat":50.45,"lon":30.52}}}}"#
+                        )
+                        .into(),
+                    ),
+                    OwnedCell::Json(r#"["a","b","c"]"#.into()),
+                    OwnedCell::Json(
+                        r#"[{"sku":"x1","qty":2,"price":9.5},{"sku":"y2","qty":1,"price":20}]"#
+                            .into(),
+                    ),
+                ]
+            })
+            .collect(),
+    );
+    let test = TestCtx::new();
+    let ctx = test.render_ctx();
+    let area = Rect::new(0, 0, 200, 60);
+    let mut buf = Buffer::empty(area);
+    let p99 = |mut times: Vec<Duration>| {
+        times.sort();
+        times[times.len() * 99 / 100]
+    };
+
+    let mut view = JsonView::default();
+    view.handle(Action::End, &result, 60);
+    let render = p99((0..200)
+        .map(|_| {
+            let start = Instant::now();
+            view.render(&mut buf, area, &result, true, &ctx);
+            start.elapsed()
+        })
+        .collect());
+    let keys = p99((0..200)
+        .map(|_| {
+            let start = Instant::now();
+            view.handle(Action::Up, &result, 60);
+            start.elapsed()
+        })
+        .collect());
+    // A hundred documents open, each with its address and orders.
+    for row in 0..100 {
+        for path in [
+            vec![],
+            vec!["address".to_string()],
+            vec!["orders".to_string()],
+        ] {
+            view.toggle(&result, row, path);
+        }
+    }
+    view.handle(Action::Home, &result, 60);
+    let opened = p99((0..200)
+        .map(|_| {
+            let start = Instant::now();
+            view.handle(Action::Down, &result, 60);
+            view.render(&mut buf, area, &result, true, &ctx);
+            start.elapsed()
+        })
+        .collect());
+    println!("json view, {rows} rows: render p99 {render:?}, key p99 {keys:?}, key+render with 100 open p99 {opened:?}");
+    // The grid's budget: a frame in 2 ms.
+    assert!(render < Duration::from_millis(2), "{render:?}");
+    assert!(opened < Duration::from_millis(2), "{opened:?}");
 }
