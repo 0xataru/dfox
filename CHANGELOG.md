@@ -9,6 +9,17 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Redis and Valkey. Connect with `redis://`, `rediss://` (TLS) or `valkey://`, or the
+  connection form. The explorer lists the databases that hold keys, and their keys
+  grouped by `:` into prefixes, each with its type; keys are found with `SCAN`, never
+  `KEYS`. Enter on a key opens it with the command its type needs (`HGETALL`, `LRANGE`,
+  `ZRANGE … WITHSCORES`, …) in a tab named after it. The editor takes `redis-cli`
+  commands, one a line, with colours and command completion; replies show as tables.
+  Read-only connections refuse anything the server doesn't mark read-only, and
+  `FLUSHDB`, `FLUSHALL` and `SHUTDOWN` ask first.
+
+### Added
+
 - The connection manager's status bar shows the version, next to the update
   notice when there is one.
 

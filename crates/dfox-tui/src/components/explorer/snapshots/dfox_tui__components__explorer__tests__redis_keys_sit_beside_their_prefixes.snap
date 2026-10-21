@@ -1,0 +1,14 @@
+---
+source: dfox-tui/src/components/explorer/tests.rs
+expression: "snapshot(&explorer, 10)"
+---
+╭ Explorer ────────────────────────────╮
+│ ▾ ◆ 0 ●                              │
+│   ▾ ◇ user: 2                        │
+│       ▤ 1 hash                       │
+│       ▤ 2 hash                       │
+│     ▤ jobs list                      │
+│   ◆ 3                                │
+│                                      │
+│                                      │
+╰──────────────────────────────────────╯

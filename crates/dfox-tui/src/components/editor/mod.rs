@@ -26,6 +26,7 @@ use crate::{
     component::{Component, Ctx, RenderCtx},
     sql::{self, Dialect, Piece, Pos, Stmt},
 };
+use dfox_core::session::{QueryLanguage, SqlDialect};
 
 /// A query tab, as its label in the editor's title.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,8 +53,8 @@ struct Cache {
 pub struct EditorPanel {
     pub buffer: Buffer,
     dialect: Dialect,
-    /// Holds mongo shell commands rather than SQL.
-    pub shell: bool,
+    /// What it holds: SQL in `dialect`, or a database's own commands.
+    pub language: QueryLanguage,
     pub focused: bool,
     /// First line and first column shown.
     scroll: Cell<(usize, usize)>,
@@ -72,7 +73,7 @@ impl EditorPanel {
         Self {
             buffer: Buffer::default(),
             dialect,
-            shell: false,
+            language: QueryLanguage::Sql(SqlDialect::Generic),
             focused: false,
             scroll: Cell::new((0, 0)),
             cache: RefCell::new(Cache::default()),
@@ -84,26 +85,25 @@ impl EditorPanel {
         }
     }
 
-    /// The editor, for mongo shell commands when `shell`.
-    pub fn with_shell(mut self, shell: bool) -> Self {
-        self.shell = shell;
+    /// The editor, for `language`.
+    pub fn with_language(mut self, language: QueryLanguage) -> Self {
+        self.language = language;
         self
     }
 
     /// What is written here, for the hint in an empty editor.
     pub fn holds(&self) -> &'static str {
-        if self.shell {
-            "commands"
-        } else {
-            "SQL"
+        match self.language {
+            QueryLanguage::MongoShell | QueryLanguage::RedisCmd => "commands",
+            _ => "SQL",
         }
     }
 
     fn statement_at(&self, text: &str, cursor: sql::Pos) -> Option<sql::Stmt> {
-        if self.shell {
-            sql::mongo::statement_at(text, cursor)
-        } else {
-            sql::statement_at(text, cursor, self.dialect)
+        match self.language {
+            QueryLanguage::MongoShell => sql::mongo::statement_at(text, cursor),
+            QueryLanguage::RedisCmd => sql::redis::statement_at(text, cursor),
+            _ => sql::statement_at(text, cursor, self.dialect),
         }
     }
 
@@ -164,14 +164,21 @@ impl EditorPanel {
             Action::Backspace => self.completion.is_some(),
             _ => false,
         };
-        self.completion = if refresh && self.buffer.selection().is_none() && self.shell {
+        let refresh = refresh && self.buffer.selection().is_none();
+        self.completion = if refresh && self.language == QueryLanguage::RedisCmd {
+            complete::suggest_redis(
+                &self.buffer.text(),
+                self.buffer.cursor(),
+                action == Action::Complete,
+            )
+        } else if refresh && self.language == QueryLanguage::MongoShell {
             complete::suggest_shell(
                 &self.buffer.text(),
                 self.buffer.cursor(),
                 catalog,
                 action == Action::Complete,
             )
-        } else if refresh && self.buffer.selection().is_none() {
+        } else if refresh {
             complete::suggest(
                 &self.buffer.text(),
                 self.buffer.cursor(),
@@ -293,9 +300,12 @@ impl EditorPanel {
         let version = self.buffer.version();
         let cursor = self.buffer.cursor();
         if cache.version != Some(version) {
-            if self.shell {
+            if self.language == QueryLanguage::MongoShell {
                 cache.highlight = sql::mongo::highlight(self.buffer.lines());
                 cache.statements = sql::mongo::statements(&self.buffer.text()).len();
+            } else if self.language == QueryLanguage::RedisCmd {
+                cache.highlight = sql::redis::highlight(self.buffer.lines());
+                cache.statements = sql::redis::statements(&self.buffer.text()).len();
             } else {
                 cache.highlight = sql::highlight(self.buffer.lines(), self.dialect);
                 cache.statements = sql::statements(&self.buffer.text(), self.dialect).len();

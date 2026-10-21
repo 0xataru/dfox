@@ -36,7 +36,7 @@ DFox is a Cargo workspace; every crate lives in `crates/`:
   them: highlighting, splitting scripts, autocomplete context and the
   destructive-statement guard.
 - **`dfox`** (`crates/dfox-tui`): the terminal interface, built with `ratatui` and `crossterm`.
-  Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, `mongo`, `cassandra`, all
+  Each driver is a cargo feature (`postgres`, `mysql`, `sqlite`, `mongo`, `cassandra`, `redis`, all
   on by default), so `cargo build -p dfox --no-default-features --features
   sqlite` builds a SQLite-only binary.
 - **`dfox-bench`**: benchmarks of decoding, memory and drawing (`make

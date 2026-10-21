@@ -885,7 +885,7 @@ fn mongo_collections_show_their_rows_with_shell_queries() {
     let mut harness = Harness::new();
     let mut w =
         Workspace::new("local", DbType::Mongo, "shop").with_language(QueryLanguage::MongoShell);
-    assert!(w.editor().shell);
+    assert_eq!(w.editor().language, QueryLanguage::MongoShell);
     w.on_children(
         &NodePath::root(),
         Ok(vec![Node::new(NodeKind::Database, "shop", true)]),
@@ -1028,7 +1028,7 @@ fn cql_filters_allow_filtering() {
     let mut harness = Harness::new();
     let mut w =
         Workspace::new("local", DbType::Cassandra, "shop").with_language(QueryLanguage::Cql);
-    assert!(!w.editor().shell);
+    assert_eq!(w.editor().language, QueryLanguage::Cql);
     w.on_children(
         &NodePath::root(),
         Ok(vec![Node::new(NodeKind::Database, "shop", true)]),
@@ -1176,4 +1176,83 @@ fn clicking_a_tab_name_switches_to_it() {
         &mut harness.ctx(),
     );
     assert_eq!(w.active_tab(), 1);
+}
+
+#[test]
+fn redis_keys_open_with_the_command_for_their_type() {
+    use dfox_core::session::QueryLanguage;
+
+    let mut harness = Harness::new();
+    let mut w = Workspace::new("local", DbType::Redis, "0").with_language(QueryLanguage::RedisCmd);
+    assert_eq!(w.editor().language, QueryLanguage::RedisCmd);
+    w.on_children(
+        &NodePath::root(),
+        Ok(vec![Node::new(NodeKind::Database, "0", true)]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["0"].into_iter().collect(),
+        Ok(vec![
+            Node::new(NodeKind::KeyPrefix, "user:", true).with_detail("2 keys"),
+            Node::new(NodeKind::Key, "jobs", false).with_detail("list"),
+        ]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["0", "user:"].into_iter().collect(),
+        Ok(vec![
+            Node::new(NodeKind::Key, "big one", false).with_detail("hash")
+        ]),
+        &mut harness.ctx(),
+    );
+    harness.sent();
+    w.set_focus(Panel::Explorer);
+
+    // Picks `keys` in the selected key's menu and returns what it ran.
+    let mut pick = |w: &mut Workspace, keys: &str| {
+        w.handle(Action::Confirm, &mut harness.ctx());
+        for c in keys.chars() {
+            w.handle(Action::Input(c), &mut harness.ctx());
+        }
+        let (id, sql) = match harness.sent().as_slice() {
+            [.., DbCommand::Run { id, sql, .. }] => (*id, sql.clone()),
+            other => panic!("expected a command, got {other:?}"),
+        };
+        w.on_query_event(
+            EngineEvent::QueryDone {
+                id,
+                outcome: Ok(QueryStats::default()),
+            },
+            &mut harness.ctx(),
+        );
+        w.set_focus(Panel::Explorer);
+        sql
+    };
+    w.explorer
+        .select(&["d/0", "n/user:", "o/big one"].map(String::from));
+    assert_eq!(pick(&mut w, "f"), "HGETALL \"user:big one\"");
+    assert_eq!(w.tab().title.as_deref(), Some("user:big one"));
+    w.explorer.select(&["d/0", "o/jobs"].map(String::from));
+    assert_eq!(pick(&mut w, "f"), "LRANGE jobs 0 99");
+    assert_eq!(pick(&mut w, "a"), "LRANGE jobs 0 -1");
+
+    // Deleting asks first.
+    w.handle(Action::Confirm, &mut harness.ctx());
+    let asked = w.handle(Action::Input('d'), &mut harness.ctx());
+    assert!(
+        matches!(&asked, Some(Command::ConfirmRun { sql, .. }) if sql == "DEL jobs"),
+        "{asked:?}"
+    );
+
+    // Names go into the editor quoted, and FLUSHDB asks first too.
+    w.explorer
+        .select(&["d/0", "n/user:", "o/big one"].map(String::from));
+    w.handle(Action::Inspect, &mut harness.ctx());
+    assert!(w.editor().text().starts_with("\"user:big one\""));
+    w.editor_mut().open("FLUSHDB");
+    w.set_focus(Panel::Editor);
+    assert!(matches!(
+        w.handle(Action::Execute, &mut harness.ctx()),
+        Some(Command::ConfirmRun { .. })
+    ));
 }

@@ -157,7 +157,7 @@ impl Workspace {
             Some(dialect) => self.with_dialect(dialect),
             None => {
                 for tab in &mut self.tabs {
-                    tab.editor.shell = language == QueryLanguage::MongoShell;
+                    tab.editor.language = language;
                 }
                 self
             }
@@ -294,7 +294,7 @@ impl Workspace {
     fn new_tab(&mut self) {
         self.next_tab += 1;
         self.tabs.push(Tab {
-            editor: EditorPanel::new(self.dialect).with_shell(!self.speaks_sql()),
+            editor: EditorPanel::new(self.dialect).with_language(self.language),
             results: ResultsPanel::new(self.dialect),
             number: self.next_tab,
             source: None,
@@ -338,9 +338,9 @@ impl Workspace {
         let findings = match self.language {
             QueryLanguage::Sql(_) | QueryLanguage::Cql => guard::check(&sql, self.dialect),
             QueryLanguage::MongoShell => sql::mongo::check(&sql),
-            // Other languages' drivers refuse writes on read-only
-            // connections themselves.
-            _ => guard::Findings::default(),
+            // Only flags what wipes a database: the driver itself refuses
+            // writes on a read-only connection.
+            QueryLanguage::RedisCmd => sql::redis::check(&sql),
         };
         if self.read_only && findings.writes {
             ctx.toast(
@@ -567,7 +567,12 @@ impl Workspace {
                 self.editor_mut().open(&sql);
             }
             None => {
-                let title = table.name().unwrap_or_default().to_string();
+                // A Redis key is named by every part after its database.
+                let title = if self.language == QueryLanguage::RedisCmd {
+                    table.parts()[1..].concat()
+                } else {
+                    table.name().unwrap_or_default().to_string()
+                };
                 self.open_text(title, None, &sql);
                 self.tab_mut().rows_of = Some(table);
             }
@@ -599,6 +604,28 @@ impl Workspace {
             return None;
         }
         let quoted = self.quote(&name);
+        if self.language == QueryLanguage::RedisCmd {
+            let key = table.parts()[1..].concat();
+            match choice {
+                Choice::FirstRows | Choice::AllRows => {
+                    let first = (choice == Choice::FirstRows).then_some(FEW_ROWS as usize);
+                    let key_type = self.explorer.detail(&table).unwrap_or_default();
+                    let command = sql::redis::open_command(key_type, &key, first);
+                    return self.show_rows(table, command, ctx);
+                }
+                Choice::Drop { .. } => {
+                    let command = format!("DEL {quoted}");
+                    if !ctx.config.confirm_destructive {
+                        return self.run(Some(command), ctx);
+                    }
+                    return Some(Command::ConfirmRun {
+                        reasons: vec![format!("{command} deletes the key")],
+                        sql: command,
+                    });
+                }
+                _ => {}
+            }
+        }
         match choice {
             Choice::FirstRows => {
                 let query = self.rows_query(&name, Rows::First);
@@ -775,6 +802,9 @@ impl Workspace {
     /// A name in parts, quoted for the dialect; as it is where no SQL is
     /// spoken.
     fn quote(&self, name: &[String]) -> String {
+        if self.language == QueryLanguage::RedisCmd {
+            return sql::redis::quote(&name.concat());
+        }
         if !self.speaks_sql() {
             return name.join(".");
         }

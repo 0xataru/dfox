@@ -28,6 +28,7 @@ pub fn language(driver: DbType) -> QueryLanguage {
         DbType::Sqlite => QueryLanguage::Sql(SqlDialect::Sqlite),
         DbType::Mongo => QueryLanguage::MongoShell,
         DbType::Cassandra => QueryLanguage::Cql,
+        DbType::Redis => QueryLanguage::RedisCmd,
     }
 }
 
@@ -38,7 +39,7 @@ pub fn dialect(driver: DbType) -> Dialect {
         DbType::MySql => Dialect::MySql,
         DbType::Sqlite => Dialect::Sqlite,
         DbType::Cassandra => Dialect::Cql,
-        // Speaks no SQL; the session says so once connected.
-        DbType::Mongo => Dialect::Postgres,
+        // Speak no SQL; the session says so once connected.
+        DbType::Mongo | DbType::Redis => Dialect::Postgres,
     }
 }

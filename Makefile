@@ -42,6 +42,7 @@ test-it: ## Run the test suite against real Postgres, MySQL, MongoDB, ScyllaDB a
 	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:53306/dfox \
 	DFOX_TEST_MONGO_URL=mongodb://root:dfox@127.0.0.1:57017 \
 	DFOX_TEST_CASSANDRA_URL=cassandra://cassandra:cassandra@127.0.0.1:59042 \
+	DFOX_TEST_REDIS_URL=redis://:dfox@127.0.0.1:56379 \
 	cargo test --workspace --locked
 
 test-it-down: ## Stop the integration-test databases

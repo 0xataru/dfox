@@ -548,6 +548,11 @@ impl Explorer {
         self.entry(path)?.info.loaded()
     }
 
+    /// The note beside the node at `path`: a Redis key's type.
+    pub fn detail(&self, path: &NodePath) -> Option<&str> {
+        self.entry(path)?.node.detail.as_deref()
+    }
+
     /// Selects the object at `path` and opens the nodes leading to it,
     /// loading them first when they aren't.
     pub fn reveal(&mut self, path: &NodePath, ctx: &mut Ctx) {
@@ -697,6 +702,8 @@ impl Explorer {
         }
         let (path, entry) = self.resolve(&ids)?;
         Some(match entry.node.kind {
+            // A Redis key: the parts after the database, joined.
+            NodeKind::Key => vec![path.parts()[1..].concat()],
             kind if is_object(kind) => self.sql_name(&path),
             _ => vec![entry.node.name.clone()],
         })

@@ -165,6 +165,33 @@ pub fn suggest_shell(
     offer(start, candidates, &prefix, forced)
 }
 
+/// Suggestions for Redis commands: the command name, as the first word of
+/// a line, in the case it is typed in.
+pub fn suggest_redis(text: &str, cursor: Pos, forced: bool) -> Option<Completion> {
+    let (start, prefix) = sql::redis::command_at(text, cursor)?;
+    if !forced && prefix.is_empty() {
+        return None;
+    }
+    let lower = !prefix.is_empty() && prefix.chars().all(|c| !c.is_ascii_uppercase());
+    let candidates = sql::redis::COMMANDS
+        .iter()
+        .map(|command| {
+            let insert = if lower {
+                command.to_lowercase()
+            } else {
+                (*command).to_string()
+            };
+            Item {
+                label: insert.clone(),
+                insert,
+                kind: ItemKind::Method,
+                detail: "command".to_string(),
+            }
+        })
+        .collect();
+    offer(start, candidates, &prefix, forced)
+}
+
 /// A field name as an object key: bare when it can be, quoted otherwise.
 fn mongo_key(name: &str) -> String {
     let plain = name

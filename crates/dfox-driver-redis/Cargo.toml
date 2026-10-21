@@ -1,0 +1,24 @@
+[package]
+name = "dfox-driver-redis"
+description = "Redis and Valkey driver for dfox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dfox-core = { path = "../dfox-core" }
+dfox-sql = { path = "../dfox-sql" }
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+log = "0.4.21"
+tokio = { version = "1.40.0", features = ["full"] }
+redis = { version = "1.7.1", default-features = false, features = ["tokio-rustls-comp", "tls-rustls-insecure", "tls-rustls-webpki-roots"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+arrow-array = "60.0.0"
+arrow-schema = "60.0.0"
+
+[dev-dependencies]
+dfox-testkit = { path = "../dfox-testkit" }
+
+[lints]
+workspace = true

@@ -32,6 +32,7 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
         "mysql" | "mariadb" => DbType::MySql,
         "mongodb" => DbType::Mongo,
         "cassandra" | "scylla" | "scylladb" => DbType::Cassandra,
+        "redis" | "rediss" | "valkey" | "valkeys" => DbType::Redis,
         "mongodb+srv" => {
             return Err(
                 "mongodb+srv addresses aren't supported yet: use mongodb://host:port".into(),
@@ -48,6 +49,10 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
         user: decode(url.username()),
         ..Connection::new(name, driver)
     };
+    // `rediss://` and `valkeys://` are Redis over TLS.
+    if matches!(url.scheme(), "rediss" | "valkeys") {
+        connection.tls = TlsMode::VerifyFull;
+    }
     for (key, value) in url.query_pairs() {
         if matches!(key.as_ref(), "sslmode" | "ssl-mode" | "ssl_mode") {
             connection.tls = match value.to_lowercase().as_str() {
@@ -97,6 +102,25 @@ mod tests {
     }
 
     #[test]
+    fn redis_urls() {
+        let (c, password) = parse("env", "redis://:secret@cache.local:6380/2").expect("parse");
+        assert_eq!(c.driver, DbType::Redis);
+        assert_eq!(c.address(), "cache.local:6380/2");
+        assert_eq!(c.tls, TlsMode::Prefer);
+        assert_eq!(password.as_deref(), Some("secret"));
+        let (c, _) = parse("env", "rediss://default@redis.example.com").expect("parse");
+        assert_eq!(c.tls, TlsMode::VerifyFull);
+        assert_eq!(
+            (c.target().port, c.target().database.as_deref()),
+            (6379, Some("0"))
+        );
+        assert_eq!(
+            parse("env", "valkey://localhost").expect("parse").0.driver,
+            DbType::Redis
+        );
+    }
+
+    #[test]
     fn mongodb_urls() {
         let (c, password) =
             parse("env", "mongodb://root:dfox@127.0.0.1:57017/shop?tls=true").expect("parse");
@@ -143,7 +167,7 @@ mod tests {
 
     #[test]
     fn other_text_is_explained() {
-        assert!(parse("x", "redis://localhost")
+        assert!(parse("x", "oracle://localhost")
             .unwrap_err()
             .contains("unsupported"));
         assert!(parse("x", "hello")
