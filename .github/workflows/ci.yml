@@ -170,7 +170,8 @@ jobs:
       - name: benchmark main
         run: |
           git checkout --quiet "${{ github.event.pull_request.base.sha }}"
-          if [ -d crates/dfox-bench ]; then
+          # Before and after the crates were grouped into folders.
+          if [ -d crates/dfox-bench ] || [ -d crates/dev/dfox-bench ]; then
             cargo bench --locked -p dfox-bench --benches -- --save-baseline main
           else
             echo "main has no benchmarks yet"

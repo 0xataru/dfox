@@ -7,16 +7,16 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dfox-core = { path = "../dfox-core" }
+dfox-core = { path = "../../core/dfox-core" }
 futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
 log = "0.4.21"
 russh = { version = "0.64.1", default-features = false, features = ["ring", "rsa", "flate2"] }
 tokio = { version = "1.40.0", features = ["full"] }
 
 [dev-dependencies]
-dfox-driver-mysql = { path = "../dfox-driver-mysql" }
-dfox-driver-postgres = { path = "../dfox-driver-postgres" }
-dfox-testkit = { path = "../dfox-testkit" }
+dfox-driver-mysql = { path = "../../drivers/dfox-driver-mysql" }
+dfox-driver-postgres = { path = "../../drivers/dfox-driver-postgres" }
+dfox-testkit = { path = "../../dev/dfox-testkit" }
 
 [lints]
 workspace = true
