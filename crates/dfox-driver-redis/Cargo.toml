@@ -16,6 +16,7 @@ redis = { version = "1.7.1", default-features = false, features = ["tokio-rustls
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 arrow-array = "60.0.0"
 arrow-schema = "60.0.0"
+serde_json = "1"
 
 [dev-dependencies]
 dfox-testkit = { path = "../dfox-testkit" }

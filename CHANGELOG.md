@@ -22,9 +22,15 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   and Redis strings of JSON show as JSON; **Ctrl+C** copies the JSON at the cursor.
 - The connection manager's status bar shows the version, next to the update
   notice when there is one.
+- Each database has its colour, and with `icons = "nerd"` its logo, in the connection
+  list, the status bar and the explorer.
+- A Redis key opened from the explorer shows its type, size and expiry beside the
+  results' title, and a string that holds JSON opens in the JSON view.
 
 ### Changed
 
+- Redis replies nested in lists or maps come as JSON, which the JSON view and the
+  inspector open: a stream entry's fields read `{"temp": "20"}`, not `[temp, 20]`.
 - JSON keeps its fields in their order in the record inspector, instead of sorting them.
 
 ### Fixed

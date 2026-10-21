@@ -4,7 +4,7 @@ expression: "test.snapshot(120, 32)"
 ---
 ╭ Connections 1╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮──────────────╮
 │ Saved        │                                                                                        │              │
-│ ▌⠷ prod pg   │ Ctrl+P            Command palette          Ctrl+S            Save                      │              │
+│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          Ctrl+S            Save                      │              │
 │              │ F5 Ctrl+E         Run statement/selection  F1                Connection list           │              │
 │              │ Shift+F5          Run the whole script     Ctrl+T            Next theme                │              │
 │              │ Ctrl+Space        Suggest names            F12               Event log                 │              │

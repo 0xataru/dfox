@@ -14,6 +14,7 @@ use dfox_core::{
     catalog::{EntityInfo, Node, NodeKind, NodePath},
     engine::Command as DbCommand,
     errors::DbError,
+    models::connections::DbType,
 };
 use nucleo_matcher::Matcher;
 use tui_tree_widget::TreeState;
@@ -236,6 +237,8 @@ pub struct Explorer {
     root: Load<Vec<Entry>>,
     /// The database the session is connected to.
     pub active: String,
+    /// What kind of database, for its icon and colour.
+    pub driver: Option<DbType>,
     state: RefCell<TreeState<String>>,
     /// The filter text while filtering; `None` shows the tree.
     filter: Option<String>,
@@ -265,6 +268,7 @@ impl Explorer {
         Self {
             root: Load::NotLoaded,
             active: active.to_string(),
+            driver: None,
             state: RefCell::new(TreeState::default()),
             filter: None,
             matches: Vec::new(),

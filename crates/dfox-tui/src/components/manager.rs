@@ -263,7 +263,14 @@ impl Manager {
                     " {}",
                     truncate(&connection.name, width.saturating_sub(14))
                 )),
-                Span::styled(format!(" {}", driver_short(connection.driver)), theme.dim()),
+                Span::styled(
+                    format!(
+                        " {} {}",
+                        ctx.icons.engine(connection.driver),
+                        driver_short(connection.driver)
+                    ),
+                    theme.engine(connection.driver),
+                ),
             ];
             if connection.read_only {
                 spans.push(Span::styled(" ro", theme.warning()));

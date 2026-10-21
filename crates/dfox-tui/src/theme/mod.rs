@@ -6,7 +6,7 @@ mod palettes;
 
 use std::path::Path;
 
-use dfox_core::result::Cell;
+use dfox_core::{models::connections::DbType, result::Cell};
 
 use crate::sql::Kind;
 use ratatui::style::{Color, Modifier, Style};
@@ -229,6 +229,19 @@ impl Theme {
 
     pub fn danger(&self) -> Style {
         Style::default().fg(self.danger)
+    }
+
+    /// A database's colour, from the theme so every theme keeps its look.
+    pub fn engine(&self, driver: DbType) -> Style {
+        let color = match driver {
+            DbType::Postgres => self.accent,
+            DbType::MySql => self.warning,
+            DbType::Sqlite => self.accent_alt,
+            DbType::Mongo => self.success,
+            DbType::Cassandra => self.keyword,
+            DbType::Redis => self.danger,
+        };
+        Style::default().fg(color)
     }
 
     /// A result value, coloured by its kind.

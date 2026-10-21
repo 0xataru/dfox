@@ -86,6 +86,12 @@ pub struct ResultsPanel {
     inspector_area: Cell<Rect>,
     /// Rows show as JSON documents rather than in the grid.
     json: Option<json::JsonView>,
+    /// What the rows are, beside the title: a Redis key's type, size and
+    /// expiry.
+    pub note: Option<String>,
+    /// Switch to the JSON view when the result is one JSON value, as a
+    /// Redis string of JSON is.
+    pub json_if_json: bool,
     /// Lines the JSON view showed, for paging.
     json_height: Cell<usize>,
 }
@@ -107,6 +113,8 @@ impl ResultsPanel {
             inspect_scroll: Cell::new(0),
             inspector_area: Cell::new(Rect::default()),
             json: None,
+            note: None,
+            json_if_json: false,
             json_height: Cell::new(0),
         }
     }
@@ -145,6 +153,8 @@ impl ResultsPanel {
         });
         self.sql.clear();
         self.table = None;
+        self.note = None;
+        self.json_if_json = false;
         self.show(empty());
     }
 
@@ -216,6 +226,9 @@ impl ResultsPanel {
         };
         match outcome {
             Ok(stats) => {
+                if self.json_if_json && self.json.is_none() && json::holds_json(&self.store) {
+                    self.json = Some(json::JsonView::default());
+                }
                 let has_columns = !self.store.columns().is_empty();
                 self.message = Some(query_message(&stats, has_columns));
                 finished.ok = true;
@@ -254,6 +267,11 @@ impl ResultsPanel {
         let columns = vec![ColumnMeta::new("#", ""), ColumnMeta::new("Event", "")];
         self.show(ArrowResultSet::from_cells(columns, rows));
         self.message = Some(format!("Event log ({} entries)", entries.len()));
+    }
+
+    /// True when the rows show as JSON documents.
+    pub fn shows_json(&self) -> bool {
+        self.json.is_some()
     }
 
     /// True while the copy-as menu has the keys.
@@ -433,6 +451,9 @@ impl Component for ResultsPanel {
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
         let mut title = vec![Span::raw("Results")];
+        if let Some(note) = &self.note {
+            title.push(Span::styled(format!(" · {note}"), theme.dim()));
+        }
         if let Some(elapsed) = self.elapsed(ctx.now) {
             title.push(Span::raw(" "));
             title.push(spinner(ctx, theme.key()));

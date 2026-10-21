@@ -179,7 +179,7 @@ theme = "dfox"        # dfox, tokyo-night, catppuccin-mocha, catppuccin-latte,
                       # gruvbox, nord, high-contrast, or a file in themes/
 keymap = "standard"   # or "vim": hjkl, g/G, Ctrl+D/Ctrl+U outside text fields
 animations = true     # false: no splash, transitions or spinners (or --reduced-motion, NO_COLOR)
-icons = "auto"        # "nerd" for Nerd Font glyphs, "ascii" for plain text
+icons = "auto"        # "nerd": Nerd Font glyphs, a logo per database; "ascii": plain text
 mouse = true          # false leaves the mouse to the terminal
 confirm_destructive = true  # false runs DELETE without WHERE, DROP, … without asking
 row_limit = 100000    # rows kept from a query; the rest are read and dropped

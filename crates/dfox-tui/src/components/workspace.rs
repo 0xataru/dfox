@@ -144,6 +144,7 @@ impl Workspace {
             properties: None,
             pending: None,
         };
+        workspace.explorer.driver = Some(driver);
         workspace.new_tab();
         workspace.set_focus(Panel::Editor);
         workspace
@@ -609,9 +610,17 @@ impl Workspace {
             match choice {
                 Choice::FirstRows | Choice::AllRows => {
                     let first = (choice == Choice::FirstRows).then_some(FEW_ROWS as usize);
-                    let key_type = self.explorer.detail(&table).unwrap_or_default();
-                    let command = sql::redis::open_command(key_type, &key, first);
-                    return self.show_rows(table, command, ctx);
+                    let key_type = self.explorer.detail(&table).unwrap_or_default().to_string();
+                    let note = info.and_then(|info| info.comment);
+                    let command = sql::redis::open_command(&key_type, &key, first);
+                    let shown = self.show_rows(table.clone(), command, ctx);
+                    // Unless busy, the key's tab is the active one now.
+                    if self.tab().rows_of.as_ref() == Some(&table) {
+                        let results = &mut self.tab_mut().results;
+                        results.note = note;
+                        results.json_if_json = matches!(key_type.as_str(), "string" | "ReJSON-RL");
+                    }
+                    return shown;
                 }
                 Choice::Drop { .. } => {
                     let command = format!("DEL {quoted}");

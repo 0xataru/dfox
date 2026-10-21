@@ -4,7 +4,7 @@ expression: "test.snapshot(80, 10)"
 ---
 ╭ Connections 1 ───────────────╮╭ prod ▌red ───────────────────────────────────╮
 │ Saved                        ││ Driver    PostgreSQL                         │
-│ ▌⠷ prod pg                   ││ Host      db.example.com:5432                │
+│ ▌⠷ prod ◆ pg                 ││ Host      db.example.com:5432                │
 │                              ││ Database  shop                               │
 │                              ││ User      app                                │
 │                              ││ TLS       prefer                             │

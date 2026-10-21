@@ -95,7 +95,7 @@ async fn replies_come_back_as_tables() {
         .await
         .expect("xrange");
     assert_eq!(events.columns, ["id", "fields"]);
-    assert_eq!(rows(&events), [[Some("1-1"), Some("[temp, 20]")]]);
+    assert_eq!(rows(&events), [[Some("1-1"), Some(r#"{"temp":"20"}"#)]]);
 
     let n = run(s.as_mut(), &format!("INCR {p}:n"), 100)
         .await
