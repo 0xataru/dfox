@@ -547,3 +547,110 @@ async fn ping_needs_no_connection() {
         }
     ));
 }
+
+/// Edits as the grid sends them, to `table` made by `create`: values as
+/// text, keys as the result holds them, all applied in one go.
+async fn grid_edits(engine: &mut Driver, table: NodePath, create: &str) {
+    use dfox_core::{
+        result::OwnedCell,
+        session::{Change, ChangeSet},
+    };
+
+    engine.query(create, 0).await.outcome.expect("create");
+    let name = table.name().unwrap_or_default().to_string();
+    engine.engine.send(Command::Apply {
+        changes: ChangeSet {
+            table: table.clone(),
+            key: vec!["id".into()],
+            columns: Vec::new(),
+            changes: vec![
+                Change::Update {
+                    key: vec![OwnedCell::Int(1)],
+                    set: vec![
+                        ("name".into(), OwnedCell::Text("Ada".into())),
+                        ("age".into(), OwnedCell::Text("37".into())),
+                    ],
+                },
+                Change::Update {
+                    key: vec![OwnedCell::Int(2)],
+                    set: vec![("name".into(), OwnedCell::Null)],
+                },
+                Change::Delete(vec![OwnedCell::Int(3)]),
+            ],
+        },
+    });
+    match engine.next().await {
+        EngineEvent::Applied { path, result } => {
+            assert_eq!(path, table);
+            let report = result.expect("apply");
+            assert_eq!((report.updated, report.deleted), (2, 1));
+        }
+        other => panic!("expected Applied, got {other:?}"),
+    }
+    let rows = engine
+        .query(&format!("SELECT id, name, age FROM {name} ORDER BY id"), 10)
+        .await;
+    assert_eq!(
+        rows.rows,
+        [
+            [
+                Some("1".to_string()),
+                Some("Ada".to_string()),
+                Some("37".to_string())
+            ],
+            [Some("2".to_string()), None, Some("2".to_string())],
+        ]
+    );
+}
+
+const PEOPLE: &str = "(id INTEGER PRIMARY KEY, name TEXT, age INTEGER)";
+const ROWS: &str = "(1, 'ada', 1), (2, 'grace', 2), (3, 'edsger', 3)";
+
+#[tokio::test]
+async fn sqlite_grid_edits_are_written_in_one_go() {
+    let db = TempDb::new();
+    let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;
+    let create = format!("CREATE TABLE people {PEOPLE}; INSERT INTO people VALUES {ROWS}");
+    let table = NodePath::root().child("main").child("people");
+    grid_edits(&mut engine, table, &create).await;
+}
+
+#[tokio::test]
+async fn postgres_grid_edits_are_written_in_one_go() {
+    let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
+        return;
+    };
+    let params = params_from_url(&url);
+    let database = params.database.clone().unwrap_or_default();
+    let mut engine = Driver::connect(DbType::Postgres, params).await;
+    let name = unique("edits");
+    let create = format!("CREATE TABLE {name} {PEOPLE}; INSERT INTO {name} VALUES {ROWS}");
+    let table: NodePath = [database.as_str(), "public", name.as_str()]
+        .into_iter()
+        .collect();
+    grid_edits(&mut engine, table, &create).await;
+    engine
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+}
+
+#[tokio::test]
+async fn mysql_grid_edits_are_written_in_one_go() {
+    let Some(url) = server_url("DFOX_TEST_MYSQL_URL") else {
+        return;
+    };
+    let params = params_from_url(&url);
+    let database = params.database.clone().unwrap_or_default();
+    let mut engine = Driver::connect(DbType::MySql, params).await;
+    let name = unique("edits");
+    let create = format!("CREATE TABLE {name} {PEOPLE}; INSERT INTO {name} VALUES {ROWS}");
+    let table: NodePath = [database.as_str(), name.as_str()].into_iter().collect();
+    grid_edits(&mut engine, table, &create).await;
+    engine
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+}

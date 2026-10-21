@@ -32,7 +32,9 @@ use crate::{
         connections::{ConnectionParams, DbType},
         schema::TableColumn,
     },
-    session::{CancelHandle, Capabilities, QueryLanguage, Request, Session},
+    session::{
+        ApplyReport, CancelHandle, Capabilities, ChangeSet, QueryLanguage, Request, Session,
+    },
 };
 
 /// Chosen by the caller to tell its queries' events apart.
@@ -115,6 +117,10 @@ pub enum Command {
     Count {
         path: NodePath,
     },
+    /// Writes edits made in the grid to their table. See [`Session::apply`].
+    Apply {
+        changes: ChangeSet,
+    },
     Cancel {
         id: QueryId,
     },
@@ -156,6 +162,11 @@ pub enum EngineEvent {
     Counted {
         path: NodePath,
         result: Result<u64, DbError>,
+    },
+    /// The edits of the table at `path` were written, or not.
+    Applied {
+        path: NodePath,
+        result: Result<ApplyReport, DbError>,
     },
     Pong {
         id: u64,
@@ -384,8 +395,22 @@ impl Engine {
                 |path, result| EngineEvent::Counted { path, result },
                 |catalog, path| catalog.count_rows(path),
             ),
+            Command::Apply { changes } => self.apply(changes),
             Command::Cancel { id } => self.cancel(id),
         }
+    }
+
+    fn apply(&self, changes: ChangeSet) {
+        let session = self.live.as_ref().map(|live| live.session.clone());
+        let events = self.events.clone();
+        tokio::spawn(async move {
+            let path = changes.table.clone();
+            let result = match session {
+                Some(session) => session.lock().await.apply(changes).await,
+                None => Err(Self::not_connected()),
+            };
+            let _ = events.send(EngineEvent::Applied { path, result }).await;
+        });
     }
 
     fn connect(&mut self, db_type: DbType, params: ConnectionParams) {

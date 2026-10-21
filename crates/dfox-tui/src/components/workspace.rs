@@ -11,7 +11,7 @@ use dfox_core::{
     engine::{Command as DbCommand, EngineEvent, QueryId},
     errors::DbError,
     models::connections::DbType,
-    session::QueryLanguage,
+    session::{ApplyReport, Capabilities, QueryLanguage},
 };
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
@@ -105,6 +105,8 @@ pub struct Workspace {
     history_failed: bool,
     /// The connection is read-only: scripts that write aren't sent.
     read_only: bool,
+    /// The session can write edits made in the grid.
+    can_edit: bool,
     /// Tables and columns, for autocomplete.
     pub catalog: Catalog,
     /// Where the explorer, editor and results were drawn, for the mouse.
@@ -136,6 +138,7 @@ impl Workspace {
             next_tab: 0,
             history_failed: false,
             read_only: false,
+            can_edit: false,
             catalog: Catalog::default(),
             areas: Cell::new([Rect::default(); 3]),
             tab_spots: RefCell::new(Vec::new()),
@@ -152,6 +155,12 @@ impl Workspace {
 
     /// The language the session reported. SQL starts the first tab over in
     /// its dialect.
+    /// What the session can do: whether rows can be edited in the grid.
+    pub fn with_caps(mut self, caps: Capabilities) -> Self {
+        self.can_edit = caps.contains(Capabilities::EDIT_BY_PK);
+        self
+    }
+
     pub fn with_language(mut self, language: QueryLanguage) -> Self {
         self.language = language;
         match sql::session_dialect(language) {
@@ -336,6 +345,15 @@ impl Workspace {
             ctx.toast(Level::Info, "Nothing to run");
             return None;
         };
+        // New rows would replace the edited ones.
+        let pending = self.results().pending();
+        if pending > 0 {
+            ctx.toast(
+                Level::Warning,
+                format!("Save or undo the {pending} change(s) to these rows first"),
+            );
+            return None;
+        }
         let findings = match self.language {
             QueryLanguage::Sql(_) | QueryLanguage::Cql => guard::check(&sql, self.dialect),
             QueryLanguage::MongoShell => sql::mongo::check(&sql),
@@ -786,6 +804,98 @@ impl Workspace {
     }
 
     /// A table's rows were counted.
+    /// Edits of the table at `path` were saved, or not.
+    pub fn on_applied(
+        &mut self,
+        path: &NodePath,
+        result: Result<ApplyReport, DbError>,
+        ctx: &mut Ctx,
+    ) {
+        let Some(i) = self.tabs.iter().position(|t| {
+            t.results
+                .edits
+                .as_ref()
+                .is_some_and(|e| e.saving && e.table == *path)
+        }) else {
+            return;
+        };
+        let name = path.name().unwrap_or_default();
+        match result {
+            Ok(report) => {
+                let mut done = Vec::new();
+                for (n, what) in [(report.updated, "updated"), (report.deleted, "deleted")] {
+                    if n > 0 {
+                        done.push(format!("{n} {what}"));
+                    }
+                }
+                let done = if done.is_empty() {
+                    "no rows matched".to_string()
+                } else {
+                    done.join(", ")
+                };
+                ctx.toast(Level::Success, format!("Saved {name}: {done}"));
+                self.tabs[i].results.edits = None;
+                // Show the rows as they are now.
+                if i == self.active {
+                    let sql = self.tabs[i].results.query().to_string();
+                    if !sql.is_empty() {
+                        self.run_checked(sql, ctx);
+                    }
+                }
+            }
+            Err(err) => {
+                if let Some(edits) = &mut self.tabs[i].results.edits {
+                    edits.saving = false;
+                }
+                ctx.toast(Level::Error, format!("Couldn't save {name}: {err}"));
+            }
+        }
+    }
+
+    /// Keys that edit rows, with the results focused: the rows become
+    /// editable first, when they are a table's rows with its key.
+    fn edit_rows(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if self.results().edits.is_none() && action != Action::Undo {
+            if let Err(why) = self.editable() {
+                ctx.toast(Level::Warning, why);
+                return None;
+            }
+        }
+        self.delegate(action, ctx)
+    }
+
+    /// Makes the current rows editable, or says why they can't be.
+    fn editable(&mut self) -> Result<(), String> {
+        if !self.can_edit {
+            return Err("Rows of this database can't be edited here yet".into());
+        }
+        if self.read_only {
+            return Err("This connection is read-only".into());
+        }
+        let Some(table) = self.tab().rows_of.clone() else {
+            return Err(
+                "Only a table's rows can be edited: open them from the table's menu".into(),
+            );
+        };
+        let name = table.name().unwrap_or_default().to_string();
+        let Some(info) = self.explorer.described(&table) else {
+            return Err(format!("{name}'s columns are still loading"));
+        };
+        let key: Vec<String> = info
+            .columns
+            .iter()
+            .filter(|c| c.primary_key)
+            .map(|c| c.name.clone())
+            .collect();
+        if key.is_empty() {
+            return Err(format!("{name} has no primary key to find its rows by"));
+        }
+        self.tab_mut()
+            .results
+            .start_editing(table, &key)
+            .map_err(|why| format!("Can't edit these rows: {why}"))
+    }
+
     pub fn on_counted(&mut self, path: &NodePath, result: Result<u64, DbError>, ctx: &mut Ctx) {
         let name = path.name().unwrap_or_default();
         match result {
@@ -1112,6 +1222,11 @@ impl Component for Workspace {
             Action::Complete if self.focus.is(Panel::Editor) => {
                 let tab = &mut self.tabs[self.active];
                 tab.editor.complete(&self.catalog, action);
+            }
+            Action::Edit | Action::Delete | Action::Save | Action::Undo
+                if self.focus.is(Panel::Results) && !self.results().is_modal() =>
+            {
+                return self.edit_rows(action, ctx);
             }
             Action::Inspect | Action::Confirm if self.focus.is(Panel::Results) => {
                 return self.delegate(action, ctx);

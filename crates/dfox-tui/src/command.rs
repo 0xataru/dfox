@@ -7,6 +7,8 @@ use crate::{components::manager::EntryKey, connections::Connection};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     Quit,
+    /// Writes the grid's edits to their table.
+    ApplyChanges(dfox_core::session::ChangeSet),
     /// Asks before quitting.
     ConfirmQuit,
     Connect(EntryKey),

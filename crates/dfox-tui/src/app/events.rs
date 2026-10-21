@@ -65,6 +65,11 @@ impl App {
                     w.on_counted(&path, result, ctx);
                 }
             }),
+            EngineEvent::Applied { path, result } => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.on_applied(&path, result, ctx);
+                }
+            }),
             event @ (EngineEvent::Schema { .. }
             | EngineEvent::Batch { .. }
             | EngineEvent::Notice { .. }
@@ -109,7 +114,8 @@ impl App {
         } else {
             let mut workspace = Workspace::new(&name, driver, &database)
                 .with_read_only(read_only)
-                .with_language(info.language);
+                .with_language(info.language)
+                .with_caps(info.caps);
             self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
             self.workspace = Some(workspace);
         }

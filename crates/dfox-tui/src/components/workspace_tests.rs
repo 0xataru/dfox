@@ -1321,3 +1321,110 @@ fn a_redis_string_of_json_opens_as_json_with_its_details() {
     );
     assert!(w.results().shows_json(), "a JSON string opens as JSON");
 }
+
+#[test]
+fn a_tables_rows_are_edited_and_saved() {
+    use dfox_core::{
+        result::{ColumnMeta, OwnedCell},
+        session::{ApplyReport, Capabilities, Change},
+    };
+
+    let mut harness = Harness::new();
+    let mut w = on_orders(&mut harness);
+    // Rows typed by hand aren't a table's.
+    w.can_edit = true;
+    w.set_focus(Panel::Results);
+    w.handle(Action::Edit, &mut harness.ctx());
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t.starts_with("Only a table's rows")));
+
+    // Open the first rows of orders.
+    w.set_focus(Panel::Explorer);
+    w.handle(Action::Confirm, &mut harness.ctx());
+    w.explorer.on_described(&orders(), Ok(orders_info()));
+    harness.sent();
+    w.handle(Action::Confirm, &mut harness.ctx());
+    let id = sent_query(&mut harness);
+    let (schema, batch) = crate::testing::frames(
+        vec![
+            ColumnMeta::new("id", "int4"),
+            ColumnMeta::new("total", "int4"),
+        ],
+        vec![
+            vec![OwnedCell::Int(1), OwnedCell::Int(10)],
+            vec![OwnedCell::Int(2), OwnedCell::Int(20)],
+        ],
+    );
+    w.on_query_event(EngineEvent::Schema { id, schema }, &mut harness.ctx());
+    w.on_query_event(EngineEvent::Batch { id, batch }, &mut harness.ctx());
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
+
+    // A session that can't write edits says so.
+    w = w.with_caps(Capabilities::empty());
+    w.set_focus(Panel::Results);
+    w.handle(Action::Edit, &mut harness.ctx());
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t.contains("can't be edited here yet")));
+    w = w.with_caps(Capabilities::EDIT_BY_PK);
+
+    // Change the first total.
+    w.handle(Action::Right, &mut harness.ctx());
+    w.handle(Action::Edit, &mut harness.ctx());
+    assert!(w.wants_text());
+    w.handle(Action::Backspace, &mut harness.ctx());
+    w.handle(Action::Input('5'), &mut harness.ctx());
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert_eq!(w.results().pending(), 1);
+
+    // Running something else now would lose it.
+    w.set_focus(Panel::Editor);
+    w.handle(Action::Execute, &mut harness.ctx());
+    assert!(harness.sent().is_empty());
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t.starts_with("Save or undo the 1 change")));
+
+    // Save, and the rows come again.
+    w.set_focus(Panel::Results);
+    w.handle(Action::Save, &mut harness.ctx());
+    let command = w.handle(Action::Confirm, &mut harness.ctx());
+    let Some(Command::ApplyChanges(changes)) = command else {
+        panic!("expected the changes, got {command:?}");
+    };
+    assert_eq!(changes.table, orders());
+    assert_eq!(
+        changes.changes,
+        [Change::Update {
+            key: vec![OwnedCell::Int(1)],
+            set: vec![("total".into(), OwnedCell::Text("15".into()))],
+        }]
+    );
+    w.on_applied(
+        &orders(),
+        Ok(ApplyReport {
+            updated: 1,
+            ..ApplyReport::default()
+        }),
+        &mut harness.ctx(),
+    );
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t == "Saved orders: 1 updated"));
+    assert_eq!(w.results().pending(), 0);
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "SELECT * FROM orders LIMIT 100"
+    ));
+}

@@ -361,3 +361,68 @@ fn rows_show_as_json_documents() {
     results.handle(Action::JsonView, &mut harness.ctx());
     assert!(results.json.is_none());
 }
+
+#[test]
+fn rows_are_edited_reviewed_and_saved_together() {
+    let test = TestCtx::new();
+    let mut harness = Harness::new();
+    let mut results = showing(store(3));
+    results.focused = true;
+    let table: NodePath = ["shop", "public", "items"].into_iter().collect();
+    results
+        .start_editing(table.clone(), &["id".to_string()])
+        .expect("the key is in the rows");
+
+    // The key can't change.
+    results.handle(Action::Edit, &mut harness.ctx());
+    assert!(!results.wants_text());
+    // Rename the first item, and make the second's note NULL… then a value.
+    results.handle(Action::Right, &mut harness.ctx());
+    results.handle(Action::Edit, &mut harness.ctx());
+    assert!(results.wants_text());
+    for _ in 0.."item 1".len() {
+        results.handle(Action::Backspace, &mut harness.ctx());
+    }
+    for c in "first".chars() {
+        results.handle(Action::Input(c), &mut harness.ctx());
+    }
+    insta::assert_snapshot!(
+        "cell_editor",
+        render(&test, 70, 8, |f, area, ctx| results.render(f, area, ctx))
+    );
+    results.handle(Action::Confirm, &mut harness.ctx());
+    results.handle(Action::Down, &mut harness.ctx());
+    results.handle(Action::Delete, &mut harness.ctx());
+    assert_eq!(results.pending(), 2);
+    insta::assert_snapshot!(
+        "edited_rows",
+        render(&test, 70, 8, |f, area, ctx| results.render(f, area, ctx))
+    );
+
+    // Undo the delete, mark the third row instead.
+    results.handle(Action::Undo, &mut harness.ctx());
+    results.handle(Action::Down, &mut harness.ctx());
+    results.handle(Action::Delete, &mut harness.ctx());
+
+    results.handle(Action::Save, &mut harness.ctx());
+    insta::assert_snapshot!(
+        "edits_review",
+        render(&test, 70, 12, |f, area, ctx| results.render(f, area, ctx))
+    );
+    let command = results.handle(Action::Confirm, &mut harness.ctx());
+    let Some(Command::ApplyChanges(changes)) = command else {
+        panic!("expected the changes, got {command:?}");
+    };
+    assert_eq!(changes.table, table);
+    assert_eq!(
+        changes.changes,
+        [
+            dfox_core::session::Change::Update {
+                key: vec![OwnedCell::Int(1)],
+                set: vec![("name".into(), OwnedCell::Text("first".into()))],
+            },
+            dfox_core::session::Change::Delete(vec![OwnedCell::Int(3)]),
+        ]
+    );
+    assert!(results.edits.as_ref().is_some_and(|e| e.saving));
+}
