@@ -184,6 +184,7 @@ impl Connection {
             DbType::MySql => 3306,
             DbType::Mongo => 27017,
             DbType::Cassandra => 9042,
+            DbType::Redis => 6379,
             _ => 5432,
         }
     }
@@ -196,6 +197,8 @@ impl Connection {
             DbType::Mongo => "test",
             // Every cluster has it.
             DbType::Cassandra => "system",
+            // Redis numbers its databases.
+            DbType::Redis => "0",
             _ => "postgres",
         }
     }

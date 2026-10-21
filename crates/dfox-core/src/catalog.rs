@@ -33,6 +33,8 @@ pub enum NodeKind {
     Keyspace,
     /// A group of keys sharing a prefix, as in Redis.
     KeyPrefix,
+    /// A key and its value, as in Redis.
+    Key,
     /// A column of a table.
     Column,
     /// A constraint of a table: a key or a check.
@@ -65,6 +67,7 @@ impl NodeKind {
             NodeKind::Collection => "collection",
             NodeKind::Keyspace => "keyspace",
             NodeKind::KeyPrefix => "key prefix",
+            NodeKind::Key => "key",
             NodeKind::Column => "column",
             NodeKind::Constraint => "constraint",
             NodeKind::Index => "index",
@@ -84,6 +87,7 @@ impl NodeKind {
                 | NodeKind::MaterializedView
                 | NodeKind::ForeignTable
                 | NodeKind::Collection
+                | NodeKind::Key
         )
     }
 }

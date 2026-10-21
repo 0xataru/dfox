@@ -41,3 +41,12 @@ services:
       test: ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'SELECT now() FROM system.local'"]
       interval: 5s
       retries: 60
+
+  valkey:
+    image: valkey/valkey:8.1
+    command: --requirepass dfox
+    ports: ["56379:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "dfox", "--no-auth-warning", "ping"]
+      interval: 2s
+      retries: 30

@@ -12,6 +12,7 @@ dfox mysql://root@127.0.0.1/app
 dfox ./data.sqlite                          # a SQLite file
 dfox mongodb://root@127.0.0.1:27017/shop
 dfox cassandra://cassandra@127.0.0.1:9042/shop  # Cassandra or ScyllaDB; the path is the keyspace
+dfox redis://:password@127.0.0.1:6379/0      # Redis or Valkey; the path is the database number
 ```
 
 From a source checkout, `make run` (or `cargo run --bin dfox`).
@@ -29,6 +30,17 @@ dfox help                 # all commands and options
 `--version`, `-V`, `--help` and `-h` work too. A mistake on the command line,
 such as an unknown command or a bad URL, is reported in the terminal before
 the TUI starts.
+
+### Redis and Valkey
+
+The editor takes Redis commands as `redis-cli` does: one a line, with `"double quotes"`
+(and escapes such as `\n`) or `'single quotes'` around words with spaces; a line starting
+with `#` is a comment. **F5** runs the command under the cursor, **Shift+F5** all of
+them. Replies show as tables: a hash as `field` and `value`, a sorted set with
+`WITHSCORES` as `member` and `score`, `INFO` as `section`, `key` and `value`. dfox needs
+Redis 6 or Valkey 7 or newer, and finds keys with `SCAN`, never `KEYS`; a database with
+more than 10,000 keys under one prefix shows the first 10,000. `FLUSHDB`, `FLUSHALL` and
+`SHUTDOWN` ask first.
 
 ### Saved connections
 
@@ -49,7 +61,8 @@ dot shows whether it is reachable and a sparkline shows its latency.
 
 A connection can be **read-only**: the server refuses writes (Postgres and
 MySQL start the session read-only, SQLite opens the file read-only; for
-MongoDB, which has no read-only sessions, dfox refuses commands that write). **TLS**
+MongoDB and Redis, which have no read-only sessions, dfox refuses commands that
+write). **TLS**
 can be `prefer` (the default), `require`, `verify` (the server's certificate
 and name are checked against the system's roots and an optional **CA file**)
 or turned off, and a coloured **tag** marks it in the list and the status bar.
@@ -93,6 +106,9 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **Enter** on a table, view or collection - Its menu: first or last 100 rows, all rows,
   filtered rows, an exact count, scripts, properties, refresh, truncate or drop. On
   Cassandra, the last 100 rows of a partition you name instead
+- **Enter** on a Redis key - Its menu: the first 100 items or all of them (as `GET`,
+  `HGETALL`, `LRANGE`, `SMEMBERS`, `ZRANGE … WITHSCORES` or `XRANGE`, by its type), a count,
+  properties (type, size, expiry), refresh or delete. Keys are grouped by `:` into prefixes
 - **→** - Open a database, schema or table: a table holds its columns, constraints,
   indexes, triggers and policies
 - **Enter** on a column - Its card: type, keys, indexes, comment, and what its values look

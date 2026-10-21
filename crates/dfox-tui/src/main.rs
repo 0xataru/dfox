@@ -31,6 +31,8 @@ fn drivers() -> Vec<Arc<dyn Driver>> {
         Some(Arc::new(dfox_driver_mongo::MongoDriver)),
         #[cfg(feature = "cassandra")]
         Some(Arc::new(dfox_driver_cassandra::CassandraDriver)),
+        #[cfg(feature = "redis")]
+        Some(Arc::new(dfox_driver_redis::RedisDriver)),
         None,
     ];
     drivers.into_iter().flatten().collect()

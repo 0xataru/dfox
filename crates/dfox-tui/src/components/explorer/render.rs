@@ -121,6 +121,13 @@ fn child_items<'a>(
         .filter(|e| !e.is_object())
         .map(|e| entry_item(explorer, e, ctx))
         .collect();
+    // Redis keys sit beside their prefixes, as files beside folders.
+    items.extend(
+        children
+            .iter()
+            .filter(|e| e.node.kind == NodeKind::Key)
+            .map(|e| object_item(e, ctx)),
+    );
     items.extend(GROUPS.into_iter().filter_map(|kind| {
         let members: Vec<&Entry> = children.iter().filter(|e| e.node.kind == kind).collect();
         if members.is_empty() {
@@ -148,6 +155,8 @@ fn object_item<'a>(entry: &'a Entry, ctx: &RenderCtx) -> TreeItem<'a, String> {
         text.push(Span::styled(format!(" {detail}"), theme.dim()));
     }
     let children = match &entry.info {
+        // A key's value opens in a tab; there is nothing under it.
+        _ if entry.node.kind == NodeKind::Key => Vec::new(),
         Load::Loaded(info) => Part::ALL
             .into_iter()
             .filter_map(|part| folder_item(part, info, ctx))

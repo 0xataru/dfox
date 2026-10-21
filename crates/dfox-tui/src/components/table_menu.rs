@@ -132,14 +132,28 @@ impl TableMenu {
         language: QueryLanguage,
         read_only: bool,
     ) -> Self {
-        let is_table = matches!(kind, NodeKind::Table | NodeKind::Collection);
-        // CQL orders rows only within a partition.
-        let cql = language == QueryLanguage::Cql;
         let pick = |key, label, choice| Item {
             key,
             label,
             then: Then::Pick(choice),
         };
+        if language == QueryLanguage::RedisCmd {
+            let mut items = vec![
+                pick('f', "First 100 items", Choice::FirstRows),
+                pick('a', "All items", Choice::AllRows),
+                pick('c', "Count items", Choice::Count),
+                pick('i', "Insert name", Choice::InsertName),
+                pick('p', "Properties", Choice::Properties),
+                pick('r', "Refresh", Choice::Refresh),
+            ];
+            if !read_only {
+                items.push(pick('d', "Delete…", Choice::Drop { cascade: false }));
+            }
+            return Self::with_items(table, kind, name, false, items);
+        }
+        let is_table = matches!(kind, NodeKind::Table | NodeKind::Collection);
+        // CQL orders rows only within a partition.
+        let cql = language == QueryLanguage::Cql;
         let mut items = vec![
             pick('f', "First 100 rows", Choice::FirstRows),
             pick('a', "All rows", Choice::AllRows),

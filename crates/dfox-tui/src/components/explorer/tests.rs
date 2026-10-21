@@ -378,3 +378,40 @@ fn tables_hold_folders_of_their_parts() {
     assert_eq!(explorer.handle(Action::Confirm, &mut harness.ctx()), None);
     assert!(explorer.state.borrow().opened().contains(&ids(&["f/k"])));
 }
+
+#[test]
+fn redis_keys_sit_beside_their_prefixes() {
+    let mut harness = Harness::new();
+    let mut explorer = Explorer::new("0");
+    explorer.focused = true;
+    explorer.load(&mut harness.ctx());
+    explorer.on_children(
+        &NodePath::root(),
+        Ok(vec![
+            Node::new(NodeKind::Database, "0", true).with_detail("3 keys"),
+            Node::new(NodeKind::Database, "3", true).with_detail("1 keys"),
+        ]),
+        &mut harness.ctx(),
+    );
+    explorer.on_children(
+        &path(&["0"]),
+        Ok(vec![
+            Node::new(NodeKind::KeyPrefix, "user:", true).with_detail("2 keys"),
+            Node::new(NodeKind::Key, "jobs", false).with_detail("list"),
+        ]),
+        &mut harness.ctx(),
+    );
+    explorer.on_children(
+        &path(&["0", "user:"]),
+        Ok(vec![
+            Node::new(NodeKind::Key, "1", false).with_detail("hash"),
+            Node::new(NodeKind::Key, "2", false).with_detail("hash"),
+        ]),
+        &mut harness.ctx(),
+    );
+    explorer
+        .state
+        .borrow_mut()
+        .open(["d/0", "n/user:"].map(String::from).to_vec());
+    insta::assert_snapshot!(snapshot(&explorer, 10));
+}

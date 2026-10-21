@@ -6,6 +6,7 @@
 pub mod complete;
 pub mod guard;
 pub mod mongo;
+pub mod redis;
 
 use sqlparser::{
     ast::{SetExpr, Statement, TableFactor},

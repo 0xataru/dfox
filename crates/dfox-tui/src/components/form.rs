@@ -52,11 +52,12 @@ impl Field {
     }
 }
 
-const DRIVERS: [DbType; 5] = [
+const DRIVERS: [DbType; 6] = [
     DbType::Postgres,
     DbType::MySql,
     DbType::Mongo,
     DbType::Cassandra,
+    DbType::Redis,
     DbType::Sqlite,
 ];
 const TLS: [TlsMode; 4] = [
