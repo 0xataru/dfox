@@ -1,0 +1,16 @@
+---
+source: dfox-tui/src/components/results/tests.rs
+expression: "render(&test, 70, 12, |f, area, ctx| results.render(f, area, ctx))"
+---
+╭ Results 3/3 · col 2/4 · Δ 2 unsaved ───────────────────────────────╮
+│ # │ id   name    price  note                                       │
+│ ──┼─────────────────────────────────────────────────────────────── │
+│╭ Save 2 change(s) to items? ──────────────────────────────────────╮│
+││ id = 1: name "item 1" → "first"                                  ││
+││ id = 3: delete the row                                           ││
+││                                                                  ││
+││ Enter save  x discard all  Esc back                              ││
+│╰──────────────────────────────────────────────────────────────────╯│
+│                                                                    │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯

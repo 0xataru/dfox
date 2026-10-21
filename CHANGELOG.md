@@ -7,6 +7,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Editing rows in the grid. In rows opened from a table with a primary key, **e** edits
+  a cell (**Del** makes it NULL), **d** marks a row to delete and **Ctrl+Z** undoes.
+  Changes show in the grid until **Ctrl+S**, which lists them for a last look and saves
+  them in one transaction, then loads the rows again. Postgres, MySQL and SQLite.
+
 ## [0.4.0] - 2026-10-21
 
 ### Added

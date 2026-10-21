@@ -147,6 +147,12 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **y** - Copy as TSV, CSV, JSON, Markdown or `INSERT` statements (the selection, or every row)
 - **>** / **<** - Widen / narrow the column
 - **Enter** or **i** - Inspect the row: every field in full, JSON pretty-printed, binary as a hex dump
+- **e** - Edit the cell, in rows opened from a table that has a primary key: type, then
+  **Enter** keeps the change, **Esc** drops it, **Del** makes it NULL. **d** marks the
+  row to delete (again to keep it), **Ctrl+Z** undoes the last change. Changed cells
+  and deleted rows show until **Ctrl+S**, which lists them and saves them together in
+  one transaction (**x** there discards them all); the rows then load again. Postgres,
+  MySQL and SQLite for now
 - **J** - Show the rows as JSON documents, and back to the grid. Each row is a document
   shown on one line; **→** or **Enter** opens it, and the objects and lists in it, **←**
   closes them or goes up. Columns that hold JSON (MongoDB's nested documents, a Redis

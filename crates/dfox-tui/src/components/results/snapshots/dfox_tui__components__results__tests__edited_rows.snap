@@ -1,0 +1,12 @@
+---
+source: dfox-tui/src/components/results/tests.rs
+expression: "render(&test, 70, 8, |f, area, ctx| results.render(f, area, ctx))"
+---
+╭ Results 2/3 · col 2/4 · Δ 2 unsaved ───────────────────────────────╮
+│ # │ id   name    price  note                                       │
+│ ──┼─────────────────────────────────────────────────────────────── │
+│ 1 │   1  first    3.50  tab here                                   │
+│ 2 │   2  item 2   6.50  ∅                                          │
+│ 3 │   3  item 3   9.50  tab here                                   │
+│                                                                    │
+╰────────────────────────────────────────────────────────────────────╯

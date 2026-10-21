@@ -4,10 +4,15 @@
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
+    collections::{BTreeMap, BTreeSet},
 };
 
 use dfox_core::result::{Cell as Value, ResultSet};
-use ratatui::{buffer::Buffer, layout::Rect, style::Style};
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Modifier, Style},
+};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::export::Region;
@@ -54,6 +59,15 @@ pub struct Grid {
     adjust: Vec<i16>,
     page: Cell<usize>,
     drawn: RefCell<Drawn>,
+}
+
+/// Edits waiting to be saved, as the grid shows them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Marks {
+    /// New values by (row, column); `None` is NULL.
+    pub cells: BTreeMap<(usize, usize), Option<String>>,
+    /// Rows to delete.
+    pub deleted: BTreeSet<usize>,
 }
 
 impl Grid {
@@ -224,6 +238,20 @@ impl Grid {
         focused: bool,
         ctx: &RenderCtx,
     ) {
+        self.render_marked(buf, area, result, focused, ctx, &Marks::default());
+    }
+
+    /// Draws as [`Grid::render`] does, with the edits in `marks` over the
+    /// rows: new values in place of the old, deleted rows struck through.
+    pub fn render_marked(
+        &self,
+        buf: &mut Buffer,
+        area: Rect,
+        result: &impl ResultSet,
+        focused: bool,
+        ctx: &RenderCtx,
+        marks: &Marks,
+    ) {
         let theme = ctx.theme;
         let rows = result.row_count();
         let columns = result.columns().len();
@@ -297,9 +325,18 @@ impl Grid {
                 number_style,
             );
             buf.set_string(area.x + number_width, y, " │ ", rule_style);
+            let deleted = marks.deleted.contains(&row);
             for &(col, x, width) in &placed {
-                let value = result.cell(row, col).unwrap_or(Value::Null);
+                let mut value = result.cell(row, col).unwrap_or(Value::Null);
                 let mut style = theme.cell(&value);
+                let edited = marks.cells.get(&(row, col));
+                if let Some(new) = edited {
+                    value = new.as_deref().map_or(Value::Null, Value::Text);
+                    style = theme.warning().add_modifier(Modifier::BOLD);
+                }
+                if deleted {
+                    style = theme.danger().add_modifier(Modifier::CROSSED_OUT);
+                }
                 let selected = self.in_selection(row, col, columns);
                 if row == cursor_row && col == cursor_col {
                     style = if focused {

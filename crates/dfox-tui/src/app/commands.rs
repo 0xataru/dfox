@@ -16,6 +16,7 @@ impl App {
     pub(super) fn apply_command(&mut self, command: Command) {
         match command {
             Command::Quit => self.should_quit = true,
+            Command::ApplyChanges(changes) => self.engine.send(DbCommand::Apply { changes }),
             Command::ConfirmQuit => {
                 let running = self
                     .workspace

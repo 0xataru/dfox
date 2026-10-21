@@ -1,5 +1,6 @@
 //! Query results: a grid that fills as rows stream in, or the query's status.
 
+mod edit;
 pub mod export;
 pub mod grid;
 mod inspector;
@@ -25,9 +26,11 @@ use ratatui::{
 use tokio::time::Instant;
 
 use self::{
+    edit::Edits,
     export::{Format, Target},
     grid::Grid,
 };
+use super::editor::buffer::{Buffer, Motion};
 use super::{inner, panel};
 use crate::{
     action::Action,
@@ -94,6 +97,22 @@ pub struct ResultsPanel {
     pub json_if_json: bool,
     /// Lines the JSON view showed, for paging.
     json_height: Cell<usize>,
+    /// Changes to the rows, while the grid edits its table.
+    pub edits: Option<Edits>,
+    /// The cell being changed, while its editor is open.
+    cell_edit: Option<CellEdit>,
+    /// The edits are listed for a last look before they are saved.
+    reviewing: bool,
+}
+
+/// A cell being changed: where it is, and what is typed.
+#[derive(Debug)]
+struct CellEdit {
+    row: usize,
+    col: usize,
+    text: Buffer,
+    /// NULL rather than the text.
+    null: bool,
 }
 
 impl ResultsPanel {
@@ -116,7 +135,129 @@ impl ResultsPanel {
             note: None,
             json_if_json: false,
             json_height: Cell::new(0),
+            edits: None,
+            cell_edit: None,
+            reviewing: false,
         }
+    }
+
+    /// Starts editing the rows, which are of the table at `table` keyed by
+    /// the columns `key`. Fails when the rows don't hold the key.
+    pub fn start_editing(&mut self, table: NodePath, key: &[String]) -> Result<(), String> {
+        if self.edits.is_none() {
+            self.edits = Some(Edits::new(table, key, &self.store)?);
+        }
+        Ok(())
+    }
+
+    /// How many changes wait to be saved.
+    pub fn pending(&self) -> usize {
+        self.edits.as_ref().map_or(0, Edits::count)
+    }
+
+    /// The query the rows came from.
+    pub fn query(&self) -> &str {
+        &self.sql
+    }
+
+    /// Keys while editing rows. `None` when `action` isn't one of them.
+    fn handle_edit(&mut self, action: Action, ctx: &mut Ctx) -> Option<Option<Command>> {
+        if let Some(cell) = &mut self.cell_edit {
+            match action {
+                Action::Input(c) => {
+                    cell.text.insert_char(c);
+                    cell.null = false;
+                }
+                Action::Backspace => cell.text.backspace(),
+                Action::DeleteWord => cell.text.delete_word(),
+                Action::Left => cell.text.move_cursor(Motion::Left, false),
+                Action::Right => cell.text.move_cursor(Motion::Right, false),
+                Action::WordLeft => cell.text.move_cursor(Motion::WordLeft, false),
+                Action::WordRight => cell.text.move_cursor(Motion::WordRight, false),
+                Action::Home => cell.text.move_cursor(Motion::Home, false),
+                Action::End => cell.text.move_cursor(Motion::End, false),
+                // Delete makes it NULL.
+                Action::Delete => {
+                    cell.text.set_text("");
+                    cell.null = true;
+                }
+                Action::Confirm => {
+                    let value = (!cell.null).then(|| cell.text.text());
+                    let (row, col) = (cell.row, cell.col);
+                    self.cell_edit = None;
+                    if let Some(edits) = &mut self.edits {
+                        edits.set(&self.store, row, col, value);
+                    }
+                }
+                Action::Back => self.cell_edit = None,
+                _ => {}
+            }
+            return Some(None);
+        }
+        if self.reviewing {
+            match action {
+                Action::Confirm => {
+                    self.reviewing = false;
+                    let edits = self.edits.as_mut()?;
+                    edits.saving = true;
+                    return Some(Some(Command::ApplyChanges(edits.change_set(&self.store))));
+                }
+                Action::Input('x') => {
+                    self.reviewing = false;
+                    let count = self.pending();
+                    self.edits = None;
+                    ctx.toast(Level::Info, format!("Discarded {count} change(s)"));
+                }
+                Action::Back | Action::Save => self.reviewing = false,
+                _ => {}
+            }
+            return Some(None);
+        }
+        // The JSON view has no cells to edit.
+        if self.json.is_some() {
+            return None;
+        }
+        let edits = self.edits.as_mut()?;
+        let (row, col) = self.grid.cursor();
+        match action {
+            _ if edits.saving => ctx.toast(Level::Info, "Saving…"),
+            Action::Edit if self.store.row_count() == 0 => {}
+            Action::Edit if edits.marks.deleted.contains(&row) => {
+                ctx.toast(Level::Warning, "The row is marked to delete")
+            }
+            Action::Edit if edits.is_key(col) => ctx.toast(
+                Level::Warning,
+                "The key finds the row: it can't be changed here",
+            ),
+            Action::Edit => {
+                let current = match edits.marks.cells.get(&(row, col)) {
+                    Some(value) => value.clone(),
+                    None => match self.store.cell(row, col) {
+                        None | Some(dfox_core::result::Cell::Null) => None,
+                        Some(cell) => Some(cell.to_string()),
+                    },
+                };
+                let mut text = Buffer::default();
+                text.set_text(current.as_deref().unwrap_or_default());
+                text.move_cursor(Motion::End, false);
+                self.cell_edit = Some(CellEdit {
+                    row,
+                    col,
+                    text,
+                    null: current.is_none(),
+                });
+            }
+            Action::Delete if self.store.row_count() > 0 => edits.toggle_delete(row),
+            Action::Undo => {
+                if !edits.undo() {
+                    ctx.toast(Level::Info, "Nothing to undo");
+                }
+            }
+            Action::Save if edits.count() == 0 => ctx.toast(Level::Info, "No changes to save"),
+            Action::Save => self.reviewing = true,
+            _ => return None,
+        }
+        Some(None)
     }
 
     /// Starts `sql` as query `id`.
@@ -154,6 +295,9 @@ impl ResultsPanel {
         self.sql.clear();
         self.table = None;
         self.note = None;
+        self.edits = None;
+        self.cell_edit = None;
+        self.reviewing = false;
         self.json_if_json = false;
         self.show(empty());
     }
@@ -276,13 +420,17 @@ impl ResultsPanel {
 
     /// True while the copy-as menu has the keys.
     pub fn is_modal(&self) -> bool {
-        self.picker
+        self.picker || self.cell_edit.is_some() || self.reviewing
     }
 
     /// True when Back has something to undo here: an open menu or a
     /// selection.
     pub fn takes_back(&self) -> bool {
-        self.picker || self.inspecting || self.grid.has_selection()
+        self.picker
+            || self.inspecting
+            || self.grid.has_selection()
+            || self.cell_edit.is_some()
+            || self.reviewing
     }
 
     /// Scrolls the inspector when the point is on it. Returns false
@@ -405,6 +553,9 @@ impl Component for ResultsPanel {
             }
             return None;
         }
+        if let Some(command) = self.handle_edit(action, ctx) {
+            return command;
+        }
         if action == Action::JsonView {
             self.json = match self.json {
                 Some(_) => None,
@@ -479,6 +630,12 @@ impl Component for ResultsPanel {
                     theme.dim(),
                 ));
             }
+            if let Some(edits) = self.edits.as_ref().filter(|e| e.count() > 0) {
+                title.push(Span::styled(
+                    format!(" · Δ {} unsaved", edits.count()),
+                    theme.warning(),
+                ));
+            }
             if self.grid.has_selection() {
                 let region = self.grid.region(columns);
                 title.push(Span::styled(
@@ -504,6 +661,11 @@ impl Component for ResultsPanel {
             view.render(f.buffer_mut(), room, &self.store, self.focused, ctx);
         } else if rows > 0 {
             f.render_widget(block, area);
+            let marks = self
+                .edits
+                .as_ref()
+                .map(|e| e.marks.clone())
+                .unwrap_or_default();
             let mut grid_area = inner(area);
             if self.inspecting {
                 // Beside the grid when there is room, over it otherwise.
@@ -518,16 +680,28 @@ impl Component for ResultsPanel {
                 if wide {
                     grid_area.width = grid_area.width.saturating_sub(width + 1);
                 }
-                self.grid
-                    .render(f.buffer_mut(), grid_area, &self.store, self.focused, ctx);
+                self.grid.render_marked(
+                    f.buffer_mut(),
+                    grid_area,
+                    &self.store,
+                    self.focused,
+                    ctx,
+                    &marks,
+                );
                 let row = self.grid.cursor().0.min(rows - 1);
                 let used =
                     inspector::render(f, panel, &self.store, row, self.inspect_scroll.get(), ctx);
                 self.inspect_scroll.set(used);
                 self.inspector_area.set(panel);
             } else {
-                self.grid
-                    .render(f.buffer_mut(), grid_area, &self.store, self.focused, ctx);
+                self.grid.render_marked(
+                    f.buffer_mut(),
+                    grid_area,
+                    &self.store,
+                    self.focused,
+                    ctx,
+                    &marks,
+                );
             }
         } else {
             let status = match &self.running {
@@ -578,6 +752,12 @@ impl Component for ResultsPanel {
         if self.picker {
             self.render_picker(f, area, ctx);
         }
+        if let Some(cell) = &self.cell_edit {
+            self.render_cell_edit(cell, f, area, ctx);
+        }
+        if self.reviewing {
+            self.render_review(f, area, ctx);
+        }
     }
 
     fn is_animating(&self) -> bool {
@@ -585,11 +765,113 @@ impl Component for ResultsPanel {
     }
 
     fn wants_text(&self) -> bool {
-        self.picker
+        self.picker || self.cell_edit.is_some() || self.reviewing
     }
 }
 
 impl ResultsPanel {
+    /// The cell editor, over the bottom of the panel.
+    fn render_cell_edit(&self, cell: &CellEdit, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
+        let theme = ctx.theme;
+        let room = area.inner(ratatui::layout::Margin::new(1, 1));
+        let height = 4.min(room.height);
+        let popup = Rect::new(room.x, room.bottom() - height, room.width, height);
+        let column = self
+            .store
+            .columns()
+            .get(cell.col)
+            .map_or("", |c| c.name.as_str());
+        let text = cell.text.text();
+        let value = if cell.null {
+            Span::styled(ctx.icons.null, theme.cell(&dfox_core::result::Cell::Null))
+        } else {
+            Span::raw(text.as_str())
+        };
+        let lines = vec![
+            Line::from(vec![Span::raw(" "), value]),
+            Line::from(vec![
+                Span::styled(" Enter", theme.key()),
+                Span::styled(" keep  ", theme.dim()),
+                Span::styled("Esc", theme.key()),
+                Span::styled(" cancel  ", theme.dim()),
+                Span::styled("Del", theme.key()),
+                Span::styled(" NULL", theme.dim()),
+            ]),
+        ];
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(theme.border(true))
+            .title(Span::styled(
+                format!(" {column}, row {} ", cell.row + 1),
+                theme.title(true),
+            ))
+            .style(theme.surface());
+        f.render_widget(Clear, popup);
+        f.render_widget(Paragraph::new(lines).block(block), popup);
+        if !cell.null {
+            let typed: usize = text
+                .chars()
+                .take(cell.text.cursor().1)
+                .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0))
+                .sum();
+            let x = popup.x + 2 + (typed as u16).min(popup.width.saturating_sub(4));
+            f.set_cursor_position((x, popup.y + 1));
+        }
+    }
+
+    /// The edits listed for a last look before saving.
+    fn render_review(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
+        let Some(edits) = &self.edits else {
+            return;
+        };
+        let theme = ctx.theme;
+        let room = area.inner(ratatui::layout::Margin::new(1, 1));
+        let review = edits.review(&self.store);
+        let shown = review.len().min(room.height.saturating_sub(4) as usize);
+        let height = (shown as u16 + 4).min(room.height);
+        let width = room.width.min(72);
+        let popup = Rect::new(
+            room.x + (room.width - width) / 2,
+            room.y + (room.height - height) / 2,
+            width,
+            height,
+        );
+        let mut lines: Vec<Line> = review
+            .iter()
+            .take(shown)
+            .map(|line| Line::raw(format!(" {line}")))
+            .collect();
+        if review.len() > shown {
+            lines.pop();
+            lines.push(Line::styled(
+                format!(" … and {} more", review.len() - shown + 1),
+                theme.dim(),
+            ));
+        }
+        lines.push(Line::raw(""));
+        lines.push(Line::from(vec![
+            Span::styled(" Enter", theme.key()),
+            Span::styled(" save  ", theme.dim()),
+            Span::styled("x", theme.key()),
+            Span::styled(" discard all  ", theme.dim()),
+            Span::styled("Esc", theme.key()),
+            Span::styled(" back", theme.dim()),
+        ]));
+        let name = edits.table.name().unwrap_or_default();
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(theme.border(true))
+            .title(Span::styled(
+                format!(" Save {} change(s) to {name}? ", edits.count()),
+                theme.title(true),
+            ))
+            .style(theme.surface());
+        f.render_widget(Clear, popup);
+        f.render_widget(Paragraph::new(lines).block(block), popup);
+    }
+
     /// The copy-as menu, in the bottom-right corner.
     fn render_picker(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
