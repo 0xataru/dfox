@@ -7,14 +7,18 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-21
+
 ### Added
 
 - Redis and Valkey. Connect with `redis://`, `rediss://` (TLS) or `valkey://`, or the
   connection form. The explorer lists the databases that hold keys, and their keys
   grouped by `:` into prefixes, each with its type; keys are found with `SCAN`, never
   `KEYS`. Enter on a key opens it with the command its type needs (`HGETALL`, `LRANGE`,
-  `ZRANGE … WITHSCORES`, …) in a tab named after it. The editor takes `redis-cli`
-  commands, one a line, with colours and command completion; replies show as tables.
+  `ZRANGE … WITHSCORES`, …) in a tab named after it, with its type, size and expiry
+  beside the results' title; a string that holds JSON opens in the JSON view. The
+  editor takes `redis-cli` commands, one a line, with colours and command completion;
+  replies show as tables, with lists and maps nested in them as JSON.
   Read-only connections refuse anything the server doesn't mark read-only, and
   `FLUSHDB`, `FLUSHALL` and `SHUTDOWN` ask first.
 - A JSON view of results: **J** shows each row as a document, one line each, that opens
@@ -24,13 +28,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   notice when there is one.
 - Each database has its colour, and with `icons = "nerd"` its logo, in the connection
   list, the status bar and the explorer.
-- A Redis key opened from the explorer shows its type, size and expiry beside the
-  results' title, and a string that holds JSON opens in the JSON view.
 
 ### Changed
 
-- Redis replies nested in lists or maps come as JSON, which the JSON view and the
-  inspector open: a stream entry's fields read `{"temp": "20"}`, not `[temp, 20]`.
 - JSON keeps its fields in their order in the record inspector, instead of sorting them.
 
 ### Fixed
