@@ -141,6 +141,16 @@ pub enum Command {
         table: NodePath,
         file: std::path::PathBuf,
     },
+    /// Runs `sql` with no row limit and adds its rows to a table of another
+    /// connection, as query `id`, the way an import adds a file's. It opens
+    /// the target's own session for that; it reports
+    /// [`EngineEvent::Progress`], ends with [`EngineEvent::QueryDone`], and
+    /// can be cancelled.
+    Copy {
+        id: QueryId,
+        sql: String,
+        target: Box<CopyTarget>,
+    },
     Cancel {
         id: QueryId,
     },
@@ -423,6 +433,7 @@ impl Engine {
             Command::Apply { changes } => self.apply(changes),
             Command::Export { id, sql, file } => self.export(id, sql, file),
             Command::Import { id, table, file } => self.import(id, table, file),
+            Command::Copy { id, sql, target } => self.copy(id, sql, *target),
             Command::Cancel { id } => self.cancel(id),
         }
     }
@@ -564,6 +575,24 @@ impl Engine {
         self.track(id, task, None);
     }
 
+    fn copy(&mut self, id: QueryId, sql: String, target: CopyTarget) {
+        let events = self.events.clone();
+        let Some(live) = self.live.clone() else {
+            tokio::spawn(async move {
+                let outcome = Err(Self::not_connected());
+                let _ = events.send(EngineEvent::QueryDone { id, outcome }).await;
+            });
+            return;
+        };
+        let open = self
+            .drivers
+            .get(target.db_type)
+            .cloned()
+            .map(|driver| (driver, self.open.clone()));
+        let task = tokio::spawn(copy_rows(live.session, id, sql, target, open, events));
+        self.track(id, task, None);
+    }
+
     /// Keeps `query` cancellable as `id`, and reports how it ended. A
     /// failed export's `file` is removed.
     fn track(
@@ -699,12 +728,6 @@ async fn import_file(
     file: std::path::PathBuf,
     events: mpsc::Sender<EngineEvent>,
 ) -> Result<QueryStats, DbError> {
-    use crate::{
-        arrow::ArrowResultSet,
-        result::{OwnedCell, ResultSet},
-        session::{Change, ChangeSet},
-    };
-
     let started = Instant::now();
     let columns: Vec<String> = {
         let mut session = session.lock().await;
@@ -727,36 +750,85 @@ async fn import_file(
             }
         }
     });
-    let mut stats = QueryStats::default();
-    let mut names: Option<Vec<String>> = None;
+    let mut load = Loader::new(table, columns, "the file's");
     while let Some(batch) = rx.recv().await {
-        let batch = batch?;
-        // The table's name for each of the file's columns, matched once.
-        let names = match &names {
-            Some(names) => names,
-            None => {
-                let mut matched = Vec::new();
-                for field in batch.schema().fields() {
-                    // A collection with no documents yet knows no fields:
-                    // the file's are taken as they are.
-                    if columns.is_empty() {
-                        matched.push(field.name().clone());
-                        continue;
-                    }
-                    let name = columns
-                        .iter()
-                        .find(|c| c.eq_ignore_ascii_case(field.name()))
-                        .ok_or_else(|| {
-                            DbError::General(format!(
-                                "the file's column {} isn't in the table",
-                                field.name()
-                            ))
-                        })?;
-                    matched.push(name.clone());
-                }
-                names.insert(matched)
+        load.add(&session, batch?, id, &events).await?;
+    }
+    if load.names.is_none() {
+        return Err(DbError::General("the file has no rows".into()));
+    }
+    let _ = read.await;
+    load.stats.elapsed = started.elapsed();
+    Ok(load.stats)
+}
+
+/// Adds batches of rows to a table, a chunk at a time, as an import or a
+/// copy brings them.
+struct Loader {
+    table: NodePath,
+    /// The table's columns; none when it knows none yet (a collection with
+    /// no documents), and then the batches' are taken as they are.
+    columns: Vec<String>,
+    /// Whose columns they are, for the error that one is missing.
+    whose: &'static str,
+    /// The table's name for each of the batches' columns, matched once.
+    names: Option<Vec<String>>,
+    stats: QueryStats,
+}
+
+impl Loader {
+    fn new(table: NodePath, columns: Vec<String>, whose: &'static str) -> Self {
+        Self {
+            table,
+            columns,
+            whose,
+            names: None,
+            stats: QueryStats::default(),
+        }
+    }
+
+    /// Matches the batch's columns to the table's, the first time: by name,
+    /// whatever their case.
+    fn names(&mut self, batch: &RecordBatch) -> Result<Vec<String>, DbError> {
+        if let Some(names) = &self.names {
+            return Ok(names.clone());
+        }
+        let mut matched = Vec::new();
+        for field in batch.schema().fields() {
+            if self.columns.is_empty() {
+                matched.push(field.name().clone());
+                continue;
             }
+            let name = self
+                .columns
+                .iter()
+                .find(|c| c.eq_ignore_ascii_case(field.name()))
+                .ok_or_else(|| {
+                    DbError::General(format!(
+                        "{} column {} isn't in the table",
+                        self.whose,
+                        field.name()
+                    ))
+                })?;
+            matched.push(name.clone());
+        }
+        Ok(self.names.insert(matched).clone())
+    }
+
+    async fn add(
+        &mut self,
+        session: &Shared,
+        batch: RecordBatch,
+        id: QueryId,
+        events: &mpsc::Sender<EngineEvent>,
+    ) -> Result<(), DbError> {
+        use crate::{
+            arrow::ArrowResultSet,
+            result::{OwnedCell, ResultSet},
+            session::{Change, ChangeSet},
         };
+
+        let names = self.names(&batch)?;
         let mut rows = ArrowResultSet::new(batch.schema());
         rows.push(batch);
         rows.finish();
@@ -783,25 +855,97 @@ async fn import_file(
                 .lock()
                 .await
                 .apply(ChangeSet {
-                    table: table.clone(),
+                    table: self.table.clone(),
                     key: Vec::new(),
                     changes,
                 })
                 .await
                 .map_err(|err| {
-                    DbError::General(format!("{err} (after {} rows went in)", stats.rows))
+                    DbError::General(format!("{err} (after {} rows went in)", self.stats.rows))
                 })?;
-            stats.rows += report.inserted;
-            let rows = stats.rows;
+            self.stats.rows += report.inserted;
+            let rows = self.stats.rows;
             let _ = events.send(EngineEvent::Progress { id, rows }).await;
         }
+        Ok(())
     }
-    if names.is_none() {
-        return Err(DbError::General("the file has no rows".into()));
+}
+
+/// Where a copy's rows go.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CopyTarget {
+    pub db_type: DbType,
+    pub params: ConnectionParams,
+    /// The table, as the target's catalog names it.
+    pub table: NodePath,
+    /// Create the table first, from the rows' columns.
+    pub create: bool,
+}
+
+/// Runs `sql` on the session and adds its rows to the target's table, on a
+/// session of its own.
+async fn copy_rows(
+    source: Shared,
+    id: QueryId,
+    sql: String,
+    target: CopyTarget,
+    open: Option<(Arc<dyn Driver>, Opener)>,
+    events: mpsc::Sender<EngineEvent>,
+) -> Result<QueryStats, DbError> {
+    let started = Instant::now();
+    let Some((driver, open)) = open else {
+        return Err(DbError::Config(format!(
+            "this build of dfox has no {:?} driver",
+            target.db_type
+        )));
+    };
+    let into: Shared = Arc::new(Mutex::new(open(driver, target.params.clone()).await?));
+    let mut frames = source.lock().await.run(Request::new(sql)).await?;
+    let mut load: Option<Loader> = None;
+    while let Some(frame) = frames.next().await {
+        match frame? {
+            Frame::Schema(schema) => {
+                if load.is_some() {
+                    return Err(DbError::General(
+                        "the script returns several results: copy one query at a time".into(),
+                    ));
+                }
+                let columns = if target.create {
+                    if let Some(ddl) =
+                        crate::copy::create_table(target.db_type, &target.table, &schema)
+                    {
+                        let mut session = into.lock().await;
+                        let mut created = session.run(Request::new(ddl)).await?;
+                        while let Some(frame) = created.next().await {
+                            frame?;
+                        }
+                    }
+                    schema.fields().iter().map(|f| f.name().clone()).collect()
+                } else {
+                    let mut session = into.lock().await;
+                    let info = session.catalog().describe(&target.table).await?;
+                    info.columns.into_iter().map(|c| c.name).collect()
+                };
+                load = Some(Loader::new(target.table.clone(), columns, "the query's"));
+            }
+            Frame::Batch(batch) => {
+                if let Some(load) = &mut load {
+                    load.add(&into, batch, id, &events).await?;
+                }
+            }
+            Frame::Affected(_) => {}
+            Frame::Notice(message) => {
+                let _ = events.send(EngineEvent::Notice { id, message }).await;
+            }
+        }
     }
-    let _ = read.await;
-    stats.elapsed = started.elapsed();
-    Ok(stats)
+    let Some(mut load) = load else {
+        return Err(DbError::General(
+            "the query returned no rows to copy".into(),
+        ));
+    };
+    load.stats.elapsed = started.elapsed();
+    Ok(load.stats)
 }
 
 /// How often an export reports its progress.

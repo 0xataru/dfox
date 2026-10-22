@@ -167,7 +167,10 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
   their defaults, and a column the table doesn't have stops the import before any row.
   Rows go in ten thousand at a time, each batch in its own transaction (a COPY in
   Postgres, multi-row inserts in MySQL, `insertMany` in MongoDB), so a failed import
-  says how many went in
+  says how many went in. **Copy to…** sends all the rows to a table of another saved
+  connection (Postgres, MySQL, SQLite or MongoDB): pick it with ←/→, name the table
+  (`schema.table` in Postgres), and say whether to create it from the rows' columns, in
+  that database's own types. The connection's password must be saved, or in `~/.pgpass`
 - **J** - Show the rows as JSON documents, and back to the grid. Each row is a document
   shown on one line; **→** or **Enter** opens it, and the objects and lists in it, **←**
   closes them or goes up. Columns that hold JSON (MongoDB's nested documents, a Redis

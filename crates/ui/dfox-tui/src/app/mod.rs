@@ -77,6 +77,8 @@ pub enum Screen {
 enum Overlay {
     /// The key list, scrolled down this many lines.
     Help(usize),
+    /// Where to copy a table's rows.
+    Copy(crate::components::copy::CopyDialog),
     Palette(Palette),
     Menu,
     Confirm(Confirm),
@@ -502,6 +504,11 @@ impl App {
                     }
                 }
             }
+            Overlay::Copy(mut dialog) => match dialog.handle(key) {
+                Some(crate::components::copy::CopyEvent::Copy) => self.start_copy(dialog),
+                Some(crate::components::copy::CopyEvent::Close) => {}
+                None => self.overlay = Some(Overlay::Copy(dialog)),
+            },
             Overlay::Confirm(confirm) => match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => self.apply_command(confirm.on_yes),
                 KeyCode::Enter if !confirm.danger => self.apply_command(confirm.on_yes),
@@ -643,6 +650,7 @@ impl App {
             Some(Overlay::Palette(palette)) => palette.render(f, main, ctx),
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
+            Some(Overlay::Copy(dialog)) => dialog.render(f, main, ctx),
             Some(Overlay::Password {
                 connection,
                 typed,

@@ -941,3 +941,41 @@ fn a_newer_release_shows_in_the_managers_status_bar() {
         "{status}"
     );
 }
+
+#[test]
+fn rows_copy_into_a_saved_connection_with_its_password() {
+    let mut test = test_app("copy", Some("secret"), "");
+    test.open_prod();
+    // A second saved connection to copy into, with its password saved.
+    let mut mysql = Connection::new("warehouse", DbType::MySql);
+    mysql.database = Some("dw".into());
+    test.app.store.save(None, mysql).expect("save");
+    test.app
+        .secrets
+        .set("warehouse", "hunter2")
+        .expect("secret");
+
+    test.app.apply_command(Command::CopyTo {
+        sql: "SELECT * FROM orders".into(),
+        source: "orders".into(),
+        estimate: Some(12_400),
+    });
+    // prod first, then warehouse; the table keeps its name.
+    test.key(KeyCode::Right);
+    test.key(KeyCode::Enter);
+    match &test.sent()[..] {
+        [DbCommand::Copy { sql, target, .. }] => {
+            assert_eq!(sql, "SELECT * FROM orders");
+            assert_eq!(target.db_type, DbType::MySql);
+            assert_eq!(target.params.password, "hunter2");
+            assert_eq!(target.table.parts(), ["dw", "orders"]);
+            assert!(target.create);
+        }
+        other => panic!("expected the copy, got {other:?}"),
+    }
+    let copying = test.app.workspace.as_ref().and_then(|w| w.exporting());
+    assert_eq!(
+        copying.and_then(|e| e.copy_to.as_deref()),
+        Some("warehouse")
+    );
+}

@@ -7,7 +7,11 @@ use tokio::time::Instant;
 use super::{App, Ask, Connecting, Credentials, Overlay, Screen};
 use crate::{
     command::Command,
-    components::{form::ConnectionForm, manager::EntryKey},
+    components::{
+        copy::{target_path, CopyDialog},
+        form::ConnectionForm,
+        manager::EntryKey,
+    },
     connections::{pgpass, secrets, ssh_secret_name, Connection, SshLogin},
     widgets::{confirm::Confirm, toast::Level},
 };
@@ -17,6 +21,18 @@ impl App {
         match command {
             Command::Quit => self.should_quit = true,
             Command::ApplyChanges(changes) => self.engine.send(DbCommand::Apply { changes }),
+            Command::CopyTo {
+                sql,
+                source,
+                estimate,
+            } => match CopyDialog::new(sql, &source, estimate, &self.store.connections) {
+                Some(dialog) => self.overlay = Some(Overlay::Copy(dialog)),
+                None => self.toasts.push(
+                    Level::Info,
+                    "Save a connection to a database that takes rows first: Postgres, MySQL, SQLite or MongoDB".into(),
+                    Instant::now(),
+                ),
+            },
             Command::ConfirmQuit => {
                 let running = self
                     .workspace
@@ -213,6 +229,46 @@ impl App {
             None => None,
         };
         self.connect_with(connection, password, ssh);
+    }
+
+    /// Starts the copy `dialog` chose, with the target's saved secrets.
+    pub(super) fn start_copy(&mut self, dialog: CopyDialog) {
+        let name = dialog.target().to_string();
+        let Some(connection) = self.store.get(&name).cloned() else {
+            return;
+        };
+        let password = self
+            .keychain(&name)
+            .or_else(|| pgpass::lookup(&self.pgpass, &connection).map(str::to_string))
+            .or_else(|| (connection.driver == DbType::Sqlite).then(String::new));
+        let ssh = match connection.ssh {
+            Some(_) => self.keychain(&ssh_secret_name(&name)),
+            None => None,
+        };
+        // shortcut: secrets aren't asked for here; prompt like connecting
+        // does when copying to connections without saved ones matters.
+        let (Some(password), false) = (password, ssh.is_none() && connection.needs_ssh_password())
+        else {
+            self.toasts.push(
+                Level::Warning,
+                format!(
+                    "Save {name}'s password first (e on it in the connection list) to copy into it"
+                ),
+                Instant::now(),
+            );
+            return;
+        };
+        let target = dfox_core::engine::CopyTarget {
+            db_type: connection.driver,
+            params: connection.params(&password, ssh.as_deref()),
+            table: target_path(&connection, dialog.table.trim()),
+            create: dialog.create,
+        };
+        self.with_ctx(|app, ctx| {
+            if let Some(w) = app.workspace {
+                w.start_copy(dialog, name, target, ctx);
+            }
+        });
     }
 
     /// Reads a secret from the keychain; a failure is a warning, and the

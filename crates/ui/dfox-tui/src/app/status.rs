@@ -104,12 +104,12 @@ impl App {
                 .file
                 .file_name()
                 .map_or(String::new(), |n| n.to_string_lossy().into_owned());
-            let what = if export.import.is_some() {
-                "importing"
-            } else {
-                "exporting"
+            let what = match (&export.import, &export.copy_to) {
+                (_, Some(into)) => format!("copying {name} → {into}"),
+                (Some(_), None) => format!("importing {name}"),
+                (None, None) => format!("exporting {name}"),
             };
-            let mut text = format!(" {what} {name} · {}", count(export.rows as usize));
+            let mut text = format!(" {what} · {}", count(export.rows as usize));
             if let Some(estimate) = export.estimate.filter(|e| *e > 0) {
                 let percent = (export.rows * 100 / estimate).min(99);
                 text.push_str(&format!(" ({percent}%)"));

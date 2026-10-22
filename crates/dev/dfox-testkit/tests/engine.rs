@@ -978,3 +978,223 @@ async fn import_speed() {
     let table = NodePath::root().child("main").child(name.clone());
     import_rows(&mut engine, "SQLite", table, &create).await;
 }
+
+/// Copies `sql`'s rows from `engine`'s session into `table` of the target,
+/// and returns how it ended.
+async fn copy(
+    engine: &mut Driver,
+    sql: &str,
+    db_type: DbType,
+    params: ConnectionParams,
+    table: NodePath,
+    create: bool,
+) -> Result<QueryStats, DbError> {
+    engine.next_id += 1;
+    let id = engine.next_id;
+    engine.engine.send(Command::Copy {
+        id,
+        sql: sql.into(),
+        target: Box::new(engine::CopyTarget {
+            db_type,
+            params,
+            table,
+            create,
+        }),
+    });
+    loop {
+        if let EngineEvent::QueryDone { id: of, outcome } = engine.next().await {
+            if of == id {
+                return outcome;
+            }
+        }
+    }
+}
+
+const COPY_SOURCE: &str = "CREATE TABLE src (id INTEGER, name TEXT, price REAL);
+     INSERT INTO src WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 1500)
+         SELECT n, 'item ' || n, n * 1.5 FROM r";
+
+#[tokio::test]
+async fn sqlite_rows_copy_into_a_new_table_anywhere() {
+    let source = TempDb::new();
+    let mut engine = Driver::connect(DbType::Sqlite, source.params()).await;
+    engine.query(COPY_SOURCE, 0).await.outcome.expect("source");
+    let sql = "SELECT id, name, price FROM src ORDER BY id";
+
+    // Into another SQLite file, creating the table.
+    let target = TempDb::new();
+    let table = NodePath::root().child("main").child("dst");
+    let stats = copy(
+        &mut engine,
+        sql,
+        DbType::Sqlite,
+        target.params(),
+        table.clone(),
+        true,
+    )
+    .await
+    .expect("copy");
+    assert_eq!(stats.rows, 1500);
+    let mut check = Driver::connect(DbType::Sqlite, target.params()).await;
+    assert_eq!(
+        check
+            .scalar("SELECT name || ' ' || price FROM dst WHERE id = 2")
+            .await
+            .as_deref(),
+        Some("item 2 3.0")
+    );
+
+    // Into a table that is there: columns match by name; one it lacks fails.
+    check
+        .query(
+            "CREATE TABLE kept (ID INTEGER, NAME TEXT, price REAL, extra TEXT DEFAULT 'x')",
+            0,
+        )
+        .await
+        .outcome
+        .expect("kept");
+    let kept = NodePath::root().child("main").child("kept");
+    copy(
+        &mut engine,
+        sql,
+        DbType::Sqlite,
+        target.params(),
+        kept,
+        false,
+    )
+    .await
+    .expect("copy into kept");
+    assert_eq!(
+        check
+            .scalar("SELECT count(*) FROM kept WHERE extra = 'x'")
+            .await
+            .as_deref(),
+        Some("1500")
+    );
+    let err = copy(
+        &mut engine,
+        "SELECT id, name AS nope FROM src",
+        DbType::Sqlite,
+        target.params(),
+        NodePath::root().child("main").child("kept"),
+        false,
+    )
+    .await
+    .expect_err("no column nope");
+    assert!(err.to_string().contains("nope"), "{err}");
+
+    // Into Postgres and MySQL, creating the table there.
+    for (db_type, var) in [
+        (DbType::Postgres, "DFOX_TEST_POSTGRES_URL"),
+        (DbType::MySql, "DFOX_TEST_MYSQL_URL"),
+    ] {
+        let Some(url) = server_url(var) else {
+            continue;
+        };
+        let params = params_from_url(&url);
+        let database = params.database.clone().unwrap_or_default();
+        let name = unique("copied");
+        let table: NodePath = match db_type {
+            DbType::Postgres => [database.as_str(), "public", name.as_str()]
+                .into_iter()
+                .collect(),
+            _ => [database.as_str(), name.as_str()].into_iter().collect(),
+        };
+        let stats = copy(&mut engine, sql, db_type, params.clone(), table, true)
+            .await
+            .unwrap_or_else(|err| panic!("{db_type:?}: {err}"));
+        assert_eq!(stats.rows, 1500, "{db_type:?}");
+        let mut there = Driver::connect(db_type, params).await;
+        assert_eq!(
+            there
+                .scalar(&format!("SELECT count(*) FROM {name} WHERE price = 3"))
+                .await
+                .as_deref(),
+            Some("1"),
+            "{db_type:?}"
+        );
+        there
+            .query(&format!("DROP TABLE {name}"), 0)
+            .await
+            .outcome
+            .expect("drop");
+    }
+}
+
+#[tokio::test]
+async fn postgres_and_mysql_copy_into_each_other() {
+    let (Some(pg), Some(my)) = (
+        server_url("DFOX_TEST_POSTGRES_URL"),
+        server_url("DFOX_TEST_MYSQL_URL"),
+    ) else {
+        return;
+    };
+    let (pg, my) = (params_from_url(&pg), params_from_url(&my));
+    let (pg_db, my_db) = (
+        pg.database.clone().unwrap_or_default(),
+        my.database.clone().unwrap_or_default(),
+    );
+    let name = unique("both");
+    let mut from_pg = Driver::connect(DbType::Postgres, pg.clone()).await;
+    from_pg
+        .query(
+            &format!(
+                "CREATE TABLE {name} (id BIGINT, label TEXT, amount NUMERIC(10, 2), seen TIMESTAMPTZ, ok BOOLEAN);
+                 INSERT INTO {name} SELECT g, 'n' || g, g / 4.0, '2024-01-02 03:04:05+00', g % 2 = 0
+                 FROM generate_series(1, 1000) g"
+            ),
+            0,
+        )
+        .await
+        .outcome
+        .expect("pg source");
+    let to_my: NodePath = [my_db.as_str(), name.as_str()].into_iter().collect();
+    let stats = copy(
+        &mut from_pg,
+        &format!("SELECT * FROM {name}"),
+        DbType::MySql,
+        my.clone(),
+        to_my,
+        true,
+    )
+    .await
+    .expect("pg → mysql");
+    assert_eq!(stats.rows, 1000);
+
+    // And back, into a new Postgres table.
+    let mut from_my = Driver::connect(DbType::MySql, my).await;
+    let back = format!("{name}_back");
+    let to_pg: NodePath = [pg_db.as_str(), "public", back.as_str()]
+        .into_iter()
+        .collect();
+    copy(
+        &mut from_my,
+        &format!("SELECT * FROM {name}"),
+        DbType::Postgres,
+        pg,
+        to_pg,
+        true,
+    )
+    .await
+    .expect("mysql → pg");
+    assert_eq!(
+        from_pg
+            .scalar(&format!(
+                "SELECT count(*) FROM {back} b JOIN {name} a USING (id) \
+                 WHERE a.label = b.label AND a.amount = b.amount AND a.ok = (b.ok::int = 1)"
+            ))
+            .await
+            .as_deref(),
+        Some("1000")
+    );
+    from_pg
+        .query(&format!("DROP TABLE {name}; DROP TABLE {back}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+    from_my
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+}
