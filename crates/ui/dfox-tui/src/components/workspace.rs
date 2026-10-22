@@ -20,6 +20,7 @@ use ratatui::{
 
 use super::{
     card::{CardEvent, ColumnCard, TableCard},
+    copy::CopyDialog,
     editor::{EditorPanel, TabLabel},
     explorer::Explorer,
     export::{DialogEvent, ExportDialog},
@@ -70,6 +71,8 @@ pub struct Exporting {
     pub file: std::path::PathBuf,
     /// The table it imports into; `None` for an export.
     pub import: Option<NodePath>,
+    /// The connection it copies into; `None` for an export or import.
+    pub copy_to: Option<String>,
     pub rows: u64,
     /// About how many rows there are, when the table says.
     pub estimate: Option<u64>,
@@ -546,6 +549,24 @@ impl Workspace {
                     };
                     let file = export.file.display().to_string();
                     let rows = |n: u64| results::grid::group_digits(&n.to_string());
+                    if let Some(into) = &export.copy_to {
+                        match outcome {
+                            Ok(stats) => ctx.toast(
+                                Level::Success,
+                                format!(
+                                    "Copied {} rows of {file} into {into} in {}",
+                                    rows(stats.rows),
+                                    results::format_duration(stats.elapsed)
+                                ),
+                            ),
+                            Err(DbError::Cancelled) => ctx.toast(
+                                Level::Info,
+                                format!("Copy cancelled after {} rows went in", rows(export.rows)),
+                            ),
+                            Err(err) => ctx.toast(Level::Error, format!("Couldn't copy: {err}")),
+                        }
+                        return false;
+                    }
                     match (outcome, &export.import) {
                         (Ok(stats), None) => ctx.toast(
                             Level::Success,
@@ -795,6 +816,13 @@ impl Workspace {
                 return self.show_rows(table, query, ctx);
             }
             Choice::Count => ctx.engine.send(DbCommand::Count { path: table }),
+            Choice::CopyTo => {
+                return Some(Command::CopyTo {
+                    sql: self.rows_query(&name, Rows::All),
+                    source: table.name().unwrap_or_default().to_string(),
+                    estimate: info.as_ref().and_then(|info| info.row_estimate),
+                });
+            }
             Choice::Import => {
                 self.export_dialog = Some(ExportDialog::import(table));
             }
@@ -959,6 +987,40 @@ impl Workspace {
             id,
             file,
             import: dialog.import,
+            copy_to: None,
+            rows: 0,
+            estimate: dialog.estimate,
+        });
+    }
+
+    /// Starts copying `dialog`'s rows into `target`, a table of the saved
+    /// connection `into`.
+    pub fn start_copy(
+        &mut self,
+        dialog: CopyDialog,
+        into: String,
+        target: dfox_core::engine::CopyTarget,
+        ctx: &mut Ctx,
+    ) {
+        if self.exporting.is_some() {
+            ctx.toast(
+                Level::Warning,
+                "An export or import is running: wait for it, or cancel it",
+            );
+            return;
+        }
+        self.next_query += 1;
+        let id = self.next_query;
+        ctx.engine.send(DbCommand::Copy {
+            id,
+            sql: dialog.sql,
+            target: Box::new(target),
+        });
+        self.exporting = Some(Exporting {
+            id,
+            file: std::path::PathBuf::from(&dialog.source),
+            import: None,
+            copy_to: Some(into),
             rows: 0,
             estimate: dialog.estimate,
         });

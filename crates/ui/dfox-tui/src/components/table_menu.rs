@@ -48,6 +48,8 @@ pub enum Choice {
     Export,
     /// A file's rows, into the table.
     Import,
+    /// Every row, into a table of another connection.
+    CopyTo,
     Script(Script),
     Definition,
     InsertName,
@@ -169,6 +171,7 @@ impl TableMenu {
             },
             pick('c', "Count rows", Choice::Count),
             pick('x', "Export…", Choice::Export),
+            pick('y', "Copy to…", Choice::CopyTo),
             Item {
                 key: 's',
                 label: "Scripts",

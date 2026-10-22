@@ -1,6 +1,7 @@
 //! Screens and the panels inside them.
 
 pub mod card;
+pub mod copy;
 pub mod editor;
 pub mod explorer;
 pub mod export;

@@ -11,8 +11,9 @@ expression: snapshot(&m)
            │ w  Filtered rows…        │
            │ c  Count rows            │
            │ x  Export…               │
-           │ s  Scripts           ▸   │
+           │ y  Copy to…              │
            │ e  Definition            │
+           │ s  Scripts           ▸   │
            │ i  Insert name           │
            │ p  Properties            │
            │ r  Refresh               │

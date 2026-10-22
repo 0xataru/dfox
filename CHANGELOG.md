@@ -22,6 +22,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   the rows ten thousand at a time, with progress in the status bar: by COPY in Postgres,
   multi-row inserts in MySQL, `insertMany` in MongoDB. About 100,000–200,000 rows a
   second on a local server. Postgres, MySQL, SQLite and MongoDB.
+- Copying a table's rows to another database: **Copy to…** in a table's menu picks a saved
+  connection (Postgres, MySQL, SQLite or MongoDB) and a table there, which it can create
+  from the rows' columns in that database's own types (`BIGINT`, `NUMERIC`, `JSONB`,
+  `TIMESTAMPTZ`, …). The rows stream across through the bulk inserts, with progress in
+  the status bar; **Ctrl+C** cancels.
 - Editing documents in MongoDB, the same way: found by `_id` (an ObjectId as the grid
   shows it), with each changed field keeping its type, and new fields read as the mongo
   shell reads values. Written one change at a time.

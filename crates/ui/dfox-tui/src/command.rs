@@ -9,6 +9,12 @@ pub enum Command {
     Quit,
     /// Writes the grid's edits to their table.
     ApplyChanges(dfox_core::session::ChangeSet),
+    /// Asks where to copy `sql`'s rows, the rows of the table `source`.
+    CopyTo {
+        sql: String,
+        source: String,
+        estimate: Option<u64>,
+    },
     /// Asks before quitting.
     ConfirmQuit,
     Connect(EntryKey),
