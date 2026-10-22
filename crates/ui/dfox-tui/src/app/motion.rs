@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use dfox_core::{engine::EngineEvent, errors::DbError};
+use dfox_core::{engine::EngineEvent, errors::DbError, result::ResultSet};
 use ratatui::layout::Rect;
 use tokio::time::Instant;
 
@@ -100,6 +100,28 @@ impl App {
         })
     }
 
+    /// `event` brings the first rows of the result on screen.
+    pub(super) fn first_rows(&self, event: &EngineEvent) -> Option<()> {
+        let EngineEvent::Batch { id, batch } = event else {
+            return None;
+        };
+        let workspace = self.workspace.as_ref()?;
+        let first = self.screen == Screen::Workspace
+            && workspace.shows_query(*id)
+            && workspace.results().store.row_count() == 0
+            && batch.num_rows() > 0;
+        first.then_some(())
+    }
+
+    /// The first rows sweep in.
+    pub(super) fn rows_in(&mut self) {
+        if let Some(workspace) = &self.workspace {
+            let area = crate::components::inner(workspace.area(Panel::Results));
+            self.motion
+                .start(Slot::Rows, motion::rows_in(&self.theme, area));
+        }
+    }
+
     /// Flashes the results border green, red or amber.
     pub(super) fn flash_results(&mut self, outcome: Outcome) {
         let Some(workspace) = &self.workspace else {
@@ -112,6 +134,9 @@ impl App {
         };
         let area = workspace.area(Panel::Results);
         self.motion.start(Slot::Results, motion::flash(color, area));
+        if outcome == Outcome::Failed {
+            self.motion.start(Slot::Shake, motion::shake(area));
+        }
     }
 
     /// A failed connect flashes the connection list red.

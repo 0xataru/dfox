@@ -12,6 +12,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - A new logo: a fox head made of triangles (`examples/logo.svg`), which in the README breaks
   into data cells and comes back together every few seconds. The splash draws it in the
   terminal, its pixels flying in from the left and settling into the head, above the name.
+- Queries move: while the first rows are on their way the fox assembles and flies apart in
+  the results panel, the first rows sweep in, a count of 100 rows or more rolls up, a
+  failed query's results shake, and the running bar turns amber while a query is being
+  cancelled. With `animations = false`, none of it.
+- `dfox version` prints only the version, without the list of databases.
+- The tour GIFs in the README show the new splash and the query motion.
 
 ### Fixed
 

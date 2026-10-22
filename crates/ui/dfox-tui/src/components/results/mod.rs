@@ -18,7 +18,7 @@ use dfox_core::{
     result::{ColumnMeta, OwnedCell, ResultSet},
 };
 use ratatui::{
-    layout::{Position, Rect},
+    layout::{Constraint, Flex, Layout, Position, Rect},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -37,8 +37,15 @@ use crate::{
     command::Command,
     component::{Component, Ctx, RenderCtx},
     sql::{self, Dialect},
-    widgets::{progress::ProgressBar, throbber::spinner, toast::Level},
+    theme::ColorDepth,
+    widgets::{fox::Fox, progress::ProgressBar, throbber::spinner, toast::Level},
 };
+
+/// How long a finished query's row count takes to roll up.
+const COUNT_UP: Duration = Duration::from_millis(300);
+
+/// How long the waiting fox takes to assemble, and to fly apart again.
+const FOX_LOOP: Duration = Duration::from_millis(1600);
 
 #[derive(Debug)]
 pub struct RunningQuery {
@@ -72,6 +79,8 @@ pub struct ResultsPanel {
     pub error: Option<String>,
     pub message: Option<String>,
     pub running: Option<RunningQuery>,
+    /// When the last query's rows were counted, to roll the count up.
+    counted: Option<(Instant, QueryStats)>,
     pub grid: Grid,
     pub focused: bool,
     dialect: Dialect,
@@ -122,6 +131,7 @@ impl ResultsPanel {
             error: None,
             message: None,
             running: None,
+            counted: None,
             grid: Grid::default(),
             focused: false,
             dialect,
@@ -300,6 +310,7 @@ impl ResultsPanel {
             started: ctx.now,
             cancelling: false,
         });
+        self.counted = None;
         self.sql.clear();
         self.table = None;
         self.note = None;
@@ -383,6 +394,10 @@ impl ResultsPanel {
                 }
                 let has_columns = !self.store.columns().is_empty();
                 self.message = Some(query_message(&stats, has_columns));
+                // A few rows show as they are; many roll up.
+                if has_columns && stats.rows >= 100 {
+                    self.counted = Some((ctx.now, stats));
+                }
                 finished.ok = true;
                 finished.changed = !browsed;
                 finished.elapsed = stats.elapsed;
@@ -402,6 +417,31 @@ impl ResultsPanel {
             }
         }
         Some(finished)
+    }
+
+    /// Redraws at an animation's pace are wanted: the fox runs while a query
+    /// waits for its first rows, and the row count rolls up after.
+    pub fn smooth(&self, now: Instant) -> bool {
+        (self.running.is_some() && self.size().0 == 0)
+            || self
+                .counted
+                .as_ref()
+                .is_some_and(|(at, _)| now.saturating_duration_since(*at) < COUNT_UP)
+    }
+
+    /// The message under the rows: while the count rolls up, a share of it.
+    fn shown_message(&self, ctx: &RenderCtx) -> Option<String> {
+        if let (Some((at, stats)), true) = (&self.counted, ctx.animations) {
+            let gone = ctx.now.saturating_duration_since(*at);
+            if gone < COUNT_UP {
+                let t = gone.as_secs_f64() / COUNT_UP.as_secs_f64();
+                let eased = 1. - (1. - t).powi(3);
+                let mut stats = *stats;
+                stats.rows = (stats.rows as f64 * eased).round() as u64;
+                return Some(query_message(&stats, true));
+            }
+        }
+        self.message.clone()
     }
 
     /// Shows the event log in the grid.
@@ -741,18 +781,54 @@ impl Component for ResultsPanel {
                     theme.dim(),
                 ),
             };
-            f.render_widget(Paragraph::new(status).block(block), area);
+            let room = inner(area);
+            // Where there is room, the fox assembles and flies apart while
+            // the first rows are on their way.
+            let fox_rows = match room.height {
+                _ if !ctx.animations || ctx.icons.ascii => 0,
+                h if self.running.is_none() || h < 10 => 0,
+                14.. => 8,
+                _ => 6,
+            };
+            if fox_rows > 0 {
+                f.render_widget(block, area);
+                let [fox_area, _, line] = Layout::vertical([
+                    Constraint::Length(fox_rows),
+                    Constraint::Length(1),
+                    Constraint::Length(1),
+                ])
+                .flex(Flex::Center)
+                .areas(room);
+                let [fox_area] = Layout::horizontal([Constraint::Length(Fox::width(fox_rows))])
+                    .flex(Flex::Center)
+                    .areas(fox_area);
+                let waited = self.running.as_ref().map_or(Duration::ZERO, |q| {
+                    ctx.now.saturating_duration_since(q.started)
+                });
+                let fox = Fox {
+                    progress: fox_progress(waited),
+                    depth: ColorDepth::of(theme.bg),
+                };
+                f.render_widget(fox, fox_area);
+                f.render_widget(Paragraph::new(status).centered(), line);
+            } else {
+                f.render_widget(Paragraph::new(status).block(block), area);
+            }
         }
 
-        // While a query runs, the bottom border sweeps.
-        if self.running.is_some() && area.width > 4 && area.height > 1 {
+        // While a query runs, the bottom border sweeps; amber once it is
+        // being cancelled.
+        if let (Some(query), true) = (&self.running, area.width > 4 && area.height > 1) {
             let mut bar = ProgressBar::new(theme, None, ctx.frame);
             bar.track = theme.border(self.focused).fg.unwrap_or(bar.track);
+            if query.cancelling {
+                (bar.from, bar.to) = (theme.warning, theme.warning);
+            }
             f.render_widget(
                 bar,
                 Rect::new(area.x + 1, area.y + area.height - 1, area.width - 2, 1),
             );
-        } else if let (Some(message), true) = (&self.message, rows > 0) {
+        } else if let (Some(message), true) = (self.shown_message(ctx), rows > 0) {
             let message = format!(" {message} ");
             let width = (message.chars().count() as u16).min(area.width.saturating_sub(4));
             f.render_widget(
@@ -918,6 +994,18 @@ impl ResultsPanel {
             .style(theme.surface());
         f.render_widget(Clear, popup);
         f.render_widget(Paragraph::new(lines).block(block), popup);
+    }
+}
+
+/// Where the waiting fox is `waited` into its loop: it assembles, holds,
+/// flies apart to the left and holds empty.
+fn fox_progress(waited: Duration) -> f32 {
+    let t = (waited.as_millis() % FOX_LOOP.as_millis()) as f32 / FOX_LOOP.as_millis() as f32;
+    match t {
+        t if t < 0.4 => t / 0.4,
+        t if t < 0.65 => 1.,
+        t if t < 0.9 => 1. - (t - 0.65) / 0.25,
+        _ => 0.,
     }
 }
 

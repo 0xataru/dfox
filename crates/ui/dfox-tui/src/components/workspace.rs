@@ -272,6 +272,11 @@ impl Workspace {
         &self.tab().results
     }
 
+    /// The results on screen want redraws at an animation's pace.
+    pub fn smooth(&self, now: tokio::time::Instant) -> bool {
+        self.results().smooth(now)
+    }
+
     /// The results of whichever tab is running a query.
     pub fn running(&self) -> Option<&ResultsPanel> {
         self.tabs
