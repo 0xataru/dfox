@@ -143,8 +143,9 @@ mod tests {
                 .unwrap_or_default();
             slowest = slowest.max(took);
         }
-        // The plan's bound is 5 ms per keystroke in release builds.
-        let bound = if cfg!(debug_assertions) { 100 } else { 5 };
+        // The plan's bound is 5 ms per keystroke in release builds. Debug
+        // builds only catch a gross slowdown: Windows runners take ~100 ms.
+        let bound = if cfg!(debug_assertions) { 300 } else { 5 };
         assert!(
             slowest < Duration::from_millis(bound),
             "slowest keystroke took {slowest:?}"
