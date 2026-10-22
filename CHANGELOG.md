@@ -7,6 +7,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Keys can be changed in the app: in the key list (**?**), **Enter** on an action takes its
+  new key and saves it in `config.toml`, keeping the file's comments; **Delete** brings the
+  defaults back. USAGE lists every action's name and default keys for `[keys]`.
+
 ## [0.5.0] - 2026-10-22
 
 ### Added

@@ -36,7 +36,7 @@ use crate::{
     connections::{pgpass, secrets::Secrets, Connection, Store},
     history::History,
     icons::Icons,
-    keymap::Keymap,
+    keymap::{Key, Keymap},
     theme::{self, ColorDepth, Theme},
     widgets::{
         confirm::Confirm,
@@ -75,8 +75,8 @@ pub enum Screen {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Overlay {
-    /// The key list, scrolled down this many lines.
-    Help(usize),
+    /// The key list, where keys are changed.
+    Help(help::Help),
     /// Where to copy a table's rows.
     Copy(crate::components::copy::CopyDialog),
     Palette(Palette),
@@ -128,7 +128,8 @@ struct Session {
 /// Everything the app starts with.
 pub struct Setup {
     pub config: Config,
-    pub themes_dir: Option<PathBuf>,
+    /// Where `config.toml` and `themes/` are, if anywhere.
+    pub config_dir: Option<PathBuf>,
     pub depth: ColorDepth,
     pub store: Store,
     pub secrets: Box<dyn Secrets>,
@@ -152,6 +153,7 @@ pub struct App {
     keymap: Keymap,
     theme: Theme,
     depth: ColorDepth,
+    config_dir: Option<PathBuf>,
     themes_dir: Option<PathBuf>,
     icons: Icons,
     store: Store,
@@ -187,7 +189,7 @@ impl App {
     pub fn new(engine: EngineHandle, setup: Setup) -> Self {
         let Setup {
             config,
-            themes_dir,
+            config_dir,
             depth,
             store,
             secrets,
@@ -201,6 +203,7 @@ impl App {
             update,
         } = setup;
         let (keymap, key_problems) = Keymap::new(config.keymap, &config.keys);
+        let themes_dir = config_dir.as_ref().map(|dir| dir.join("themes"));
         let mut problems: Vec<String> = problems.into_iter().chain(key_problems).collect();
         let theme =
             theme::load(&config.theme, themes_dir.as_deref(), depth).unwrap_or_else(|err| {
@@ -223,6 +226,7 @@ impl App {
             keymap,
             theme,
             depth,
+            config_dir,
             themes_dir,
             store,
             secrets,
@@ -487,15 +491,30 @@ impl App {
                 }
                 _ => self.overlay = Some(Overlay::Palette(palette)),
             },
-            Overlay::Help(scroll) => {
-                let scroll = match key.code {
-                    KeyCode::Down | KeyCode::Char('j') => Some(scroll + 1),
-                    KeyCode::Up | KeyCode::Char('k') => Some(scroll.saturating_sub(1)),
-                    KeyCode::PageDown => Some(scroll + 10),
-                    KeyCode::PageUp => Some(scroll.saturating_sub(10)),
-                    _ => None,
-                };
-                self.overlay = scroll.map(Overlay::Help);
+            Overlay::Help(mut help) if help.capturing => {
+                if key.code == KeyCode::Esc {
+                    help.capturing = false;
+                    help.taken = None;
+                } else {
+                    self.rebind(&mut help, key);
+                }
+                self.overlay = Some(Overlay::Help(help));
+            }
+            Overlay::Help(mut help) => {
+                match key.code {
+                    KeyCode::Down | KeyCode::Char('j') => help.select(1),
+                    KeyCode::Up | KeyCode::Char('k') => help.select(-1),
+                    KeyCode::PageDown => help.select(10),
+                    KeyCode::PageUp => help.select(-10),
+                    KeyCode::Enter => help.capturing = true,
+                    KeyCode::Delete | KeyCode::Backspace => {
+                        let action = help.action();
+                        let saved = self.set_keys(action, None);
+                        self.keys_changed(action, None, saved);
+                    }
+                    _ => return,
+                }
+                self.overlay = Some(Overlay::Help(help));
             }
             Overlay::Menu => {
                 if let KeyCode::Char(c) = key.code {
@@ -556,7 +575,7 @@ impl App {
 
     pub fn dispatch(&mut self, action: Action) {
         match action {
-            Action::Help => self.overlay = Some(Overlay::Help(0)),
+            Action::Help => self.overlay = Some(Overlay::Help(help::Help::default())),
             Action::Palette => self.overlay = Some(Overlay::Palette(Palette::default())),
             Action::Menu if self.screen == Screen::Workspace && !self.wants_text() => {
                 self.overlay = Some(Overlay::Menu)
@@ -577,6 +596,71 @@ impl App {
                 }
             }
         }
+    }
+
+    /// `key`, pressed while the key list waits for the selected action's new
+    /// key, becomes its only key. A key another action has moves only when
+    /// pressed twice.
+    fn rebind(&mut self, help: &mut help::Help, event: KeyEvent) {
+        let action = help.action();
+        let key = Key::new(event.code, event.modifiers);
+        let Some(name) = key.name() else {
+            self.toasts.push(
+                Level::Warning,
+                format!("{} can't be bound", key.label()),
+                Instant::now(),
+            );
+            return;
+        };
+        let owner = self.keymap.owner(key).filter(|owner| *owner != action);
+        if let Some(owner) = owner {
+            if help.taken != Some(key) {
+                help.taken = Some(key);
+                return;
+            }
+            let rest: Vec<String> = self
+                .keymap
+                .keys(owner)
+                .iter()
+                .filter(|k| **k != key)
+                .filter_map(Key::name)
+                .collect();
+            // Saving the second one reports for both.
+            let _ = self.set_keys(owner, Some(rest));
+        }
+        let saved = self.set_keys(action, Some(vec![name]));
+        self.keys_changed(action, owner, saved);
+        help.capturing = false;
+        help.taken = None;
+    }
+
+    /// Gives `action` `keys`, or its defaults with `None`, here and in
+    /// `config.toml`.
+    fn set_keys(&mut self, action: Action, keys: Option<Vec<String>>) -> Result<(), String> {
+        let name = action.name();
+        match &keys {
+            Some(keys) => self.config.keys.insert(name.to_string(), keys.clone()),
+            None => self.config.keys.remove(name),
+        };
+        (self.keymap, _) = Keymap::new(self.config.keymap, &self.config.keys);
+        match &self.config_dir {
+            Some(dir) => Config::save_keys(dir, name, keys.as_deref()),
+            None => Err("no config directory, so only until dfox quits".to_string()),
+        }
+    }
+
+    /// Says what `action`'s keys are now, and whether they were saved.
+    fn keys_changed(&mut self, action: Action, from: Option<Action>, saved: Result<(), String>) {
+        let keys = self.keymap.keys_for(action).join(" ");
+        let mut text = format!("{}: {keys}", action.description());
+        if let Some(from) = from {
+            text.push_str(&format!(", taken from {}", from.description()));
+        }
+        let (level, text) = match saved {
+            Ok(()) => (Level::Info, format!("{text} · saved")),
+            Err(err) => (Level::Warning, format!("{text} · not saved: {err}")),
+        };
+        self.toasts.push(level, text, Instant::now());
     }
 
     fn next_theme(&mut self) {
@@ -646,7 +730,7 @@ impl App {
         self.status_bar(ctx).render(f, status, ctx);
 
         match &self.overlay {
-            Some(Overlay::Help(scroll)) => help::render(f, main, *scroll, ctx),
+            Some(Overlay::Help(state)) => help::render(f, main, state, ctx),
             Some(Overlay::Palette(palette)) => palette.render(f, main, ctx),
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),

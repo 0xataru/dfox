@@ -107,6 +107,9 @@ key = "~/.ssh/id_ed25519"
 ## Keyboard Shortcuts
 
 Press **?** (or **F2**) in the app for the full list, generated from your keymap.
+To change a key there, move to the action, press **Enter**, then the new key: it
+replaces the action's keys and is saved in `config.toml`. A key another action has
+moves only when pressed twice. **Delete** brings the action's default keys back.
 **Ctrl+P** opens the command palette: type part of a command's name and press **Enter**.
 **Space** opens a command menu outside text fields.
 
@@ -225,6 +228,71 @@ update_check = true   # false: never ask GitHub whether a newer dfox is out
 [keys]                # replaces all keys of an action
 execute = ["f5", "ctrl+r"]
 ```
+
+Keys under `[keys]` are written like `ctrl+e`, `alt+]`, `shift+tab`, `ctrl+shift+z`,
+`f5`, `G`, `?`, `space`, `enter`, `esc`, `tab`, `backspace`, `delete`, `up`, `down`,
+`left`, `right`, `pageup`, `pagedown`, `home` and `end`. An empty list leaves the
+action without a key. The actions and their default keys:
+
+| Action | Does | Default keys |
+|---|---|---|
+| `palette` | Command palette | `ctrl+p` |
+| `execute` | Run statement/selection | `f5`, `ctrl+e`, `ctrl+enter` |
+| `execute_all` | Run the whole script | `shift+f5`, `ctrl+shift+enter`, `ctrl+shift+e` |
+| `complete` | Suggest names | `ctrl+space` |
+| `history` | Query history | `ctrl+r` |
+| `new_tab` | New query tab | `ctrl+n` |
+| `close_tab` | Close query tab | `ctrl+w` |
+| `next_tab` | Next query tab | `ctrl+pagedown`, `alt+]` |
+| `prev_tab` | Previous query tab | `ctrl+pageup`, `alt+[` |
+| `copy` | Copy / cancel query | `ctrl+c` |
+| `copy_as` | Copy as CSV, JSON, … | `y` |
+| `cut` | Cut | `ctrl+x` |
+| `paste` | Paste | `ctrl+v` |
+| `select_all` | Select all | `ctrl+a` |
+| `select_row` | Select whole rows | `V` |
+| `undo` | Undo | `ctrl+z` |
+| `redo` | Redo | `ctrl+y`, `ctrl+shift+z` |
+| `inspect` | Inspect / insert name | `i` |
+| `json_view` | Results as JSON / grid | `J` |
+| `add_row` | Add a row | `o` |
+| `export` | Export rows to a file | `x` |
+| `wider` | Widen column | `>` |
+| `narrower` | Narrow column | `<` |
+| `next_focus` | Next panel | `tab` |
+| `prev_focus` | Previous panel | `shift+tab` |
+| `filter` | Filter | `/` |
+| `refresh` | Refresh | `R` |
+| `new` | New connection | `n` |
+| `edit` | Edit / definition | `e` |
+| `delete` | Delete | `d`, `delete` |
+| `save` | Save | `ctrl+s` |
+| `connections` | Connection list | `f1` |
+| `next_theme` | Next theme | `ctrl+t` |
+| `debug` | Event log | `f12` |
+| `menu` | Command menu | `space` |
+| `help` | Show keys | `?`, `f2` |
+| `back` | Back / close | `esc` |
+| `quit` | Quit | `ctrl+q`, `q` |
+| `confirm` | Select / new line | `enter` |
+| `up` | Up | `up` (vim adds `k`) |
+| `down` | Down | `down` (vim adds `j`) |
+| `left` | Left / previous column | `left` (vim adds `h`) |
+| `right` | Right / next column | `right` (vim adds `l`) |
+| `page_up` | Page up | `pageup` (vim adds `ctrl+u`) |
+| `page_down` | Page down | `pagedown` (vim adds `ctrl+d`) |
+| `home` | First row / line start | `home` (vim adds `g`) |
+| `end` | Last row / line end | `end` (vim adds `G`) |
+| `backspace` | Delete back | `backspace` |
+| `delete_word` | Delete a word | `alt+backspace`, `ctrl+backspace` |
+| `word_left` | Previous word | `ctrl+left`, `alt+left`, `alt+b` |
+| `word_right` | Next word | `ctrl+right`, `alt+right`, `alt+f` |
+| `select_left` | Select left | `shift+left` |
+| `select_right` | Select right | `shift+right` |
+| `select_up` | Select up | `shift+up` |
+| `select_down` | Select down | `shift+down` |
+| `select_home` | Select to line start | `shift+home` |
+| `select_end` | Select to line end | `shift+end` |
 
 Once a day dfox asks GitHub, in the background, for the latest release. When
 a newer one is out, the connection manager's status bar says so from the next

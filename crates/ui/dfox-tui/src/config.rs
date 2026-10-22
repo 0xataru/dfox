@@ -89,6 +89,42 @@ impl Config {
             ),
         }
     }
+
+    /// Sets `action`'s keys in `dir`'s `config.toml`, or with `None` drops
+    /// them so the defaults apply. The rest of the file, comments included,
+    /// stays as it is.
+    pub fn save_keys(dir: &Path, action: &str, keys: Option<&[String]>) -> Result<(), String> {
+        let path = dir.join("config.toml");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(err) => return Err(format!("can't read {}: {err}", path.display())),
+        };
+        let mut doc: toml_edit::DocumentMut =
+            text.parse().map_err(|err: toml_edit::TomlError| {
+                format!("{}: {}", path.display(), err.message())
+            })?;
+        let table = doc
+            .entry("keys")
+            .or_insert(toml_edit::table())
+            .as_table_like_mut()
+            .ok_or_else(|| format!("{}: `keys` isn't a table", path.display()))?;
+        match keys {
+            Some(keys) => {
+                let keys: toml_edit::Array = keys.iter().map(String::as_str).collect();
+                table.insert(action, toml_edit::value(keys));
+            }
+            None => {
+                table.remove(action);
+            }
+        }
+        // Written aside, then moved over, so a failed write never leaves half a file.
+        let written = path.with_extension("toml.new");
+        std::fs::create_dir_all(dir)
+            .and_then(|()| std::fs::write(&written, doc.to_string()))
+            .and_then(|()| std::fs::rename(&written, &path))
+            .map_err(|err| format!("can't write {}: {err}", path.display()))
+    }
 }
 
 #[cfg(test)]
@@ -103,6 +139,38 @@ mod tests {
             toml::from_str::<Config>(&text).expect("parse"),
             Config::default()
         );
+    }
+
+    #[test]
+    fn keys_are_saved_and_dropped_keeping_the_rest() {
+        let dir = std::env::temp_dir().join(format!("dfox-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        Config::save_keys(&dir, "execute", Some(&["f6".into()])).expect("into no file");
+        assert_eq!(Config::load(Some(&dir)).0.keys["execute"], ["f6"]);
+
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "# mine\ntheme = \"nord\" # dark\n").expect("write");
+        Config::save_keys(&dir, "execute", Some(&["f6".into(), "ctrl+r".into()])).expect("save");
+        Config::save_keys(&dir, "history", Some(&[])).expect("save");
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            text.starts_with("# mine\ntheme = \"nord\" # dark\n"),
+            "{text}"
+        );
+        let config = Config::load(Some(&dir)).0;
+        assert_eq!(config.keys["execute"], ["f6", "ctrl+r"]);
+        assert!(config.keys["history"].is_empty());
+
+        Config::save_keys(&dir, "execute", None).expect("drop");
+        let config = Config::load(Some(&dir)).0;
+        assert!(!config.keys.contains_key("execute"));
+        assert_eq!(config.theme, "nord");
+
+        // A file it can't read is left alone.
+        std::fs::write(&path, "theme = ").expect("write");
+        assert!(Config::save_keys(&dir, "execute", None).is_err());
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "theme = ");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
