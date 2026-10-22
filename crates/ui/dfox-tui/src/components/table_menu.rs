@@ -44,6 +44,8 @@ pub enum Choice {
     /// The last rows of the CQL partition a condition names.
     PartitionRows(String),
     Count,
+    /// Every row, to a file.
+    Export,
     Script(Script),
     Definition,
     InsertName,
@@ -142,6 +144,7 @@ impl TableMenu {
                 pick('f', "First 100 items", Choice::FirstRows),
                 pick('a', "All items", Choice::AllRows),
                 pick('c', "Count items", Choice::Count),
+                pick('x', "Export…", Choice::Export),
                 pick('i', "Insert name", Choice::InsertName),
                 pick('p', "Properties", Choice::Properties),
                 pick('r', "Refresh", Choice::Refresh),
@@ -163,6 +166,7 @@ impl TableMenu {
                 then: Then::Ask(Ask::Filter),
             },
             pick('c', "Count rows", Choice::Count),
+            pick('x', "Export…", Choice::Export),
             Item {
                 key: 's',
                 label: "Scripts",

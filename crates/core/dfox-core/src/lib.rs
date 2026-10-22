@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod driver;
 pub mod engine;
 pub mod errors;
+pub mod export;
 pub mod models;
 pub mod result;
 #[deny(missing_docs)]

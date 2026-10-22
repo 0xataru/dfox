@@ -1428,3 +1428,83 @@ fn a_tables_rows_are_edited_and_saved() {
         [DbCommand::Run { sql, .. }] if sql == "SELECT * FROM orders LIMIT 100"
     ));
 }
+
+#[test]
+fn a_tabs_rows_are_exported_with_progress() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+
+    // A query that writes isn't run again to export.
+    w.editor_mut().open("DELETE FROM orders WHERE id = 1");
+    w.handle(Action::Execute, &mut harness.ctx());
+    let id = sent_query(&mut harness);
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
+    w.set_focus(Panel::Results);
+    w.handle(Action::Export, &mut harness.ctx());
+    assert!(!w.wants_text(), "no dialog");
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t.starts_with("Exporting runs the query again")));
+
+    w.editor_mut().open("SELECT * FROM orders");
+    w.set_focus(Panel::Editor);
+    w.handle(Action::Execute, &mut harness.ctx());
+    let id = sent_query(&mut harness);
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
+    w.set_focus(Panel::Results);
+    w.handle(Action::Export, &mut harness.ctx());
+    assert!(w.wants_text(), "the dialog asks for the file");
+    let file = std::env::temp_dir().join("orders.csv");
+    for _ in 0..500 {
+        w.handle(Action::Backspace, &mut harness.ctx());
+    }
+    for c in file.to_string_lossy().chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    w.handle(Action::Confirm, &mut harness.ctx());
+    let export = match harness.sent().as_slice() {
+        [DbCommand::Export { id, sql, file: to }]
+            if sql == "SELECT * FROM orders" && *to == file =>
+        {
+            *id
+        }
+        other => panic!("expected the export, got {other:?}"),
+    };
+
+    w.on_query_event(
+        EngineEvent::Progress {
+            id: export,
+            rows: 1200,
+        },
+        &mut harness.ctx(),
+    );
+    assert_eq!(w.exporting().map(|e| e.rows), Some(1200));
+    // Ctrl+C cancels it.
+    w.handle(Action::Copy, &mut harness.ctx());
+    assert_eq!(harness.sent(), [DbCommand::Cancel { id: export }]);
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id: export,
+            outcome: Err(DbError::Cancelled),
+        },
+        &mut harness.ctx(),
+    );
+    assert!(w.exporting().is_none());
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t == "Export cancelled"));
+}

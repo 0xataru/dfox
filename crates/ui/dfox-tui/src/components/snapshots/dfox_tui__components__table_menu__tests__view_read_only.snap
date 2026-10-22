@@ -5,15 +5,15 @@ expression: snapshot(&m)
 
 
 
-
            ╭ orders ──────────────────╮
            │ f  First 100 rows        │
            │ a  All rows              │
            │ w  Filtered rows…        │
            │ c  Count rows            │
+           │ x  Export…               │
            │ s  Scripts           ▸   │
-           │ i  Insert name           │
            │ e  Definition            │
+           │ i  Insert name           │
            │ p  Properties            │
            │ r  Refresh               │
            ╰──────────────────────────╯

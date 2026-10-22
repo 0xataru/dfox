@@ -3,6 +3,7 @@
 pub mod card;
 pub mod editor;
 pub mod explorer;
+pub mod export;
 pub mod form;
 pub mod manager;
 pub mod results;

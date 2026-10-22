@@ -12,6 +12,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - Adding rows in the grid: **o** adds a row below the table's rows, **e** fills its cells,
   and the cells left blank get their column's defaults, such as a serial key. Saved
   with the other changes (**Ctrl+S**), in the same transaction.
+- Exporting rows to a file: **x** in the results, or **Export…** in a table's menu. The
+  query runs again without the row limit and streams to CSV, TSV, JSON Lines or Parquet,
+  by the file's extension, with the rows written shown in the status bar (and a
+  percentage for a table that estimates its size). **Ctrl+C** cancels; a cancelled or
+  failed export leaves no file.
 - Editing documents in MongoDB, the same way: found by `_id` (an ObjectId as the grid
   shows it), with each changed field keeping its type, and new fields read as the mongo
   shell reads values. Written one change at a time.

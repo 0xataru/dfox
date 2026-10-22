@@ -157,6 +157,11 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
   changed field keeps its type (a number stays a number), and a new field reads as the
   mongo shell reads it (`42` a number, `"42"` or `Ann` text, `{…}` a document); the
   changes are written one by one, as a single server has no transactions
+- **x** - Export the rows to a file: the query runs again, whole, without the row limit,
+  and its rows are written as they come. The file's extension picks the format: `.csv`,
+  `.tsv`, `.jsonl` (or `.ndjson`) or `.parquet`. The status bar shows how far it has got;
+  **Ctrl+C** cancels it, and a cancelled or failed export leaves no file. Only a query
+  that reads can be exported. A table's menu has **Export…** for all its rows
 - **J** - Show the rows as JSON documents, and back to the grid. Each row is a document
   shown on one line; **→** or **Enter** opens it, and the objects and lists in it, **←**
   closes them or goes up. Columns that hold JSON (MongoDB's nested documents, a Redis

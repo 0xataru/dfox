@@ -28,13 +28,14 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
                │ i                 Inspect / insert name    End               Last row / line end       │
                │ J                 Results as JSON / grid   Backspace         Delete back               │
                │ o                 Add a row                Alt+Backspace     Delete a word             │
-               │ >                 Widen column             Alt+B Alt+←       Previous word             │
-               │ <                 Narrow column            Alt+F Alt+→       Next word                 │
-               │ Tab               Next panel               Shift+←           Select left               │
-               │ Shift+Tab         Previous panel           Shift+→           Select right              │
-               │ /                 Filter                   Shift+↑           Select up                 │
-               │ R                 Refresh                  Shift+↓           Select down               │
-               │ n                 New connection           Shift+Home        Select to line start      │
-               │ e                 Edit / definition        Shift+End         Select to line end        │
+               │ x                 Export rows to a file    Alt+B Alt+←       Previous word             │
+               │ >                 Widen column             Alt+F Alt+→       Next word                 │
+               │ <                 Narrow column            Shift+←           Select left               │
+               │ Tab               Next panel               Shift+→           Select right              │
+               │ Shift+Tab         Previous panel           Shift+↑           Select up                 │
+               │ /                 Filter                   Shift+↓           Select down               │
+               │ R                 Refresh                  Shift+Home        Select to line start      │
+               │ n                 New connection           Shift+End         Select to line end        │
+               │ e                 Edit / definition                                                    │
                │                                                                                        │
                ╰─────────────────────────────────── any key to close ───────────────────────────────────╯

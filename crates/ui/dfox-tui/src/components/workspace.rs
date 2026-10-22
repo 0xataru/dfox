@@ -22,7 +22,8 @@ use super::{
     card::{CardEvent, ColumnCard, TableCard},
     editor::{EditorPanel, TabLabel},
     explorer::Explorer,
-    results::ResultsPanel,
+    export::{DialogEvent, ExportDialog},
+    results::{self, ResultsPanel},
     table_menu::{self, mongo_handle, mongo_key, Choice, MenuEvent, Script, TableMenu, FEW_ROWS},
 };
 use crate::{
@@ -60,6 +61,16 @@ pub struct Tab {
     title: Option<String>,
     /// The table whose rows it was opened to show.
     rows_of: Option<NodePath>,
+}
+
+/// An export being written: where, and how far it has got.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exporting {
+    pub id: QueryId,
+    pub file: std::path::PathBuf,
+    pub rows: u64,
+    /// About how many rows there are, when the table says.
+    pub estimate: Option<u64>,
 }
 
 /// What `CREATE` makes for an object of `kind` with rows.
@@ -121,6 +132,10 @@ pub struct Workspace {
     /// A table's properties, while they are shown.
     properties: Option<TableCard>,
     pending: Option<Pending>,
+    /// Where to export rows, while it is asked.
+    export_dialog: Option<ExportDialog>,
+    /// The export being written.
+    exporting: Option<Exporting>,
 }
 
 impl Workspace {
@@ -146,6 +161,8 @@ impl Workspace {
             menu: None,
             properties: None,
             pending: None,
+            export_dialog: None,
+            exporting: None,
         };
         workspace.explorer.driver = Some(driver);
         workspace.new_tab();
@@ -515,6 +532,36 @@ impl Workspace {
     /// Applies a query's events to the tab running it. Returns true when the
     /// explorer should reload, as the query may have changed tables.
     pub fn on_query_event(&mut self, event: EngineEvent, ctx: &mut Ctx) -> bool {
+        if let Some(export) = &mut self.exporting {
+            match event {
+                EngineEvent::Progress { id, rows } if id == export.id => {
+                    export.rows = rows;
+                    return false;
+                }
+                EngineEvent::QueryDone { id, outcome } if id == export.id => {
+                    let file = export.file.display().to_string();
+                    self.exporting = None;
+                    match outcome {
+                        Ok(stats) => ctx.toast(
+                            Level::Success,
+                            format!(
+                                "Exported {} rows to {file} in {}",
+                                results::grid::group_digits(&stats.rows.to_string()),
+                                results::format_duration(stats.elapsed)
+                            ),
+                        ),
+                        Err(DbError::Cancelled) => ctx.toast(Level::Info, "Export cancelled"),
+                        Err(err) => ctx.toast(Level::Error, format!("Couldn't export: {err}")),
+                    }
+                    return false;
+                }
+                EngineEvent::Notice { id, message } if id == export.id => {
+                    ctx.toast(Level::Info, message);
+                    return false;
+                }
+                _ => {}
+            }
+        }
         match event {
             EngineEvent::Schema { id, schema } => {
                 if let Some(results) = self.results_for(id) {
@@ -564,6 +611,12 @@ impl Workspace {
     fn copy(&mut self, ctx: &mut Ctx) -> Option<Command> {
         if let Some(i) = self.running_tab() {
             self.tabs[i].results.cancel(ctx);
+            return None;
+        }
+        // Then the export, so Ctrl+C stops what is running.
+        if let Some(export) = &self.exporting {
+            ctx.engine.send(DbCommand::Cancel { id: export.id });
+            ctx.toast(Level::Info, "Cancelling the export…");
             return None;
         }
         self.delegate(Action::Copy, ctx)
@@ -714,6 +767,20 @@ impl Workspace {
                 return self.show_rows(table, query, ctx);
             }
             Choice::Count => ctx.engine.send(DbCommand::Count { path: table }),
+            Choice::Export => {
+                let sql = if self.language == QueryLanguage::RedisCmd {
+                    let key_type = self.explorer.detail(&table).unwrap_or_default();
+                    sql::redis::open_command(key_type, &table.parts()[1..].concat(), None)
+                } else {
+                    self.rows_query(&name, Rows::All)
+                };
+                let estimate = info.as_ref().and_then(|info| info.row_estimate);
+                let file_name = table
+                    .name()
+                    .unwrap_or("rows")
+                    .replace(['/', '\\', ':'], "_");
+                self.export_dialog = Some(ExportDialog::new(&file_name, sql, estimate));
+            }
             Choice::Script(Script::Create) | Choice::Definition => {
                 let kind = if choice == Choice::Definition {
                     kind
@@ -804,6 +871,65 @@ impl Workspace {
     }
 
     /// A table's rows were counted.
+    /// Asks where to export the current tab's rows: the query is run again,
+    /// whole, so only one that reads.
+    fn export_results(&mut self, ctx: &mut Ctx) {
+        let sql = self.results().query().trim().to_string();
+        if sql.is_empty() {
+            ctx.toast(Level::Info, "Run a query first, then export its rows");
+            return;
+        }
+        let writes = match self.language {
+            QueryLanguage::Sql(_) | QueryLanguage::Cql => guard::check(&sql, self.dialect).writes,
+            QueryLanguage::MongoShell => sql::mongo::check(&sql).writes,
+            QueryLanguage::RedisCmd => false,
+        };
+        if writes {
+            ctx.toast(
+                Level::Warning,
+                "Exporting runs the query again: only a query that reads can be exported",
+            );
+            return;
+        }
+        let name = self
+            .tab()
+            .rows_of
+            .as_ref()
+            .and_then(|t| t.name())
+            .unwrap_or("rows")
+            .replace(['/', '\\', ':'], "_");
+        self.export_dialog = Some(ExportDialog::new(&name, sql, None));
+    }
+
+    /// Starts writing `dialog`'s query to `file`.
+    fn start_export(&mut self, dialog: ExportDialog, file: std::path::PathBuf, ctx: &mut Ctx) {
+        if self.exporting.is_some() {
+            ctx.toast(
+                Level::Warning,
+                "An export is running: wait for it, or cancel it",
+            );
+            return;
+        }
+        self.next_query += 1;
+        let id = self.next_query;
+        ctx.engine.send(DbCommand::Export {
+            id,
+            sql: dialog.sql,
+            file: file.clone(),
+        });
+        self.exporting = Some(Exporting {
+            id,
+            file,
+            rows: 0,
+            estimate: dialog.estimate,
+        });
+    }
+
+    /// The export being written, for the status bar.
+    pub fn exporting(&self) -> Option<&Exporting> {
+        self.exporting.as_ref()
+    }
+
     /// Edits of the table at `path` were saved, or not.
     pub fn on_applied(
         &mut self,
@@ -1066,7 +1192,11 @@ impl Workspace {
 
     /// The focused panel has a menu or search open that takes every key.
     fn modal(&self) -> bool {
-        if self.card.is_some() || self.menu.is_some() || self.properties.is_some() {
+        if self.card.is_some()
+            || self.menu.is_some()
+            || self.properties.is_some()
+            || self.export_dialog.is_some()
+        {
             return true;
         }
         match self.focus.get() {
@@ -1176,6 +1306,17 @@ impl Workspace {
 
 impl Component for Workspace {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if let Some(dialog) = &mut self.export_dialog {
+            match dialog.handle(action) {
+                Some(DialogEvent::Export(file)) => {
+                    let dialog = self.export_dialog.take()?;
+                    self.start_export(dialog, file, ctx);
+                }
+                Some(DialogEvent::Close) => self.export_dialog = None,
+                None => {}
+            }
+            return None;
+        }
         if self.card.is_some() {
             return self.card_handle(action, ctx);
         }
@@ -1222,6 +1363,9 @@ impl Component for Workspace {
             Action::Complete if self.focus.is(Panel::Editor) => {
                 let tab = &mut self.tabs[self.active];
                 tab.editor.complete(&self.catalog, action);
+            }
+            Action::Export if self.focus.is(Panel::Results) && !self.results().is_modal() => {
+                self.export_results(ctx);
             }
             Action::Edit | Action::AddRow | Action::Delete | Action::Save | Action::Undo
                 if self.focus.is(Panel::Results) && !self.results().is_modal() =>
@@ -1290,17 +1434,25 @@ impl Component for Workspace {
         if let Some(card) = &self.card {
             card.render(f, area, ctx);
         }
+        if let Some(dialog) = &self.export_dialog {
+            dialog.render(f, area, ctx);
+        }
     }
 
     fn is_animating(&self) -> bool {
         self.explorer.is_animating()
             || self.running().is_some()
+            || self.exporting.is_some()
             || self.card.as_ref().is_some_and(ColumnCard::is_loading)
     }
 
     fn wants_text(&self) -> bool {
         // Cards and menus take letters as keys.
-        if self.card.is_some() || self.menu.is_some() || self.properties.is_some() {
+        if self.card.is_some()
+            || self.menu.is_some()
+            || self.properties.is_some()
+            || self.export_dialog.is_some()
+        {
             return true;
         }
         match self.focus.get() {

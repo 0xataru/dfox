@@ -659,3 +659,70 @@ async fn mysql_grid_edits_are_written_in_one_go() {
         .outcome
         .expect("drop");
 }
+
+#[tokio::test]
+async fn sqlite_queries_export_to_files_and_failures_leave_none() {
+    let db = TempDb::new();
+    let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;
+    engine
+        .query(
+            "CREATE TABLE t (n INTEGER, s TEXT);
+             INSERT INTO t WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 25000)
+                 SELECT n, 'row ' || n FROM r",
+            0,
+        )
+        .await
+        .outcome
+        .expect("create");
+
+    let dir = std::env::temp_dir().join(unique("dfox_export"));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let export = |engine: &mut Driver, file: &std::path::Path, sql: &str| {
+        engine.next_id += 1;
+        let id = engine.next_id;
+        engine.engine.send(Command::Export {
+            id,
+            sql: sql.to_string(),
+            file: file.to_path_buf(),
+        });
+        id
+    };
+    // Waits for the export to end, counting its progress reports.
+    async fn done(engine: &mut Driver, id: QueryId) -> (Result<QueryStats, DbError>, usize) {
+        let mut progress = 0;
+        loop {
+            match engine.next().await {
+                EngineEvent::Progress { id: of, .. } if of == id => progress += 1,
+                EngineEvent::QueryDone { id: of, outcome } if of == id => {
+                    return (outcome, progress)
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let csv = dir.join("t.csv");
+    let id = export(&mut engine, &csv, "SELECT n, s FROM t ORDER BY n");
+    let (outcome, _) = done(&mut engine, id).await;
+    assert_eq!(outcome.expect("export").rows, 25_000);
+    let text = std::fs::read_to_string(&csv).expect("read");
+    assert_eq!(text.lines().count(), 25_001, "a header and every row");
+    assert!(text.starts_with("n,s\n1,row 1\n"));
+
+    let parquet = dir.join("t.parquet");
+    let id = export(&mut engine, &parquet, "SELECT n FROM t");
+    assert_eq!(done(&mut engine, id).await.0.expect("export").rows, 25_000);
+    assert_eq!(&std::fs::read(&parquet).expect("read")[..4], b"PAR1");
+
+    // A failing query, and one with no rows to write, leave no file.
+    let bad = dir.join("bad.csv");
+    let id = export(&mut engine, &bad, "SELECT nope FROM t");
+    assert!(done(&mut engine, id).await.0.is_err());
+    assert!(!bad.exists());
+    let id = export(&mut engine, &bad, "DELETE FROM t WHERE n < 0");
+    let err = done(&mut engine, id).await.0.expect_err("no rows");
+    assert!(err.to_string().contains("no rows"), "{err}");
+    assert!(!bad.exists());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
