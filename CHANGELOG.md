@@ -15,7 +15,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - Queries move: while the first rows are on their way the fox assembles and flies apart in
   the results panel, the first rows sweep in, a count of 100 rows or more rolls up, a
   failed query's results shake, and the running bar turns amber while a query is being
-  cancelled. With `animations = false`, none of it.
+  cancelled. Saving edits breaks deleted rows into cells and flashes the changed cells
+  before the rows reload. Exports, imports and copies show a bar of cells, rows per
+  second and the time left, and a copy shows rows moving between the two connections.
+  While the explorer loads, placeholder rows shimmer; a new theme (**Ctrl+T**) washes over
+  the screen from a corner; once connected, the workspace forms out of scattered cells.
+  With `animations = false`, none of it.
 - `dfox version` prints only the version, without the list of databases.
 - The tour GIFs in the README show the new splash and the query motion.
 

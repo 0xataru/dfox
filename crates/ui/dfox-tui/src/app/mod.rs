@@ -331,6 +331,11 @@ impl App {
                     self.frame += 1;
                     let now = Instant::now();
                     self.toasts.expire(now);
+                    self.with_ctx(|app, ctx| {
+                        if let Some(w) = app.workspace {
+                            w.tick(ctx);
+                        }
+                    });
                     self.update_splash(now);
                     dirty = true;
                 }
@@ -693,7 +698,18 @@ impl App {
             .map_or(0, |i| (i + 1) % names.len());
         let name = names[next];
         if let Ok(theme) = theme::load(name, self.themes_dir.as_deref(), self.depth) {
+            let old_bg = self.theme.bg;
             self.theme = theme;
+            // The screen and the status bar under it.
+            let main = self.main_area.get();
+            let area = Rect {
+                height: main.height + 1,
+                ..main
+            };
+            self.motion.start(
+                crate::motion::Slot::Theme,
+                crate::motion::new_theme(old_bg, area),
+            );
             self.toasts
                 .push(Level::Info, format!("Theme: {name}"), Instant::now());
         }

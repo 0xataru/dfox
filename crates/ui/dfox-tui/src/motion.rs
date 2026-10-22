@@ -31,6 +31,10 @@ pub enum Slot {
     Rows,
     /// A failed query's results shaking.
     Shake,
+    /// A new theme washing over the screen.
+    Theme,
+    /// Saved rows: deleted ones breaking up, changed cells flashing.
+    Saved,
     Manager,
     Toast,
 }
@@ -182,6 +186,36 @@ pub fn toast(theme: &Theme, area: Rect) -> Effect {
     .with_area(area)
 }
 
+/// A new theme washes over the screen from the top-left corner, the old
+/// background giving way.
+pub fn new_theme(old_bg: ratatui::style::Color, area: Rect) -> Effect {
+    fx::fade_from(old_bg, old_bg, (250, Interpolation::QuadOut))
+        .with_pattern(
+            tachyonfx::pattern::DiagonalPattern::top_left_to_bottom_right()
+                .with_transition_width(12.),
+        )
+        .with_area(area)
+}
+
+/// Saved edits: each deleted row breaks into cells that drop away, each
+/// changed cell flashes the accent colour. `None` when none is on screen.
+pub fn saved(theme: &Theme, deleted: &[Rect], changed: &[Rect]) -> Option<Effect> {
+    let effects: Vec<Effect> = deleted
+        .iter()
+        .map(|row| fx::dissolve((250, Interpolation::QuadOut)).with_area(*row))
+        .chain(changed.iter().map(|cell| {
+            fx::fade_from(theme.accent, theme.accent, (250, Interpolation::QuadOut))
+                .with_area(*cell)
+        }))
+        .collect();
+    (!effects.is_empty()).then(|| fx::parallel(&effects))
+}
+
+/// The workspace, once connected, forms out of scattered cells.
+pub fn connected(area: Rect) -> Effect {
+    fx::coalesce((250, Interpolation::QuadOut)).with_area(area)
+}
+
 /// The splash logo sweeps in from the left.
 pub fn splash_in(theme: &Theme, area: Rect) -> Effect {
     fx::sweep_in(
@@ -242,6 +276,8 @@ mod tests {
             splash_out(area),
             rows_in(&theme, area),
             shake(area),
+            new_theme(theme.bg, area),
+            connected(area),
         ] {
             let mut buf = Buffer::empty(area);
             let mut motion = Motion::new(true);

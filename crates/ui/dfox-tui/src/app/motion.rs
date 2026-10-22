@@ -60,6 +60,8 @@ impl App {
         if now.screen != before.screen {
             let effect = if before.screen == Screen::Splash {
                 motion::splash_out(main)
+            } else if (before.screen, now.screen) == (Screen::Manager, Screen::Workspace) {
+                motion::connected(main)
             } else {
                 motion::screen(&self.theme, main)
             };
@@ -119,6 +121,13 @@ impl App {
             let area = crate::components::inner(workspace.area(Panel::Results));
             self.motion
                 .start(Slot::Rows, motion::rows_in(&self.theme, area));
+        }
+    }
+
+    /// Saved rows: the deleted ones break into cells, changed cells flash.
+    pub(super) fn saved_rows(&mut self, saved: crate::components::workspace::Saved) {
+        if let Some(effect) = motion::saved(&self.theme, &saved.deleted, &saved.changed) {
+            self.motion.start(Slot::Saved, effect);
         }
     }
 
