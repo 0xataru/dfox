@@ -335,3 +335,66 @@ async fn cancel_stops_a_query_quickly() {
     eprintln!("cancelled in {took:?}");
     assert!(took < Duration::from_millis(300), "{took:?}");
 }
+
+#[tokio::test]
+async fn bulk_inserts_keep_awkward_text_whole() {
+    use dfox_core::{
+        result::OwnedCell,
+        session::{Change, ChangeSet},
+    };
+
+    let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
+        return;
+    };
+    let params = params_from_url(&url);
+    let database = params.database.clone().unwrap_or_default();
+    let mut s = session(&params).await;
+    let name = unique("copy");
+    run(
+        s.as_mut(),
+        &format!("CREATE TABLE {name} (id INTEGER, note TEXT)"),
+    )
+    .await;
+    let awkward = [
+        Some("tab\there"),
+        Some("line\nbreak\r\n"),
+        Some("back\\slash \\N"),
+        None,
+    ];
+    let changes = awkward
+        .iter()
+        .enumerate()
+        .map(|(i, note)| {
+            Change::Insert(vec![
+                ("id".into(), OwnedCell::Int(i as i64)),
+                (
+                    "note".into(),
+                    note.map_or(OwnedCell::Null, |n| OwnedCell::Text(n.into())),
+                ),
+            ])
+        })
+        .collect();
+    // Several inserts naming the same columns: they go in by COPY.
+    let report = s
+        .apply(ChangeSet {
+            table: [database.as_str(), "public", name.as_str()]
+                .into_iter()
+                .collect(),
+            key: Vec::new(),
+            changes,
+        })
+        .await
+        .expect("apply");
+    assert_eq!(report.inserted, 4);
+    let (rows, _) = run(
+        s.as_mut(),
+        &format!("SELECT coalesce(note, '<null>') FROM {name} ORDER BY id"),
+    )
+    .await;
+    let notes: Vec<&str> = rows.iter().map(|r| r[0].as_str()).collect();
+    assert_eq!(
+        notes,
+        ["tab\there", "line\nbreak\r\n", "back\\slash \\N", "<null>"]
+    );
+    run(s.as_mut(), &format!("DROP TABLE {name}")).await;
+}

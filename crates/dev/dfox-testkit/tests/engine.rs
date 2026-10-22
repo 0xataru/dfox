@@ -779,8 +779,7 @@ async fn sqlite_files_import_into_tables_by_column_name() {
             table: target.clone(),
             file: file.clone(),
         });
-        // Columns match by name whatever their case; empty cells get the
-        // default.
+        // Columns match by name whatever their case; empty cells are NULL.
         assert_eq!(
             done(&mut engine, id).await.expect(name).rows,
             2500,
@@ -788,7 +787,7 @@ async fn sqlite_files_import_into_tables_by_column_name() {
         );
         assert_eq!(
             engine
-                .scalar("SELECT count(*) FROM target WHERE s = 'none'")
+                .scalar("SELECT count(*) FROM target WHERE s IS NULL")
                 .await
                 .as_deref(),
             Some("250"),
@@ -856,12 +855,7 @@ async fn import_csv(engine: &mut Driver, table: NodePath, create: &str) {
                 Some("yes".into()),
                 Some("a".to_string())
             ],
-            [
-                Some("2".into()),
-                None,
-                Some("no".into()),
-                Some("none".to_string())
-            ],
+            [Some("2".into()), None, Some("no".into()), None],
         ]
     );
     let _ = std::fs::remove_file(file);
@@ -911,37 +905,20 @@ async fn mysql_imports_files() {
         .expect("drop");
 }
 
-/// `DFOX_TEST_POSTGRES_URL=… cargo test -p dfox-testkit --release --test engine -- --ignored import_speed --nocapture`
-#[tokio::test]
-#[ignore = "timing"]
-async fn import_speed() {
-    let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
-        return;
-    };
-    let params = params_from_url(&url);
-    let database = params.database.clone().unwrap_or_default();
-    let mut engine = Driver::connect(DbType::Postgres, params).await;
-    let name = unique("speed");
+/// Imports 50,000 rows into a table made by `create`, and says how fast.
+async fn import_rows(engine: &mut Driver, what: &str, table: NodePath, create: &str) {
     let rows = 50_000;
-    let file = std::env::temp_dir().join(format!("{name}.csv"));
+    let file = std::env::temp_dir().join(format!("{}.csv", unique("speed")));
     let mut text = String::from("id,name,price\n");
     for i in 0..rows {
         text.push_str(&format!("{i},item {i},{}.5\n", i % 1000));
     }
     std::fs::write(&file, text).expect("file");
-    engine
-        .query(
-            &format!("CREATE TABLE {name} (id INTEGER PRIMARY KEY, name TEXT, price NUMERIC)"),
-            0,
-        )
-        .await
-        .outcome
-        .expect("create");
+    if !create.is_empty() {
+        engine.query(create, 0).await.outcome.expect("create");
+    }
     engine.next_id += 1;
     let id = engine.next_id;
-    let table: NodePath = [database.as_str(), "public", name.as_str()]
-        .into_iter()
-        .collect();
     let started = Instant::now();
     engine.engine.send(Command::Import {
         id,
@@ -956,15 +933,48 @@ async fn import_speed() {
         }
     };
     let took = started.elapsed();
-    assert_eq!(outcome.expect("import").rows, rows);
+    assert_eq!(outcome.expect("import").rows, rows, "{what}");
     println!(
-        "imported {rows} rows into Postgres in {took:?}: {:.0} rows/s",
+        "imported {rows} rows into {what} in {took:?}: {:.0} rows/s",
         rows as f64 / took.as_secs_f64()
     );
-    engine
-        .query(&format!("DROP TABLE {name}"), 0)
-        .await
-        .outcome
-        .expect("drop");
     let _ = std::fs::remove_file(file);
+}
+
+/// `DFOX_TEST_…_URL=… cargo test -p dfox-testkit --release --test engine -- --ignored import_speed --nocapture`
+#[tokio::test]
+#[ignore = "timing"]
+async fn import_speed() {
+    let name = unique("speed");
+    let create = format!("CREATE TABLE {name} (id INTEGER PRIMARY KEY, name TEXT, price NUMERIC)");
+    if let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") {
+        let params = params_from_url(&url);
+        let database = params.database.clone().unwrap_or_default();
+        let mut engine = Driver::connect(DbType::Postgres, params).await;
+        let table = [database.as_str(), "public", name.as_str()]
+            .into_iter()
+            .collect();
+        import_rows(&mut engine, "Postgres", table, &create).await;
+        engine
+            .query(&format!("DROP TABLE {name}"), 0)
+            .await
+            .outcome
+            .expect("drop");
+    }
+    if let Some(url) = server_url("DFOX_TEST_MYSQL_URL") {
+        let params = params_from_url(&url);
+        let database = params.database.clone().unwrap_or_default();
+        let mut engine = Driver::connect(DbType::MySql, params).await;
+        let table = [database.as_str(), name.as_str()].into_iter().collect();
+        import_rows(&mut engine, "MySQL", table, &create).await;
+        engine
+            .query(&format!("DROP TABLE {name}"), 0)
+            .await
+            .outcome
+            .expect("drop");
+    }
+    let db = TempDb::new();
+    let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;
+    let table = NodePath::root().child("main").child(name.clone());
+    import_rows(&mut engine, "SQLite", table, &create).await;
 }

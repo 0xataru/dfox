@@ -131,8 +131,9 @@ pub enum Command {
         file: std::path::PathBuf,
     },
     /// Adds the rows of `file` to the table at `table`, as query `id`: its
-    /// columns match the table's by name, and cells left empty get their
-    /// defaults. Rows go in chunks, each in its own transaction; it
+    /// columns match the table's by name, empty cells are NULL, and columns
+    /// the file lacks get their defaults. Rows go in chunks, each in its
+    /// own transaction; it
     /// reports [`EngineEvent::Progress`] and ends with
     /// [`EngineEvent::QueryDone`], and can be cancelled.
     Import {
@@ -685,8 +686,9 @@ async fn stream_query(
     Ok(stats)
 }
 
-/// Rows an import adds in one transaction.
-const IMPORT_CHUNK: usize = 1000;
+/// Rows an import adds in one transaction: one COPY or a few multi-row
+/// inserts, where the driver can.
+const IMPORT_CHUNK: usize = 10_000;
 
 /// Reads `file` on a blocking thread and adds its rows to `table`, a chunk
 /// at a time.
@@ -735,6 +737,12 @@ async fn import_file(
             None => {
                 let mut matched = Vec::new();
                 for field in batch.schema().fields() {
+                    // A collection with no documents yet knows no fields:
+                    // the file's are taken as they are.
+                    if columns.is_empty() {
+                        matched.push(field.name().clone());
+                        continue;
+                    }
                     let name = columns
                         .iter()
                         .find(|c| c.eq_ignore_ascii_case(field.name()))
@@ -756,14 +764,16 @@ async fn import_file(
         for first in (0..count).step_by(IMPORT_CHUNK) {
             let changes = (first..count.min(first + IMPORT_CHUNK))
                 .map(|row| {
-                    // Empty cells are left out, so they get the defaults.
+                    // Every row names the same columns, so a driver can send
+                    // the chunk as one bulk insert.
                     Change::Insert(
                         names
                             .iter()
                             .enumerate()
-                            .filter_map(|(col, name)| {
-                                let cell = OwnedCell::from(rows.cell(row, col)?);
-                                (cell != OwnedCell::Null).then(|| (name.clone(), cell))
+                            .map(|(col, name)| {
+                                let cell =
+                                    rows.cell(row, col).map_or(OwnedCell::Null, OwnedCell::from);
+                                (name.clone(), cell)
                             })
                             .collect(),
                     )

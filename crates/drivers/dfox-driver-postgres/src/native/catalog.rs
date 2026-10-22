@@ -48,6 +48,64 @@ fn param(value: &OwnedCell) -> Option<String> {
     }
 }
 
+/// `inserts`, a run of inserts naming the same columns, sent as one COPY in
+/// text format: the server casts each column from text, as the single
+/// inserts' casts do. Returns how many rows went in.
+async fn copy_in(
+    client: &tokio_postgres::Client,
+    target: &str,
+    inserts: &[Change],
+) -> Result<u64, DbError> {
+    use futures_util::SinkExt;
+
+    let Some(Change::Insert(first)) = inserts.first() else {
+        return Ok(0);
+    };
+    let columns: Vec<String> = first.iter().map(|(c, _)| quote(c)).collect();
+    let mut text = String::new();
+    for change in inserts {
+        let Change::Insert(values) = change else {
+            continue;
+        };
+        for (i, (_, value)) in values.iter().enumerate() {
+            if i > 0 {
+                text.push('\t');
+            }
+            match param(value) {
+                None => text.push_str("\\N"),
+                Some(value) => copy_escape(&value, &mut text),
+            }
+        }
+        text.push('\n');
+    }
+    let sink = client
+        .copy_in::<_, bytes::Bytes>(&format!(
+            "COPY {target} ({}) FROM STDIN",
+            columns.join(", ")
+        ))
+        .await
+        .map_err(db_error)?;
+    futures_util::pin_mut!(sink);
+    sink.send(bytes::Bytes::from(text))
+        .await
+        .map_err(db_error)?;
+    sink.finish().await.map_err(db_error)
+}
+
+/// `value` as COPY's text format writes it: backslash, tab and line breaks
+/// escaped.
+fn copy_escape(value: &str, out: &mut String) {
+    for c in value.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            c => out.push(c),
+        }
+    }
+}
+
 /// `~12.4k`: a row estimate, short.
 fn estimate(rows: i64) -> String {
     match rows {
@@ -760,7 +818,18 @@ impl PgCatalog {
         client.batch_execute("BEGIN").await.map_err(db_error)?;
         let result = async {
             let mut report = ApplyReport::default();
-            for change in &changes.changes {
+            let all = &changes.changes;
+            let mut next = 0;
+            while next < all.len() {
+                // A run of inserts naming the same columns goes in by COPY.
+                let run = Change::insert_run(&all[next..]);
+                if run > 1 {
+                    report.inserted += copy_in(client, &target, &all[next..next + run]).await?;
+                    next += run;
+                    continue;
+                }
+                let change = &all[next];
+                next += 1;
                 let (sql, values): (String, Vec<Option<String>>) = match change {
                     Change::Insert(values) if values.is_empty() => {
                         (format!("INSERT INTO {target} DEFAULT VALUES"), Vec::new())

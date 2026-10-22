@@ -163,9 +163,11 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
   **Ctrl+C** cancels it, and a cancelled or failed export leaves no file. Only a query
   that reads can be exported. A table's menu has **Export…** for all its rows, and
   **Import…** to add a file's rows to the table: its columns match the table's by name
-  (whatever their case), empty cells get the columns' defaults, and a column the table
-  doesn't have stops the import before any row. Rows go in a thousand at a time, each
-  thousand in its own transaction, so a failed import says how many went in
+  (whatever their case), empty cells are NULL, the table's columns the file lacks get
+  their defaults, and a column the table doesn't have stops the import before any row.
+  Rows go in ten thousand at a time, each batch in its own transaction (a COPY in
+  Postgres, multi-row inserts in MySQL, `insertMany` in MongoDB), so a failed import
+  says how many went in
 - **J** - Show the rows as JSON documents, and back to the grid. Each row is a document
   shown on one line; **→** or **Enter** opens it, and the objects and lists in it, **←**
   closes them or goes up. Columns that hold JSON (MongoDB's nested documents, a Redis

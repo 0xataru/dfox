@@ -115,7 +115,33 @@ pub async fn apply(client: &Client, changes: ChangeSet) -> Result<ApplyReport, D
     }
     let coll = client.database(database).collection::<Document>(collection);
     let mut report = ApplyReport::default();
-    for change in &changes.changes {
+    let all = &changes.changes;
+    let mut next = 0;
+    while next < all.len() {
+        // A run of inserts goes in as one insertMany.
+        let run = all[next..]
+            .iter()
+            .take_while(|c| matches!(c, Change::Insert(_)))
+            .count();
+        if run > 0 {
+            let mut documents = Vec::with_capacity(run);
+            for change in &all[next..next + run] {
+                let Change::Insert(values) = change else {
+                    continue;
+                };
+                let mut document = Document::new();
+                for (field, cell) in values {
+                    document.insert(field.clone(), value(field, cell, None)?);
+                }
+                documents.push(document);
+            }
+            let done = coll.insert_many(documents).await.map_err(db_error)?;
+            report.inserted += done.inserted_ids.len() as u64;
+            next += run;
+            continue;
+        }
+        let change = &all[next];
+        next += 1;
         match change {
             Change::Update { key, set } => {
                 let filter = id_filter(key)?;
@@ -134,14 +160,8 @@ pub async fn apply(client: &Client, changes: ChangeSet) -> Result<ApplyReport, D
                     .map_err(db_error)?;
                 report.updated += done.matched_count;
             }
-            Change::Insert(values) => {
-                let mut document = Document::new();
-                for (field, cell) in values {
-                    document.insert(field.clone(), value(field, cell, None)?);
-                }
-                coll.insert_one(document).await.map_err(db_error)?;
-                report.inserted += 1;
-            }
+            // Taken as a run above.
+            Change::Insert(_) => {}
             Change::Delete(key) => {
                 let done = coll.delete_one(id_filter(key)?).await.map_err(db_error)?;
                 report.deleted += done.deleted_count;
