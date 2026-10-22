@@ -52,6 +52,8 @@ pub enum Action {
     JsonView,
     /// A new row in the table being edited.
     AddRow,
+    /// The rows to a file.
+    Export,
     Palette,
     Connections,
     Debug,
@@ -89,6 +91,7 @@ impl Action {
         Action::Inspect,
         Action::JsonView,
         Action::AddRow,
+        Action::Export,
         Action::Wider,
         Action::Narrower,
         Action::NextFocus,
@@ -176,6 +179,7 @@ impl Action {
             Action::Inspect => "inspect",
             Action::JsonView => "json_view",
             Action::AddRow => "add_row",
+            Action::Export => "export",
             Action::Palette => "palette",
             Action::Connections => "connections",
             Action::New => "new",
@@ -249,6 +253,7 @@ impl Action {
             Action::Inspect => "Inspect / insert name",
             Action::JsonView => "Results as JSON / grid",
             Action::AddRow => "Add a row",
+            Action::Export => "Export rows to a file",
             Action::Palette => "Command palette",
             Action::Connections => "Connection list",
             Action::New => "New connection",

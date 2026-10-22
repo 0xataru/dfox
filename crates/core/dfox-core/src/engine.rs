@@ -121,6 +121,15 @@ pub enum Command {
     Apply {
         changes: ChangeSet,
     },
+    /// Runs `sql` with no row limit and writes its rows to `file`, in the
+    /// format its extension names, as query `id`: it reports
+    /// [`EngineEvent::Progress`] and ends with [`EngineEvent::QueryDone`],
+    /// and can be cancelled. A failed or cancelled export leaves no file.
+    Export {
+        id: QueryId,
+        sql: String,
+        file: std::path::PathBuf,
+    },
     Cancel {
         id: QueryId,
     },
@@ -186,6 +195,11 @@ pub enum EngineEvent {
     Notice {
         id: QueryId,
         message: String,
+    },
+    /// An export has written `rows` rows so far.
+    Progress {
+        id: QueryId,
+        rows: u64,
     },
     /// Always the last event of query `id`. A cancelled query ends with
     /// [`DbError::Cancelled`].
@@ -396,6 +410,7 @@ impl Engine {
                 |catalog, path| catalog.count_rows(path),
             ),
             Command::Apply { changes } => self.apply(changes),
+            Command::Export { id, sql, file } => self.export(id, sql, file),
             Command::Cancel { id } => self.cancel(id),
         }
     }
@@ -507,6 +522,31 @@ impl Engine {
             row_limit,
             events.clone(),
         ));
+        self.track(id, query, None);
+    }
+
+    fn export(&mut self, id: QueryId, sql: String, file: std::path::PathBuf) {
+        let events = self.events.clone();
+        let Some(live) = self.live.clone() else {
+            tokio::spawn(async move {
+                let outcome = Err(Self::not_connected());
+                let _ = events.send(EngineEvent::QueryDone { id, outcome }).await;
+            });
+            return;
+        };
+        let task = tokio::spawn(export_query(live.session, id, sql, file.clone(), events));
+        self.track(id, task, Some(file));
+    }
+
+    /// Keeps `query` cancellable as `id`, and reports how it ended. A
+    /// failed export's `file` is removed.
+    fn track(
+        &mut self,
+        id: QueryId,
+        query: tokio::task::JoinHandle<Result<QueryStats, DbError>>,
+        file: Option<std::path::PathBuf>,
+    ) {
+        let events = self.events.clone();
         let cancelled = Arc::new(AtomicBool::new(false));
         self.queries.insert(
             id,
@@ -524,6 +564,11 @@ impl Engine {
             } else {
                 outcome
             };
+            if let (Err(_), Some(file)) = (&outcome, &file) {
+                // shortcut: on Windows the writer may still hold the file
+                // open for a moment and the removal fails; it is then left.
+                let _ = std::fs::remove_file(file);
+            }
             let _ = events.send(EngineEvent::QueryDone { id, outcome }).await;
             let _ = internal.send(Internal::QueryFinished(id));
         });
@@ -612,6 +657,75 @@ async fn stream_query(
     }
     stats.elapsed = started.elapsed();
     stats.truncated = has_rows && limit > 0 && stats.rows >= limit as u64;
+    Ok(stats)
+}
+
+/// How often an export reports its progress.
+const PROGRESS_EVERY: Duration = Duration::from_millis(200);
+
+/// Runs `sql` and writes its one result to `file` on a blocking thread, as
+/// the rows arrive.
+async fn export_query(
+    session: Shared,
+    id: QueryId,
+    sql: String,
+    file: std::path::PathBuf,
+    events: mpsc::Sender<EngineEvent>,
+) -> Result<QueryStats, DbError> {
+    let started = Instant::now();
+    let mut frames = session.lock().await.run(Request::new(sql)).await?;
+    let mut writer = None;
+    let mut stats = QueryStats::default();
+    let mut reported = Instant::now();
+    while let Some(frame) = frames.next().await {
+        match frame? {
+            Frame::Schema(schema) => {
+                if writer.is_some() {
+                    return Err(DbError::General(
+                        "the script returns several results: export one query at a time".into(),
+                    ));
+                }
+                let (tx, mut rx) = mpsc::channel::<RecordBatch>(4);
+                let path = file.clone();
+                let write = tokio::task::spawn_blocking(move || {
+                    let mut out = crate::export::Writer::create(&path, &schema)?;
+                    while let Some(batch) = rx.blocking_recv() {
+                        out.write(&batch)?;
+                    }
+                    out.finish()
+                });
+                writer = Some((tx, write));
+            }
+            Frame::Batch(batch) => {
+                stats.first_row.get_or_insert_with(|| started.elapsed());
+                stats.rows += batch.num_rows() as u64;
+                let Some((tx, _)) = &writer else { continue };
+                // The writer stopped: its error comes out below.
+                if tx.send(batch).await.is_err() {
+                    break;
+                }
+                if reported.elapsed() >= PROGRESS_EVERY {
+                    reported = Instant::now();
+                    let rows = stats.rows;
+                    let _ = events.send(EngineEvent::Progress { id, rows }).await;
+                }
+            }
+            Frame::Affected(rows) => stats.rows_affected += rows,
+            Frame::Notice(message) => {
+                let _ = events.send(EngineEvent::Notice { id, message }).await;
+            }
+        }
+    }
+    let Some((tx, write)) = writer else {
+        return Err(DbError::General(
+            "the query returned no rows to export".into(),
+        ));
+    };
+    drop(tx);
+    write
+        .await
+        .map_err(|err| DbError::General(format!("the export failed: {err}")))??;
+    stats.elapsed = started.elapsed();
     Ok(stats)
 }
 

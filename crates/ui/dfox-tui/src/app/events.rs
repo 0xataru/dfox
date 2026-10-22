@@ -71,6 +71,7 @@ impl App {
                 }
             }),
             event @ (EngineEvent::Schema { .. }
+            | EngineEvent::Progress { .. }
             | EngineEvent::Batch { .. }
             | EngineEvent::Notice { .. }
             | EngineEvent::QueryDone { .. }) => self.with_ctx(|app, ctx| {

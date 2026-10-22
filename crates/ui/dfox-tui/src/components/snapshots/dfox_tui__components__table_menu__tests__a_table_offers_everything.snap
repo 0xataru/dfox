@@ -10,6 +10,7 @@ expression: snapshot(&m)
            │ a  All rows              │
            │ w  Filtered rows…        │
            │ c  Count rows            │
+           │ x  Export…               │
            │ s  Scripts           ▸   │
            │ i  Insert name           │
            │ p  Properties            │

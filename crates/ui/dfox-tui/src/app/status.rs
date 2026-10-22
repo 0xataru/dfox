@@ -96,6 +96,26 @@ impl App {
             }
             spans
         });
+        // An export runs in the background, on any screen.
+        let exporting = self.workspace.as_ref().and_then(|w| w.exporting());
+        let activity = activity.or_else(|| {
+            let export = exporting?;
+            let name = export
+                .file
+                .file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+            let mut text = format!(" exporting {name} · {}", count(export.rows as usize));
+            if let Some(estimate) = export.estimate.filter(|e| *e > 0) {
+                let percent = (export.rows * 100 / estimate).min(99);
+                text.push_str(&format!(" ({percent}%)"));
+            }
+            Some(vec![
+                spinner(ctx, theme.key()),
+                Span::raw(format!("{text} ")),
+                Span::styled(format!(" {} ", ctx.keymap.hint(Action::Copy)), theme.key()),
+                Span::styled("cancel ", theme.dim()),
+            ])
+        });
 
         let hints: &[(Action, &str)] = match self.screen {
             Screen::Splash => &[],
