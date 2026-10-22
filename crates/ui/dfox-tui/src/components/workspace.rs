@@ -64,6 +64,16 @@ pub struct Tab {
     rows_of: Option<NodePath>,
 }
 
+/// Where the rows just saved are on screen, for their effect.
+#[derive(Debug, Default, PartialEq)]
+pub struct Saved {
+    pub deleted: Vec<Rect>,
+    pub changed: Vec<Rect>,
+}
+
+/// How long the saved rows' effect plays before the rows reload.
+const SAVED_EFFECT: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// An export being written: where, and how far it has got.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Exporting {
@@ -76,6 +86,7 @@ pub struct Exporting {
     pub rows: u64,
     /// About how many rows there are, when the table says.
     pub estimate: Option<u64>,
+    pub started: tokio::time::Instant,
 }
 
 /// What `CREATE` makes for an object of `kind` with rows.
@@ -141,6 +152,9 @@ pub struct Workspace {
     export_dialog: Option<ExportDialog>,
     /// The export being written.
     exporting: Option<Exporting>,
+    /// When to reload the rows of a tab whose edits were just saved: after
+    /// the saved rows' effect has played.
+    refresh_at: Option<(tokio::time::Instant, usize)>,
 }
 
 impl Workspace {
@@ -168,6 +182,7 @@ impl Workspace {
             pending: None,
             export_dialog: None,
             exporting: None,
+            refresh_at: None,
         };
         workspace.explorer.driver = Some(driver);
         workspace.new_tab();
@@ -270,6 +285,11 @@ impl Workspace {
 
     pub fn results(&self) -> &ResultsPanel {
         &self.tab().results
+    }
+
+    /// The results on screen want redraws at an animation's pace.
+    pub fn smooth(&self, now: tokio::time::Instant) -> bool {
+        self.results().smooth(now)
     }
 
     /// The results of whichever tab is running a query.
@@ -990,6 +1010,7 @@ impl Workspace {
             copy_to: None,
             rows: 0,
             estimate: dialog.estimate,
+            started: ctx.now,
         });
     }
 
@@ -1023,6 +1044,7 @@ impl Workspace {
             copy_to: Some(into),
             rows: 0,
             estimate: dialog.estimate,
+            started: ctx.now,
         });
     }
 
@@ -1032,20 +1054,37 @@ impl Workspace {
     }
 
     /// Edits of the table at `path` were saved, or not.
+    /// Reloads saved rows once their effect has played.
+    pub fn tick(&mut self, ctx: &mut Ctx) {
+        let Some((at, tab)) = self.refresh_at else {
+            return;
+        };
+        if ctx.now < at {
+            return;
+        }
+        self.refresh_at = None;
+        if tab == self.active {
+            let sql = self.results().query().to_string();
+            if !sql.is_empty() {
+                self.run_checked(sql, ctx);
+            }
+        }
+    }
+
+    /// The saved edits answered. Returns where the saved rows are on screen,
+    /// when they are, for their effect.
     pub fn on_applied(
         &mut self,
         path: &NodePath,
         result: Result<ApplyReport, DbError>,
         ctx: &mut Ctx,
-    ) {
-        let Some(i) = self.tabs.iter().position(|t| {
+    ) -> Option<Saved> {
+        let i = self.tabs.iter().position(|t| {
             t.results
                 .edits
                 .as_ref()
                 .is_some_and(|e| e.saving && e.table == *path)
-        }) else {
-            return;
-        };
+        })?;
         let name = path.name().unwrap_or_default();
         match result {
             Ok(report) => {
@@ -1061,14 +1100,34 @@ impl Workspace {
                     done.join(", ")
                 };
                 ctx.toast(Level::Success, format!("Saved {name}: {done}"));
-                self.tabs[i].results.edits = None;
-                // Show the rows as they are now.
+                let results = &mut self.tabs[i].results;
+                let saved = results
+                    .edits
+                    .take()
+                    .filter(|_| i == self.active)
+                    .map(|edits| {
+                        let grid = &results.grid;
+                        Saved {
+                            deleted: (edits.marks.deleted.iter())
+                                .filter_map(|row| grid.area_of(*row, None))
+                                .collect(),
+                            changed: (edits.marks.cells.keys())
+                                .filter(|(row, _)| !edits.marks.deleted.contains(row))
+                                .filter_map(|(row, col)| grid.area_of(*row, Some(*col)))
+                                .collect(),
+                        }
+                    });
+                // Show the rows as they are now, after their effect.
                 if i == self.active {
-                    let sql = self.tabs[i].results.query().to_string();
-                    if !sql.is_empty() {
-                        self.run_checked(sql, ctx);
-                    }
+                    let wait = if ctx.config.animations {
+                        SAVED_EFFECT
+                    } else {
+                        std::time::Duration::ZERO
+                    };
+                    self.refresh_at = Some((ctx.now + wait, i));
+                    self.tick(ctx);
                 }
+                return saved;
             }
             Err(err) => {
                 if let Some(edits) = &mut self.tabs[i].results.edits {
@@ -1077,6 +1136,7 @@ impl Workspace {
                 ctx.toast(Level::Error, format!("Couldn't save {name}: {err}"));
             }
         }
+        None
     }
 
     /// Keys that edit rows, with the results focused: the rows become
@@ -1544,6 +1604,7 @@ impl Component for Workspace {
         self.explorer.is_animating()
             || self.running().is_some()
             || self.exporting.is_some()
+            || self.refresh_at.is_some()
             || self.card.as_ref().is_some_and(ColumnCard::is_loading)
     }
 

@@ -1410,19 +1410,29 @@ fn a_tables_rows_are_edited_and_saved() {
             set: vec![("total".into(), OwnedCell::Text("15".into()))],
         }]
     );
-    w.on_applied(
-        &orders(),
-        Ok(ApplyReport {
-            updated: 1,
-            ..ApplyReport::default()
-        }),
-        &mut harness.ctx(),
-    );
+    // On screen, the changed cell is where its effect plays.
+    let test = TestCtx::new();
+    render(&test, 100, 30, |f, area, ctx| w.render(f, area, ctx));
+    let saved = w
+        .on_applied(
+            &orders(),
+            Ok(ApplyReport {
+                updated: 1,
+                ..ApplyReport::default()
+            }),
+            &mut harness.ctx(),
+        )
+        .expect("on screen");
+    assert_eq!((saved.changed.len(), saved.deleted.len()), (1, 0));
     assert!(harness
         .toast_texts()
         .iter()
         .any(|t| t == "Saved orders: 1 updated"));
     assert_eq!(w.results().pending(), 0);
+    // The rows reload once the saved rows' effect has played.
+    assert!(harness.sent().is_empty());
+    harness.now += std::time::Duration::from_millis(250);
+    w.tick(&mut harness.ctx());
     assert!(matches!(
         harness.sent().as_slice(),
         [DbCommand::Run { sql, .. }] if sql == "SELECT * FROM orders LIMIT 100"

@@ -210,6 +210,26 @@ impl Grid {
         Some((drawn.top + (row - area.y) as usize, *col))
     }
 
+    /// Where `row` was last drawn: the cell of column `col`, or the whole
+    /// row with `None`. `None` when it is off screen.
+    pub fn area_of(&self, row: usize, col: Option<usize>) -> Option<Rect> {
+        let drawn = self.drawn.borrow();
+        let rows = drawn.first_row;
+        let offset = row.checked_sub(drawn.top)?;
+        if offset >= rows.height as usize {
+            return None;
+        }
+        let y = rows.y + offset as u16;
+        match col {
+            None => Some(Rect::new(rows.x, y, rows.width, 1)),
+            Some(col) => drawn
+                .columns
+                .iter()
+                .find(|(c, _, _)| *c == col)
+                .map(|(_, x, w)| Rect::new(*x, y, *w, 1)),
+        }
+    }
+
     /// Moves to a clicked cell, or extends the selection to it.
     pub fn click(&mut self, cell: (usize, usize), drag: bool, size: (usize, usize)) {
         self.move_to(cell.0, cell.1, drag, size);

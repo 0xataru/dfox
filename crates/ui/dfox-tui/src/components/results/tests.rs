@@ -465,3 +465,61 @@ fn new_rows_are_added_below_and_inserted() {
         )])]
     );
 }
+
+#[test]
+fn the_waiting_fox_assembles_then_flies_apart() {
+    let at = |ms| fox_progress(Duration::from_millis(ms));
+    assert_eq!(at(0), 0.);
+    assert!(at(300) > 0. && at(300) < 1.);
+    assert_eq!(at(800), 1.);
+    assert!(at(1200) > 0. && at(1200) < 1.);
+    assert_eq!(at(1500), 0.);
+    // It loops.
+    assert_eq!(at(1600 + 800), 1.);
+}
+
+#[test]
+fn the_fox_waits_for_the_first_rows_where_there_is_room() {
+    let mut harness = Harness::new();
+    let mut results = panel();
+    results.run(1, "SELECT 1", &mut harness.ctx());
+    assert!(results.smooth(Instant::now()));
+    let mut test = TestCtx::new();
+    test.now = results.running.as_ref().expect("running").started + Duration::from_millis(800);
+    let tall = render(&test, 60, 20, |f, area, ctx| results.render(f, area, ctx));
+    assert!(tall.contains('▀') && tall.contains("Running…"), "{tall}");
+    let short = render(&test, 60, 8, |f, area, ctx| results.render(f, area, ctx));
+    assert!(
+        !short.contains('▀') && short.contains("Running…"),
+        "{short}"
+    );
+
+    // Rows end the wait.
+    send_ints(&mut results, 1, &[1]);
+    assert!(!results.smooth(Instant::now()));
+}
+
+#[test]
+fn the_row_count_rolls_up() {
+    let mut harness = Harness::new();
+    let mut results = panel();
+    results.run(1, "SELECT 1", &mut harness.ctx());
+    send_ints(&mut results, 1, &[1, 2]);
+    let stats = QueryStats {
+        elapsed: Duration::from_millis(5),
+        rows: 1000,
+        ..Default::default()
+    };
+    results.on_done(1, Ok(stats), &mut harness.ctx());
+    let (done, _) = results.counted.expect("counted");
+    let mut test = TestCtx::new();
+    let message = |test: &TestCtx| results.shown_message(&test.render_ctx()).expect("message");
+
+    test.now = done + Duration::from_millis(100);
+    let rolling = message(&test);
+    assert_ne!(rolling, "1000 row(s) · 5 ms");
+    assert!(results.smooth(test.now));
+    test.now = done + COUNT_UP;
+    assert_eq!(message(&test), "1000 row(s) · 5 ms");
+    assert!(!results.smooth(test.now));
+}

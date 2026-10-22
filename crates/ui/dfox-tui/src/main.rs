@@ -141,9 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
         Ok(Cli::Version) => {
-            let names: Vec<_> = drivers().iter().map(|d| d.info().name).collect();
             out!("dfox {}", env!("CARGO_PKG_VERSION"));
-            out!("databases: {}", names.join(", "));
             return Ok(());
         }
         Ok(Cli::Paths) => {

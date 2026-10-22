@@ -27,6 +27,14 @@ pub enum Slot {
     Tab,
     Focus,
     Results,
+    /// The first rows of a result sweeping in.
+    Rows,
+    /// A failed query's results shaking.
+    Shake,
+    /// A new theme washing over the screen.
+    Theme,
+    /// Saved rows: deleted ones breaking up, changed cells flashing.
+    Saved,
     Manager,
     Toast,
 }
@@ -128,6 +136,44 @@ pub fn flash(color: ratatui::style::Color, area: Rect) -> Effect {
         .with_area(area)
 }
 
+/// The first rows of a result sweep in from the left, as they arrive.
+pub fn rows_in(theme: &Theme, area: Rect) -> Effect {
+    fx::sweep_in(
+        Direction::LeftToRight,
+        12,
+        0,
+        theme.bg,
+        (160, Interpolation::QuadOut),
+    )
+    .with_area(area)
+}
+
+/// The area shakes sideways a few times, less each time: a query failed.
+pub fn shake(area: Rect) -> Effect {
+    fx::effect_fn_buf((), (220, Interpolation::Linear), |_, context, buf| {
+        let alpha = context.timer.alpha();
+        let offset = ((alpha * std::f32::consts::PI * 6.).sin() * 2. * (1. - alpha)).round() as i32;
+        let area = context.area.intersection(buf.area);
+        if offset == 0 || area.width == 0 {
+            return;
+        }
+        for y in area.top()..area.bottom() {
+            let row: Vec<_> = (area.left()..area.right())
+                .map(|x| buf[(x, y)].clone())
+                .collect();
+            for (i, x) in (area.left()..area.right()).enumerate() {
+                let from = i as i32 - offset;
+                if let Some(cell) = usize::try_from(from).ok().and_then(|from| row.get(from)) {
+                    buf[(x, y)] = cell.clone();
+                } else {
+                    buf[(x, y)].set_symbol(" ");
+                }
+            }
+        }
+    })
+    .with_area(area)
+}
+
 /// A toast slides in from the right.
 pub fn toast(theme: &Theme, area: Rect) -> Effect {
     fx::slide_in(
@@ -138,6 +184,36 @@ pub fn toast(theme: &Theme, area: Rect) -> Effect {
         (200, Interpolation::QuadOut),
     )
     .with_area(area)
+}
+
+/// A new theme washes over the screen from the top-left corner, the old
+/// background giving way.
+pub fn new_theme(old_bg: ratatui::style::Color, area: Rect) -> Effect {
+    fx::fade_from(old_bg, old_bg, (250, Interpolation::QuadOut))
+        .with_pattern(
+            tachyonfx::pattern::DiagonalPattern::top_left_to_bottom_right()
+                .with_transition_width(12.),
+        )
+        .with_area(area)
+}
+
+/// Saved edits: each deleted row breaks into cells that drop away, each
+/// changed cell flashes the accent colour. `None` when none is on screen.
+pub fn saved(theme: &Theme, deleted: &[Rect], changed: &[Rect]) -> Option<Effect> {
+    let effects: Vec<Effect> = deleted
+        .iter()
+        .map(|row| fx::dissolve((250, Interpolation::QuadOut)).with_area(*row))
+        .chain(changed.iter().map(|cell| {
+            fx::fade_from(theme.accent, theme.accent, (250, Interpolation::QuadOut))
+                .with_area(*cell)
+        }))
+        .collect();
+    (!effects.is_empty()).then(|| fx::parallel(&effects))
+}
+
+/// The workspace, once connected, forms out of scattered cells.
+pub fn connected(area: Rect) -> Effect {
+    fx::coalesce((250, Interpolation::QuadOut)).with_area(area)
 }
 
 /// The splash logo sweeps in from the left.
@@ -198,6 +274,10 @@ mod tests {
             flash(theme.danger, area),
             toast(&theme, area),
             splash_out(area),
+            rows_in(&theme, area),
+            shake(area),
+            new_theme(theme.bg, area),
+            connected(area),
         ] {
             let mut buf = Buffer::empty(area);
             let mut motion = Motion::new(true);
@@ -207,6 +287,23 @@ mod tests {
             motion.apply(&mut buf, area, now + MAX);
             assert!(!motion.is_running());
         }
+    }
+
+    #[test]
+    fn a_shake_moves_the_content_sideways_and_back() {
+        let area = Rect::new(0, 0, 10, 1);
+        let mut buf = Buffer::empty(area);
+        buf.set_string(0, 0, "ab", ratatui::style::Style::default());
+        let mut motion = Motion::new(true);
+        motion.start(Slot::Shake, shake(area));
+        let now = Instant::now();
+        motion.apply(&mut buf.clone(), area, now);
+        // A twelfth of the way in, the content is pushed right.
+        let mut moved = buf.clone();
+        motion.apply(&mut moved, area, now + Duration::from_millis(18));
+        assert_ne!(moved[(0, 0)].symbol(), "a");
+        motion.apply(&mut buf, area, now + MAX);
+        assert_eq!(buf[(0, 0)].symbol(), "a");
     }
 
     #[test]

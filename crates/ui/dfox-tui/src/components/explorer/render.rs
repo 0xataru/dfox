@@ -58,6 +58,12 @@ fn render_tree(explorer: &Explorer, f: &mut Frame, area: Rect, ctx: &RenderCtx) 
             .map(|e| entry_item(explorer, e, ctx))
             .collect(),
         Load::Failed(err) => vec![error_item(err, ctx)],
+        // Placeholder rows of different lengths until the databases come.
+        Load::Loading if ctx.animations => [14, 9, 12, 7]
+            .iter()
+            .enumerate()
+            .map(|(i, width)| placeholder(format!("loading-{i}"), *width, i * 3, ctx))
+            .collect(),
         _ => Vec::new(),
     };
     let highlight = if explorer.focused {
@@ -263,10 +269,37 @@ fn item<'a>(
 }
 
 fn loading_item<'a>(ctx: &RenderCtx) -> TreeItem<'a, String> {
+    if ctx.animations {
+        return placeholder("loading".to_string(), 10, 0, ctx);
+    }
     TreeItem::new_leaf(
         "loading".to_string(),
         Line::styled("loading…", ctx.theme.dim()),
     )
+}
+
+/// A bar standing in for a row still loading, with a light band running
+/// along it; `offset` staggers the band between rows.
+fn placeholder<'a>(
+    id: String,
+    width: usize,
+    offset: usize,
+    ctx: &RenderCtx,
+) -> TreeItem<'a, String> {
+    const BAND: usize = 2;
+    let travel = width + 2 * BAND + 6;
+    let at = (ctx.frame as usize + offset) % travel;
+    let spans: Vec<Span> = (0..width)
+        .map(|i| {
+            let style = if (i + BAND).abs_diff(at) <= BAND {
+                ctx.theme.dim()
+            } else {
+                ctx.theme.border(false)
+            };
+            Span::styled("▬", style)
+        })
+        .collect();
+    TreeItem::new_leaf(id, Line::from(spans))
 }
 
 fn error_item<'a>(err: &str, ctx: &RenderCtx) -> TreeItem<'a, String> {

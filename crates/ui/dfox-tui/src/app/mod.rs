@@ -59,6 +59,9 @@ const STILL_FRAME: Duration = Duration::from_secs(1);
 const FX_FRAME: Duration = Duration::from_millis(16);
 /// ...or 20 when drawing is slow, such as over SSH.
 const SLOW_FX_FRAME: Duration = Duration::from_millis(50);
+/// Redraw interval for the results' own motion (the waiting fox, the row
+/// count rolling up), which can last as long as a query.
+const SMOOTH_FRAME: Duration = Duration::from_millis(33);
 /// A frame that takes longer than this to draw counts as slow.
 const SLOW_DRAW: Duration = Duration::from_millis(12);
 /// How often the connection manager re-checks every connection.
@@ -328,10 +331,18 @@ impl App {
                     self.frame += 1;
                     let now = Instant::now();
                     self.toasts.expire(now);
+                    self.with_ctx(|app, ctx| {
+                        if let Some(w) = app.workspace {
+                            w.tick(ctx);
+                        }
+                    });
                     self.update_splash(now);
                     dirty = true;
                 }
                 _ = tokio::time::sleep_until(drawn + fx_frame), if self.motion.is_running() => {
+                    dirty = true;
+                }
+                _ = tokio::time::sleep_until(drawn + SMOOTH_FRAME.max(fx_frame)), if self.smooth(drawn) => {
                     dirty = true;
                 }
                 _ = pings.tick(), if self.screen == Screen::Manager => {
@@ -345,13 +356,24 @@ impl App {
 
     /// Applies an engine event, with an effect for how a query or a
     /// connection attempt ended.
+    /// The screen has motion of its own that wants redraws.
+    fn smooth(&self, now: Instant) -> bool {
+        self.config.animations
+            && self.screen == Screen::Workspace
+            && self.workspace.as_ref().is_some_and(|w| w.smooth(now))
+    }
+
     pub fn on_engine_event(&mut self, event: EngineEvent) {
         let outcome = self.outcome(&event);
+        let first_rows = self.first_rows(&event).is_some();
         let failed_connect =
             self.connecting.is_some() && matches!(event, EngineEvent::Connected(Err(_)));
         self.apply(event);
         if let Some(outcome) = outcome {
             self.flash_results(outcome);
+        }
+        if first_rows {
+            self.rows_in();
         }
         if failed_connect {
             self.flash_failed_connect();
@@ -676,7 +698,18 @@ impl App {
             .map_or(0, |i| (i + 1) % names.len());
         let name = names[next];
         if let Ok(theme) = theme::load(name, self.themes_dir.as_deref(), self.depth) {
+            let old_bg = self.theme.bg;
             self.theme = theme;
+            // The screen and the status bar under it.
+            let main = self.main_area.get();
+            let area = Rect {
+                height: main.height + 1,
+                ..main
+            };
+            self.motion.start(
+                crate::motion::Slot::Theme,
+                crate::motion::new_theme(old_bg, area),
+            );
             self.toasts
                 .push(Level::Info, format!("Theme: {name}"), Instant::now());
         }

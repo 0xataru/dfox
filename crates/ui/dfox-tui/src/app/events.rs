@@ -65,11 +65,16 @@ impl App {
                     w.on_counted(&path, result, ctx);
                 }
             }),
-            EngineEvent::Applied { path, result } => self.with_ctx(|app, ctx| {
-                if let Some(w) = app.workspace {
-                    w.on_applied(&path, result, ctx);
+            EngineEvent::Applied { path, result } => {
+                let saved = self.with_ctx(|app, ctx| {
+                    app.workspace
+                        .as_mut()
+                        .and_then(|w| w.on_applied(&path, result, ctx))
+                });
+                if let Some(saved) = saved {
+                    self.saved_rows(saved);
                 }
-            }),
+            }
             event @ (EngineEvent::Schema { .. }
             | EngineEvent::Progress { .. }
             | EngineEvent::Batch { .. }

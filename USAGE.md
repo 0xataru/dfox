@@ -23,7 +23,7 @@ From a source checkout, `make run` (or `cargo run --bin dfox`).
 dfox connect "local pg"   # open a saved connection by name
 dfox list                 # the saved connections
 dfox paths                # where settings, connections and history live
-dfox version              # the version and the databases this build supports
+dfox version              # the version
 dfox help                 # all commands and options
 ```
 
