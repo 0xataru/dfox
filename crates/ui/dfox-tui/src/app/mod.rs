@@ -702,7 +702,10 @@ impl App {
         f.render_widget(Paragraph::new("").style(ctx.theme.base()), area);
         if self.screen == Screen::Splash {
             let (progress, label) = self.splash_progress(ctx.now);
-            let logo = splash::render(f, area, progress, &label, ctx);
+            let elapsed = self
+                .splash
+                .map_or(splash::ASSEMBLE, |started| ctx.now.duration_since(started));
+            let logo = splash::render(f, area, elapsed, progress, &label, ctx);
             // The first splash frame starts the logo's sweep.
             if self.frame == 0 && !self.motion.is_running() {
                 self.splash_logo.set(Some(logo));

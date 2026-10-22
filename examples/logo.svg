@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="dfox">
+  <rect width="120" height="120" rx="26" fill="#16161e"/>
+  <g transform="translate(10 10)">
+    <polygon points="12,6 40,30 22,44" fill="#ff9e3b"/>
+    <polygon points="17,15 33,29 23,37" fill="#b8561a"/>
+    <polygon points="88,6 60,30 78,44" fill="#f08a2a"/>
+    <polygon points="83,15 67,29 77,37" fill="#9c4714"/>
+    <polygon points="40,30 60,30 50,50" fill="#ffb366"/>
+    <polygon points="22,44 40,30 50,50" fill="#ff9e3b"/>
+    <polygon points="78,44 60,30 50,50" fill="#e8862a"/>
+    <polygon points="6,58 22,44 36,66" fill="#e6e6ef"/>
+    <polygon points="94,58 78,44 64,66" fill="#c9cad8"/>
+    <polygon points="22,44 50,50 36,66" fill="#e07f25"/>
+    <polygon points="78,44 50,50 64,66" fill="#c96f1e"/>
+    <polygon points="36,66 50,50 50,94" fill="#f4f4fa"/>
+    <polygon points="64,66 50,50 50,94" fill="#d6d7e3"/>
+    <polygon points="45,87 55,87 50,94" fill="#16161e"/>
+    <polygon points="29,49 39,54 31,56" fill="#16161e"/>
+    <polygon points="71,49 61,54 69,56" fill="#16161e"/>
+  </g>
+</svg>
