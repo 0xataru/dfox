@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-22
+
 ### Added
 
 - Keys can be changed in the app: in the key list (**?**), **Enter** on an action takes its
