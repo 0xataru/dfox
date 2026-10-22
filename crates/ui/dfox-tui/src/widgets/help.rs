@@ -18,9 +18,17 @@ pub struct Help {
     pub selected: usize,
     /// Waiting for the selected action's new key.
     pub capturing: bool,
-    /// A key another action has, pressed once while capturing: pressed
-    /// again, it moves to the selected action.
-    pub taken: Option<Key>,
+    /// A change waiting for Enter; any other key drops it.
+    pub confirm: Option<Change>,
+}
+
+/// A change to the selected action's keys, asked about before it is made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// The key becomes its only key, taken from another action if needed.
+    Bind(Key),
+    /// Back to its default keys.
+    Reset,
 }
 
 impl Help {
@@ -76,13 +84,20 @@ pub fn render(f: &mut Frame, area: Rect, help: &Help, ctx: &RenderCtx) {
     let shown = (popup.height as usize).saturating_sub(4).max(1);
     let scroll = (help.selected % rows.max(1) + 1).saturating_sub(shown);
     let action = help.action().description();
-    let hint = match (help.capturing, help.taken) {
-        (true, Some(key)) => {
-            let owner = ctx.keymap.owner(key).map_or("", Action::description);
-            format!(" {} is {owner}: again to take it · Esc ", key.label())
+    let hint = match (help.confirm, help.capturing) {
+        (Some(Change::Bind(key)), _) => {
+            let from = ctx
+                .keymap
+                .owner(key)
+                .filter(|owner| *owner != help.action())
+                .map_or(String::new(), |owner| {
+                    format!(", from {}", owner.description())
+                });
+            format!(" {} for {action}{from}? Enter yes · Esc no ", key.label())
         }
-        (true, None) => format!(" key for {action}? Esc cancels "),
-        (false, _) => " Enter change · Del default · Esc close ".to_string(),
+        (Some(Change::Reset), _) => format!(" {action} back to default? Enter yes · Esc no "),
+        (None, true) => format!(" key for {action}? Esc cancels "),
+        (None, false) => " Enter change · Del default · Esc close ".to_string(),
     };
 
     let block = Block::default()
@@ -111,10 +126,14 @@ pub fn render(f: &mut Frame, area: Rect, help: &Help, ctx: &RenderCtx) {
                 } else {
                     (theme.key(), theme.base().bg(theme.surface))
                 };
-                let keys = if selected && help.capturing {
-                    "…"
-                } else {
-                    keys
+                let pending;
+                let keys = match (selected, help.confirm) {
+                    (true, Some(Change::Bind(key))) => {
+                        pending = key.label();
+                        pending.as_str()
+                    }
+                    (true, None) if help.capturing => "…",
+                    _ => keys,
                 };
                 Line::from(vec![
                     Span::styled(

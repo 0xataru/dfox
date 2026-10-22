@@ -13,6 +13,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   into data cells and comes back together every few seconds. The splash draws it in the
   terminal, its pixels flying in from the left and settling into the head, above the name.
 
+### Fixed
+
+- Changing a key in the key list (**?**) asks first: after the new key, **Enter** confirms and
+  any other key cancels, and resetting with **Delete** asks the same way, so a stray key
+  press no longer remaps or resets anything.
+
 ## [0.5.1] - 2026-10-22
 
 ### Added

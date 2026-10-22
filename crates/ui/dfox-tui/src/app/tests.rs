@@ -658,27 +658,47 @@ fn keys_change_in_the_help_and_are_saved() {
     }
     let saved = |test: &Test| Config::load(Some(&test.dir)).0.keys;
 
-    // A free key replaces all of the action's keys.
+    // A new key waits for Enter; any other key drops it.
     test.key(KeyCode::Enter);
     test.key(KeyCode::Insert);
     test.key(KeyCode::F(6));
+    assert_eq!(test.app.keymap.hint(Action::Execute), "F5");
+    test.key(KeyCode::Char('n'));
+    assert_eq!(test.app.keymap.hint(Action::Execute), "F5");
+    assert!(!saved(&test).contains_key("execute"));
+
+    // Confirmed, it replaces all of the action's keys.
+    test.key(KeyCode::Enter);
+    test.key(KeyCode::F(6));
+    test.key(KeyCode::Enter);
     assert_eq!(test.app.keymap.keys_for(Action::Execute), ["F6"]);
     assert_eq!(saved(&test)["execute"], ["f6"]);
 
-    // A key History has moves only when pressed twice.
+    // Enter itself can be the new key.
+    test.key(KeyCode::Enter);
+    test.key(KeyCode::Enter);
+    test.key(KeyCode::Enter);
+    assert_eq!(test.app.keymap.keys_for(Action::Execute), ["Enter"]);
+    assert!(test.app.keymap.keys_for(Action::Confirm).is_empty());
+
+    // A key History has is taken from it.
     test.key(KeyCode::Enter);
     test.ctrl('r');
-    assert_eq!(test.app.keymap.keys_for(Action::Execute), ["F6"]);
-    test.ctrl('r');
+    test.key(KeyCode::Enter);
     assert_eq!(test.app.keymap.keys_for(Action::Execute), ["Ctrl+R"]);
     assert!(test.app.keymap.keys_for(Action::History).is_empty());
     assert!(saved(&test)["history"].is_empty());
 
-    // Esc while waiting keeps the keys; Delete brings the defaults back.
+    // Esc while waiting keeps the keys; Delete asks, then brings the
+    // defaults back.
     test.key(KeyCode::Enter);
     test.key(KeyCode::Esc);
     assert_eq!(test.app.keymap.keys_for(Action::Execute), ["Ctrl+R"]);
     test.key(KeyCode::Delete);
+    test.key(KeyCode::Esc);
+    assert_eq!(test.app.keymap.keys_for(Action::Execute), ["Ctrl+R"]);
+    test.key(KeyCode::Delete);
+    test.key(KeyCode::Enter);
     assert_eq!(test.app.keymap.hint(Action::Execute), "F5");
     assert!(!saved(&test).contains_key("execute"));
     test.key(KeyCode::Esc);

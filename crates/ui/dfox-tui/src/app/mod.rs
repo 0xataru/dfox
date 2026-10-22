@@ -491,12 +491,28 @@ impl App {
                 }
                 _ => self.overlay = Some(Overlay::Palette(palette)),
             },
+            // A change is made only on Enter; any other key drops it.
+            Overlay::Help(mut help) if help.confirm.is_some() => {
+                if let (KeyCode::Enter, Some(change)) = (key.code, help.confirm) {
+                    self.change_keys(help.action(), change);
+                }
+                help.confirm = None;
+                self.overlay = Some(Overlay::Help(help));
+            }
             Overlay::Help(mut help) if help.capturing => {
-                if key.code == KeyCode::Esc {
-                    help.capturing = false;
-                    help.taken = None;
-                } else {
-                    self.rebind(&mut help, key);
+                help.capturing = false;
+                if key.code != KeyCode::Esc {
+                    let pressed = Key::new(key.code, key.modifiers);
+                    if pressed.name().is_some() {
+                        help.confirm = Some(help::Change::Bind(pressed));
+                    } else {
+                        help.capturing = true;
+                        self.toasts.push(
+                            Level::Warning,
+                            format!("{} can't be bound", pressed.label()),
+                            Instant::now(),
+                        );
+                    }
                 }
                 self.overlay = Some(Overlay::Help(help));
             }
@@ -508,9 +524,7 @@ impl App {
                     KeyCode::PageUp => help.select(-10),
                     KeyCode::Enter => help.capturing = true,
                     KeyCode::Delete | KeyCode::Backspace => {
-                        let action = help.action();
-                        let saved = self.set_keys(action, None);
-                        self.keys_changed(action, None, saved);
+                        help.confirm = Some(help::Change::Reset);
                     }
                     _ => return,
                 }
@@ -598,26 +612,19 @@ impl App {
         }
     }
 
-    /// `key`, pressed while the key list waits for the selected action's new
-    /// key, becomes its only key. A key another action has moves only when
-    /// pressed twice.
-    fn rebind(&mut self, help: &mut help::Help, event: KeyEvent) {
-        let action = help.action();
-        let key = Key::new(event.code, event.modifiers);
-        let Some(name) = key.name() else {
-            self.toasts.push(
-                Level::Warning,
-                format!("{} can't be bound", key.label()),
-                Instant::now(),
-            );
-            return;
+    /// Makes `change` to `action`'s keys, confirmed in the key list. A key
+    /// another action has is taken from it.
+    fn change_keys(&mut self, action: Action, change: help::Change) {
+        let key = match change {
+            help::Change::Reset => {
+                let saved = self.set_keys(action, None);
+                return self.keys_changed(action, None, saved);
+            }
+            help::Change::Bind(key) => key,
         };
+        let Some(name) = key.name() else { return };
         let owner = self.keymap.owner(key).filter(|owner| *owner != action);
         if let Some(owner) = owner {
-            if help.taken != Some(key) {
-                help.taken = Some(key);
-                return;
-            }
             let rest: Vec<String> = self
                 .keymap
                 .keys(owner)
@@ -630,8 +637,6 @@ impl App {
         }
         let saved = self.set_keys(action, Some(vec![name]));
         self.keys_changed(action, owner, saved);
-        help.capturing = false;
-        help.taken = None;
     }
 
     /// Gives `action` `keys`, or its defaults with `None`, here and in
