@@ -241,6 +241,7 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["ctrl+space"], Action::Complete),
         bind(&["i"], Action::Inspect),
         bind(&["J"], Action::JsonView),
+        bind(&["o"], Action::AddRow),
         bind(&[">"], Action::Wider),
         bind(&["<"], Action::Narrower),
         bind(&["ctrl+left", "alt+left", "alt+b"], Action::WordLeft),

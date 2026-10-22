@@ -426,3 +426,42 @@ fn rows_are_edited_reviewed_and_saved_together() {
     );
     assert!(results.edits.as_ref().is_some_and(|e| e.saving));
 }
+
+#[test]
+fn new_rows_are_added_below_and_inserted() {
+    let test = TestCtx::new();
+    let mut harness = Harness::new();
+    let mut results = showing(store(2));
+    results.focused = true;
+    let table: NodePath = ["shop", "public", "items"].into_iter().collect();
+    results
+        .start_editing(table, &["id".to_string()])
+        .expect("the key is in the rows");
+
+    // o adds a row below and moves to it; its key can be given.
+    results.handle(Action::AddRow, &mut harness.ctx());
+    assert_eq!(results.grid.cursor().0, 2);
+    results.handle(Action::Right, &mut harness.ctx());
+    results.handle(Action::Edit, &mut harness.ctx());
+    for c in "new item".chars() {
+        results.handle(Action::Input(c), &mut harness.ctx());
+    }
+    results.handle(Action::Confirm, &mut harness.ctx());
+    insta::assert_snapshot!(
+        "new_row",
+        render(&test, 70, 8, |f, area, ctx| results.render(f, area, ctx))
+    );
+
+    results.handle(Action::Save, &mut harness.ctx());
+    let command = results.handle(Action::Confirm, &mut harness.ctx());
+    let Some(Command::ApplyChanges(changes)) = command else {
+        panic!("expected the changes, got {command:?}");
+    };
+    assert_eq!(
+        changes.changes,
+        [dfox_core::session::Change::Insert(vec![(
+            "name".into(),
+            OwnedCell::Text("new item".into())
+        )])]
+    );
+}

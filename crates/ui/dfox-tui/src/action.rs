@@ -50,6 +50,8 @@ pub enum Action {
     Inspect,
     /// Results as a JSON tree instead of a grid, and back.
     JsonView,
+    /// A new row in the table being edited.
+    AddRow,
     Palette,
     Connections,
     Debug,
@@ -86,6 +88,7 @@ impl Action {
         Action::Redo,
         Action::Inspect,
         Action::JsonView,
+        Action::AddRow,
         Action::Wider,
         Action::Narrower,
         Action::NextFocus,
@@ -172,6 +175,7 @@ impl Action {
             Action::Complete => "complete",
             Action::Inspect => "inspect",
             Action::JsonView => "json_view",
+            Action::AddRow => "add_row",
             Action::Palette => "palette",
             Action::Connections => "connections",
             Action::New => "new",
@@ -244,6 +248,7 @@ impl Action {
             Action::Complete => "Suggest names",
             Action::Inspect => "Inspect / insert name",
             Action::JsonView => "Results as JSON / grid",
+            Action::AddRow => "Add a row",
             Action::Palette => "Command palette",
             Action::Connections => "Connection list",
             Action::New => "New connection",

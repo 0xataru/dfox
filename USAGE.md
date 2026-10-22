@@ -148,8 +148,9 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
 - **>** / **<** - Widen / narrow the column
 - **Enter** or **i** - Inspect the row: every field in full, JSON pretty-printed, binary as a hex dump
 - **e** - Edit the cell, in rows opened from a table that has a primary key: type, then
-  **Enter** keeps the change, **Esc** drops it, **Del** makes it NULL. **d** marks the
-  row to delete (again to keep it), **Ctrl+Z** undoes the last change. Changed cells
+  **Enter** keeps the change, **Esc** drops it, **Del** makes it NULL. **o** adds a row
+  below, whose cells left blank get their defaults. **d** marks the row to delete (again
+  to keep it), **Ctrl+Z** undoes the last change. Changed cells
   and deleted rows show until **Ctrl+S**, which lists them and saves them together in
   one transaction (**x** there discards them all); the rows then load again. Postgres,
   MySQL and SQLite for now

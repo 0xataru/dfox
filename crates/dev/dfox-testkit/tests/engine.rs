@@ -562,8 +562,12 @@ async fn grid_edits(engine: &mut Driver, table: NodePath, create: &str) {
         changes: ChangeSet {
             table: table.clone(),
             key: vec!["id".into()],
-            columns: Vec::new(),
             changes: vec![
+                // Only some columns: `age` gets its default.
+                Change::Insert(vec![
+                    ("id".into(), OwnedCell::Text("4".into())),
+                    ("name".into(), OwnedCell::Text("Alan".into())),
+                ]),
                 Change::Update {
                     key: vec![OwnedCell::Int(1)],
                     set: vec![
@@ -583,7 +587,7 @@ async fn grid_edits(engine: &mut Driver, table: NodePath, create: &str) {
         EngineEvent::Applied { path, result } => {
             assert_eq!(path, table);
             let report = result.expect("apply");
-            assert_eq!((report.updated, report.deleted), (2, 1));
+            assert_eq!((report.inserted, report.updated, report.deleted), (1, 2, 1));
         }
         other => panic!("expected Applied, got {other:?}"),
     }
@@ -599,6 +603,7 @@ async fn grid_edits(engine: &mut Driver, table: NodePath, create: &str) {
                 Some("37".to_string())
             ],
             [Some("2".to_string()), None, Some("2".to_string())],
+            [Some("4".to_string()), Some("Alan".to_string()), None],
         ]
     );
 }

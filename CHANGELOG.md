@@ -7,6 +7,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Adding rows in the grid: **o** adds a row below the table's rows, **e** fills its cells,
+  and the cells left blank get their column's defaults, such as a serial key. Saved
+  with the other changes (**Ctrl+S**), in the same transaction.
+
 ## [0.4.1] - 2026-10-21
 
 ### Added

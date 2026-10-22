@@ -221,11 +221,19 @@ impl ResultsPanel {
         let (row, col) = self.grid.cursor();
         match action {
             _ if edits.saving => ctx.toast(Level::Info, "Saving…"),
-            Action::Edit if self.store.row_count() == 0 => {}
+            Action::AddRow => {
+                edits.add_row();
+                let size = (
+                    self.store.row_count() + edits.added,
+                    self.store.columns().len(),
+                );
+                self.grid.handle(Action::End, size);
+            }
+            Action::Edit if self.store.row_count() + edits.added == 0 => {}
             Action::Edit if edits.marks.deleted.contains(&row) => {
                 ctx.toast(Level::Warning, "The row is marked to delete")
             }
-            Action::Edit if edits.is_key(col) => ctx.toast(
+            Action::Edit if edits.is_key(row, col) => ctx.toast(
                 Level::Warning,
                 "The key finds the row: it can't be changed here",
             ),
@@ -247,7 +255,7 @@ impl ResultsPanel {
                     null: current.is_none(),
                 });
             }
-            Action::Delete if self.store.row_count() > 0 => edits.toggle_delete(row),
+            Action::Delete if self.store.row_count() + edits.added > 0 => edits.toggle_delete(row),
             Action::Undo => {
                 if !edits.undo() {
                     ctx.toast(Level::Info, "Nothing to undo");
@@ -449,8 +457,10 @@ impl ResultsPanel {
         true
     }
 
+    /// Rows, new ones included, and columns.
     fn size(&self) -> (usize, usize) {
-        (self.store.row_count(), self.store.columns().len())
+        let added = self.edits.as_ref().map_or(0, |e| e.added);
+        (self.store.row_count() + added, self.store.columns().len())
     }
 
     /// Copies the selected cells, or the current one.
@@ -620,8 +630,10 @@ impl Component for ResultsPanel {
             title.push(Span::styled(" · JSON", theme.key()));
         } else if rows > 0 {
             let (row, col) = self.grid.cursor();
+            // New rows count too.
+            let total = self.size().0;
             title.push(Span::styled(
-                format!(" {}/{rows}", (row + 1).min(rows)),
+                format!(" {}/{total}", (row + 1).min(total)),
                 theme.dim(),
             ));
             if columns > 1 {
@@ -659,15 +671,20 @@ impl Component for ResultsPanel {
             let room = inner(area);
             self.json_height.set(room.height as usize);
             view.render(f.buffer_mut(), room, &self.store, self.focused, ctx);
-        } else if rows > 0 {
+        } else if self.size().0 > 0 {
             f.render_widget(block, area);
             let marks = self
                 .edits
                 .as_ref()
                 .map(|e| e.marks.clone())
                 .unwrap_or_default();
+            // New rows show after the result's own, with what is set in them.
+            let shown = grid::WithNew {
+                result: &self.store,
+                added: self.edits.as_ref().map_or(0, |e| e.added),
+            };
             let mut grid_area = inner(area);
-            if self.inspecting {
+            if self.inspecting && rows > 0 {
                 // Beside the grid when there is room, over it otherwise.
                 let room = area.inner(ratatui::layout::Margin::new(1, 1));
                 let wide = room.width >= 80;
@@ -683,7 +700,7 @@ impl Component for ResultsPanel {
                 self.grid.render_marked(
                     f.buffer_mut(),
                     grid_area,
-                    &self.store,
+                    &shown,
                     self.focused,
                     ctx,
                     &marks,
@@ -697,7 +714,7 @@ impl Component for ResultsPanel {
                 self.grid.render_marked(
                     f.buffer_mut(),
                     grid_area,
-                    &self.store,
+                    &shown,
                     self.focused,
                     ctx,
                     &marks,
