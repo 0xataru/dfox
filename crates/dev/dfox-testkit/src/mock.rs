@@ -342,7 +342,7 @@ impl Session for MockSession {
             for change in changes.changes {
                 match change {
                     Change::Insert(values) => match values.as_slice() {
-                        [OwnedCell::Int(id), OwnedCell::Text(name)] => {
+                        [(_, OwnedCell::Int(id)), (_, OwnedCell::Text(name))] => {
                             data.people.push((*id, name.to_string()));
                             report.inserted += 1;
                         }

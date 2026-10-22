@@ -482,10 +482,11 @@ fn apply(conn: &Connection, changes: &ChangeSet) -> Result<ApplyReport, DbError>
     let mentioned: Vec<&String> = changes
         .key
         .iter()
-        .chain(&changes.columns)
         .chain(changes.changes.iter().flat_map(|change| match change {
-            Change::Update { set, .. } => set.iter().map(|(c, _)| c).collect(),
-            _ => Vec::new(),
+            Change::Update { set, .. } | Change::Insert(set) => {
+                set.iter().map(|(c, _)| c).collect()
+            }
+            Change::Delete(_) => Vec::new(),
         }))
         .collect();
     check_columns(conn, &database, &table, mentioned)?;
@@ -506,8 +507,11 @@ fn apply(conn: &Connection, changes: &ChangeSet) -> Result<ApplyReport, DbError>
         let mut report = ApplyReport::default();
         for change in &changes.changes {
             let (sql, values): (String, Vec<Value>) = match change {
+                Change::Insert(values) if values.is_empty() => {
+                    (format!("INSERT INTO {target} DEFAULT VALUES"), Vec::new())
+                }
                 Change::Insert(values) => {
-                    let columns: Vec<String> = changes.columns.iter().map(|c| quote(c)).collect();
+                    let columns: Vec<String> = values.iter().map(|(c, _)| quote(c)).collect();
                     let marks: Vec<String> = (1..=columns.len()).map(|i| format!("?{i}")).collect();
                     (
                         format!(
@@ -515,7 +519,7 @@ fn apply(conn: &Connection, changes: &ChangeSet) -> Result<ApplyReport, DbError>
                             columns.join(", "),
                             marks.join(", ")
                         ),
-                        values.iter().map(param).collect(),
+                        values.iter().map(|(_, v)| param(v)).collect(),
                     )
                 }
                 Change::Update { key, set } => {

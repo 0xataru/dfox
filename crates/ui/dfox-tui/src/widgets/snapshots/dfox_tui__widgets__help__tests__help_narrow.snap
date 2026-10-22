@@ -23,6 +23,6 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx)
                  │ Ctrl+Y            Redo                      │
                  │ i                 Inspect / insert name     │
                  │ J                 Results as JSON / grid    │
-                 │ >                 Widen column              │
+                 │ o                 Add a row                 │
                  │                                             │
                  ╰───── ↑↓ scroll · any other key closes ──────╯

@@ -61,6 +61,36 @@ pub struct Grid {
     drawn: RefCell<Drawn>,
 }
 
+/// A result with `added` empty rows after its own, for new rows being
+/// edited: the grid draws their values from its [`Marks`].
+pub struct WithNew<'a, R> {
+    pub result: &'a R,
+    pub added: usize,
+}
+
+impl<R: ResultSet> ResultSet for WithNew<'_, R> {
+    fn columns(&self) -> &[dfox_core::result::ColumnMeta] {
+        self.result.columns()
+    }
+
+    fn row_count(&self) -> usize {
+        self.result.row_count() + self.added
+    }
+
+    fn cell(&self, row: usize, col: usize) -> Option<Value<'_>> {
+        if row < self.result.row_count() {
+            self.result.cell(row, col)
+        } else {
+            // Blank, not NULL: what isn't set gets the column's default.
+            (row < self.row_count() && col < self.columns().len()).then_some(Value::Text(""))
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        self.result.is_complete()
+    }
+}
+
 /// Edits waiting to be saved, as the grid shows them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Marks {

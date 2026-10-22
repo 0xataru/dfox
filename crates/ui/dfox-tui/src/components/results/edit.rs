@@ -1,7 +1,8 @@
-//! Editing a table's rows in the grid: changed cells and deleted rows wait
-//! here until they are saved together, as one change set the driver writes
-//! in a transaction. Rows are found by the table's primary key, which the
-//! result must hold.
+//! Editing a table's rows in the grid: changed cells, new rows and deleted
+//! rows wait here until they are saved together, as one change set the
+//! driver writes in a transaction. Rows are found by the table's primary
+//! key, which the result must hold. New rows come after the result's own;
+//! the columns they leave empty get their defaults.
 
 use dfox_core::{
     catalog::NodePath,
@@ -17,6 +18,7 @@ enum Step {
     /// The cell's earlier pending value; `None` when it had none.
     Cell((usize, usize), Option<Option<String>>),
     Delete(usize),
+    Add,
 }
 
 /// The edits of one result, made to the table at `table`.
@@ -26,6 +28,10 @@ pub struct Edits {
     /// The primary key's columns, and where the result holds them.
     key: Vec<(String, usize)>,
     pub marks: Marks,
+    /// The result's own rows; new ones follow.
+    rows: usize,
+    /// New rows.
+    pub added: usize,
     undo: Vec<Step>,
     /// The edits went to the database and the answer hasn't come.
     pub saving: bool,
@@ -50,26 +56,44 @@ impl Edits {
             table,
             key,
             marks: Marks::default(),
+            rows: result.row_count(),
+            added: 0,
             undo: Vec::new(),
             saving: false,
         })
     }
 
-    /// How many changes there are: cells of rows kept, and rows deleted.
+    /// How many changes there are: cells of rows kept, rows deleted, and
+    /// new rows.
     pub fn count(&self) -> usize {
+        let kept = |row: &usize| !self.marks.deleted.contains(row);
         let cells = self
             .marks
             .cells
             .keys()
-            .filter(|(row, _)| !self.marks.deleted.contains(row))
+            .filter(|(row, _)| *row < self.rows && kept(row))
             .count();
-        cells + self.marks.deleted.len()
+        let deleted = self
+            .marks
+            .deleted
+            .iter()
+            .filter(|r| **r < self.rows)
+            .count();
+        let added = (self.rows..self.rows + self.added).filter(kept).count();
+        cells + deleted + added
     }
 
-    /// True when the cell at `row`, `col` is part of the key, which can't
-    /// change here.
-    pub fn is_key(&self, col: usize) -> bool {
-        self.key.iter().any(|(_, i)| *i == col)
+    /// True when the cell at `row`, `col` is part of an existing row's key,
+    /// which finds the row and can't change here.
+    pub fn is_key(&self, row: usize, col: usize) -> bool {
+        row < self.rows && self.key.iter().any(|(_, i)| *i == col)
+    }
+
+    /// Adds a row after the others, and returns where it is.
+    pub fn add_row(&mut self) -> usize {
+        self.added += 1;
+        self.undo.push(Step::Add);
+        self.rows + self.added - 1
     }
 
     /// Sets the cell at `row`, `col` to `value` (`None` for NULL). Setting
@@ -112,6 +136,12 @@ impl Edits {
                     self.marks.deleted.insert(row);
                 }
             }
+            Some(Step::Add) => {
+                self.added -= 1;
+                let row = self.rows + self.added;
+                self.marks.cells.retain(|(r, _), _| *r != row);
+                self.marks.deleted.remove(&row);
+            }
             None => return false,
         }
         true
@@ -139,37 +169,48 @@ impl Edits {
             .join(", ")
     }
 
+    /// The cells set in `row`, by column name.
+    fn values(&self, result: &impl ResultSet, row: usize) -> Vec<(String, OwnedCell)> {
+        self.marks
+            .cells
+            .range((row, 0)..(row, usize::MAX))
+            .map(|((_, col), value)| {
+                let name = result.columns()[*col].name.clone();
+                let value = value
+                    .as_ref()
+                    .map_or(OwnedCell::Null, |v| OwnedCell::Text(v.as_str().into()));
+                (name, value)
+            })
+            .collect()
+    }
+
     /// The edits as the driver writes them: an update per changed row not
-    /// deleted, a delete per deleted row.
+    /// deleted, a delete per deleted row, an insert per new row.
     pub fn change_set(&self, result: &impl ResultSet) -> ChangeSet {
         let mut changes = Vec::new();
         let mut rows: Vec<usize> = self.marks.cells.keys().map(|(row, _)| *row).collect();
         rows.dedup();
-        for row in rows.into_iter().filter(|r| !self.marks.deleted.contains(r)) {
-            let set = self
-                .marks
-                .cells
-                .range((row, 0)..(row, usize::MAX))
-                .map(|((_, col), value)| {
-                    let name = result.columns()[*col].name.clone();
-                    let value = value
-                        .as_ref()
-                        .map_or(OwnedCell::Null, |v| OwnedCell::Text(v.as_str().into()));
-                    (name, value)
-                })
-                .collect();
+        let new = |row: usize| row >= self.rows;
+        for row in rows
+            .into_iter()
+            .filter(|r| !new(*r) && !self.marks.deleted.contains(r))
+        {
             changes.push(Change::Update {
                 key: self.key_of(result, row),
-                set,
+                set: self.values(result, row),
             });
         }
-        for row in &self.marks.deleted {
+        for row in self.marks.deleted.iter().filter(|r| !new(**r)) {
             changes.push(Change::Delete(self.key_of(result, *row)));
+        }
+        for row in self.rows..self.rows + self.added {
+            if !self.marks.deleted.contains(&row) {
+                changes.push(Change::Insert(self.values(result, row)));
+            }
         }
         ChangeSet {
             table: self.table.clone(),
             key: self.key.iter().map(|(name, _)| name.clone()).collect(),
-            columns: Vec::new(),
             changes,
         }
     }
@@ -178,7 +219,7 @@ impl Edits {
     pub fn review(&self, result: &impl ResultSet) -> Vec<String> {
         let mut lines = Vec::new();
         for (&(row, col), value) in &self.marks.cells {
-            if self.marks.deleted.contains(&row) {
+            if row >= self.rows || self.marks.deleted.contains(&row) {
                 continue;
             }
             let before = result
@@ -193,8 +234,26 @@ impl Edits {
                 result.columns()[col].name
             ));
         }
-        for &row in &self.marks.deleted {
+        for &row in self.marks.deleted.iter().filter(|r| **r < self.rows) {
             lines.push(format!("{}: delete the row", self.key_text(result, row)));
+        }
+        for row in self.rows..self.rows + self.added {
+            if self.marks.deleted.contains(&row) {
+                continue;
+            }
+            let values: Vec<String> = self
+                .values(result, row)
+                .into_iter()
+                .map(|(name, value)| match value {
+                    OwnedCell::Text(text) => format!("{name} {text:?}"),
+                    _ => format!("{name} NULL"),
+                })
+                .collect();
+            lines.push(if values.is_empty() {
+                "new row: every column its default".to_string()
+            } else {
+                format!("new row: {}", values.join(", "))
+            });
         }
         lines
     }
@@ -311,11 +370,44 @@ mod tests {
     }
 
     #[test]
+    fn new_rows_insert_what_is_set_and_defaults_the_rest() {
+        let result = users();
+        let mut e = edits(&result);
+        assert_eq!(e.add_row(), 2);
+        e.set(&result, 2, 1, Some("Cy".into()));
+        // A new row's key can be given; an existing row's can't change.
+        assert!(!e.is_key(2, 0));
+        assert!(e.is_key(0, 0));
+        assert_eq!(e.add_row(), 3);
+        let dropped = e.add_row();
+        e.toggle_delete(dropped);
+        assert_eq!(e.count(), 2, "two new rows kept");
+        let set = e.change_set(&result);
+        assert_eq!(
+            set.changes,
+            [
+                Change::Insert(vec![("name".into(), OwnedCell::Text("Cy".into()))]),
+                Change::Insert(Vec::new()),
+            ]
+        );
+        assert_eq!(
+            e.review(&result),
+            ["new row: name \"Cy\"", "new row: every column its default"]
+        );
+        // Undo the delete, then that row, then the next.
+        assert!(e.undo());
+        assert!(e.undo());
+        assert_eq!(e.added, 2);
+        assert!(e.undo());
+        assert_eq!(e.added, 1);
+    }
+
+    #[test]
     fn the_key_must_be_in_the_result() {
         let result = users();
         let err = Edits::new(NodePath::root(), &["uuid".into()], &result).unwrap_err();
         assert!(err.contains("uuid"), "{err}");
-        assert!(edits(&result).is_key(0));
-        assert!(!edits(&result).is_key(1));
+        assert!(edits(&result).is_key(0, 0));
+        assert!(!edits(&result).is_key(0, 1));
     }
 }

@@ -122,8 +122,9 @@ impl CancelHandle {
 /// One edit of a table's rows.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Change {
-    /// A new row: a value per column of [`ChangeSet::columns`].
-    Insert(Vec<OwnedCell>),
+    /// A new row: the columns given, by name; the others get their
+    /// defaults.
+    Insert(Vec<(String, OwnedCell)>),
     /// Set columns of the row with `key`.
     Update {
         /// The row's key, a value per [`ChangeSet::key`] column.
@@ -143,8 +144,6 @@ pub struct ChangeSet {
     pub table: NodePath,
     /// The primary key columns.
     pub key: Vec<String>,
-    /// The columns of inserted rows, in order.
-    pub columns: Vec<String>,
     /// The edits, applied in order.
     pub changes: Vec<Change>,
 }

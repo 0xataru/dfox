@@ -1223,7 +1223,7 @@ impl Component for Workspace {
                 let tab = &mut self.tabs[self.active];
                 tab.editor.complete(&self.catalog, action);
             }
-            Action::Edit | Action::Delete | Action::Save | Action::Undo
+            Action::Edit | Action::AddRow | Action::Delete | Action::Save | Action::Undo
                 if self.focus.is(Panel::Results) && !self.results().is_modal() =>
             {
                 return self.edit_rows(action, ctx);

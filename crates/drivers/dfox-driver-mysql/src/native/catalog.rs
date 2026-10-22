@@ -673,15 +673,15 @@ impl MyCatalog {
     /// Applies `changes` in a transaction on the metadata connection.
     pub async fn apply(&self, changes: ChangeSet) -> Result<ApplyReport, DbError> {
         let (database, table) = table(&changes.table)?;
-        let mentioned =
-            changes
-                .key
-                .iter()
-                .chain(&changes.columns)
-                .chain(changes.changes.iter().flat_map(|change| match change {
-                    Change::Update { set, .. } => set.iter().map(|(c, _)| c).collect(),
-                    _ => Vec::new(),
-                }));
+        let mentioned = changes
+            .key
+            .iter()
+            .chain(changes.changes.iter().flat_map(|change| match change {
+                Change::Update { set, .. } | Change::Insert(set) => {
+                    set.iter().map(|(c, _)| c).collect()
+                }
+                Change::Delete(_) => Vec::new(),
+            }));
         self.check_columns(database, table, mentioned.collect::<Vec<_>>())
             .await?;
         let target = format!("{}.{}", quote(database), quote(table));
@@ -701,15 +701,15 @@ impl MyCatalog {
             for change in &changes.changes {
                 let (sql, values): (String, Vec<Value>) = match change {
                     Change::Insert(values) => {
-                        let columns: Vec<String> =
-                            changes.columns.iter().map(|c| quote(c)).collect();
+                        // `() VALUES ()` when empty: every column its default.
+                        let columns: Vec<String> = values.iter().map(|(c, _)| quote(c)).collect();
                         let marks = vec!["?"; columns.len()].join(", ");
                         (
                             format!(
                                 "INSERT INTO {target} ({}) VALUES ({marks})",
                                 columns.join(", ")
                             ),
-                            values.iter().map(param).collect(),
+                            values.iter().map(|(_, v)| param(v)).collect(),
                         )
                     }
                     Change::Update { key, set } => {

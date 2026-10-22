@@ -4,25 +4,26 @@ expression: "test.snapshot(120, 32)"
 ---
 ╭ Connections 1╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮──────────────╮
 │ Saved        │                                                                                        │              │
-│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          Ctrl+S            Save                      │              │
-│              │ F5 Ctrl+E         Run statement/selection  F1                Connection list           │              │
-│              │ Shift+F5          Run the whole script     Ctrl+T            Next theme                │              │
-│              │ Ctrl+Space        Suggest names            F12               Event log                 │              │
-│              │ Ctrl+R            Query history            Space             Command menu              │              │
-│              │ Ctrl+N            New query tab            ? F2              Show keys                 │              │
-│              │ Ctrl+W            Close query tab          Esc               Back / close              │              │
-│              │ Alt+] Ctrl+PgDn   Next query tab           q Ctrl+Q          Quit                      │              │
-│              │ Alt+[ Ctrl+PgUp   Previous query tab       Enter             Select / new line         │              │
-│              │ Ctrl+C            Copy / cancel query      ↑                 Up                        │              │
-│              │ y                 Copy as CSV, JSON, …     ↓                 Down                      │              │
-│              │ Ctrl+X            Cut                      ←                 Left / previous column    │              │
-│              │ Ctrl+V            Paste                    →                 Right / next column       │              │
-│              │ Ctrl+A            Select all               PgUp              Page up                   │              │
-│              │ V                 Select whole rows        PgDn              Page down                 │              │
-│              │ Ctrl+Z            Undo                     Home              First row / line start    │              │
-│              │ Ctrl+Y            Redo                     End               Last row / line end       │              │
-│              │ i                 Inspect / insert name    Backspace         Delete back               │              │
-│              │ J                 Results as JSON / grid   Alt+Backspace     Delete a word             │              │
+│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          Delete d          Delete                    │              │
+│              │ F5 Ctrl+E         Run statement/selection  Ctrl+S            Save                      │              │
+│              │ Shift+F5          Run the whole script     F1                Connection list           │              │
+│              │ Ctrl+Space        Suggest names            Ctrl+T            Next theme                │              │
+│              │ Ctrl+R            Query history            F12               Event log                 │              │
+│              │ Ctrl+N            New query tab            Space             Command menu              │              │
+│              │ Ctrl+W            Close query tab          ? F2              Show keys                 │              │
+│              │ Alt+] Ctrl+PgDn   Next query tab           Esc               Back / close              │              │
+│              │ Alt+[ Ctrl+PgUp   Previous query tab       q Ctrl+Q          Quit                      │              │
+│              │ Ctrl+C            Copy / cancel query      Enter             Select / new line         │              │
+│              │ y                 Copy as CSV, JSON, …     ↑                 Up                        │              │
+│              │ Ctrl+X            Cut                      ↓                 Down                      │              │
+│              │ Ctrl+V            Paste                    ←                 Left / previous column    │              │
+│              │ Ctrl+A            Select all               →                 Right / next column       │              │
+│              │ V                 Select whole rows        PgUp              Page up                   │              │
+│              │ Ctrl+Z            Undo                     PgDn              Page down                 │              │
+│              │ Ctrl+Y            Redo                     Home              First row / line start    │              │
+│              │ i                 Inspect / insert name    End               Last row / line end       │              │
+│              │ J                 Results as JSON / grid   Backspace         Delete back               │              │
+│              │ o                 Add a row                Alt+Backspace     Delete a word             │              │
 │              │ >                 Widen column             Alt+B Alt+←       Previous word             │              │
 │              │ <                 Narrow column            Alt+F Alt+→       Next word                 │              │
 │              │ Tab               Next panel               Shift+←           Select left               │              │
@@ -30,7 +31,6 @@ expression: "test.snapshot(120, 32)"
 │              │ /                 Filter                   Shift+↑           Select up                 │              │
 │              │ R                 Refresh                  Shift+↓           Select down               │              │
 │              │ n                 New connection           Shift+Home        Select to line start      │              │
-│              │ e                 Edit / definition        Shift+End         Select to line end        │              │
 │              │                                                                                        │              │
 ╰──────────────╰─────────────────────────── ↑↓ scroll · any other key closes ───────────────────────────╯──────────────╯
  dfox 0.0.0                                                                        Enter connect  n new  e edit  ? keys

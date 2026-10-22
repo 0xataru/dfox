@@ -348,10 +348,9 @@ async fn edits_apply_inside_an_open_transaction() {
         .apply(ChangeSet {
             table: ["main", "t"].into_iter().collect(),
             key: vec!["id".into()],
-            columns: vec!["id".into(), "name".into()],
             changes: vec![Change::Insert(vec![
-                OwnedCell::Int(1),
-                OwnedCell::Text("a".into()),
+                ("id".into(), OwnedCell::Int(1)),
+                ("name".into(), OwnedCell::Text("a".into())),
             ])],
         })
         .await
@@ -359,4 +358,30 @@ async fn edits_apply_inside_an_open_transaction() {
     assert_eq!(report.inserted, 1);
     run(s.as_mut(), "ROLLBACK").await;
     assert_eq!(run(s.as_mut(), "SELECT count(*) FROM t").await, [["0"]]);
+}
+
+#[tokio::test]
+async fn a_row_with_no_values_gets_every_default() {
+    use dfox_core::session::{Change, ChangeSet};
+
+    let file = File::new();
+    let mut s = session(&file.params()).await;
+    run(
+        s.as_mut(),
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT DEFAULT 'none')",
+    )
+    .await;
+    let report = s
+        .apply(ChangeSet {
+            table: ["main", "t"].into_iter().collect(),
+            key: vec!["id".into()],
+            changes: vec![Change::Insert(Vec::new())],
+        })
+        .await
+        .expect("apply");
+    assert_eq!(report.inserted, 1);
+    assert_eq!(
+        run(s.as_mut(), "SELECT id, name FROM t").await,
+        [["1", "none"]]
+    );
 }

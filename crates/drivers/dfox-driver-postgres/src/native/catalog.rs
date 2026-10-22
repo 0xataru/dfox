@@ -762,14 +762,15 @@ impl PgCatalog {
             let mut report = ApplyReport::default();
             for change in &changes.changes {
                 let (sql, values): (String, Vec<Option<String>>) = match change {
+                    Change::Insert(values) if values.is_empty() => {
+                        (format!("INSERT INTO {target} DEFAULT VALUES"), Vec::new())
+                    }
                     Change::Insert(values) => {
-                        let columns: Vec<String> =
-                            changes.columns.iter().map(|c| quote(c)).collect();
-                        let casts = changes
-                            .columns
+                        let columns: Vec<String> = values.iter().map(|(c, _)| quote(c)).collect();
+                        let casts = values
                             .iter()
                             .enumerate()
-                            .map(|(i, c)| cast(c, i + 1))
+                            .map(|(i, (c, _))| cast(c, i + 1))
                             .collect::<Result<Vec<_>, _>>()?;
                         (
                             format!(
@@ -777,7 +778,7 @@ impl PgCatalog {
                                 columns.join(", "),
                                 casts.join(", ")
                             ),
-                            values.iter().map(param).collect(),
+                            values.iter().map(|(_, v)| param(v)).collect(),
                         )
                     }
                     Change::Update { key, set } => {
