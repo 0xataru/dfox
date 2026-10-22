@@ -98,6 +98,23 @@ pub enum OwnedCell {
     Undecodable(Box<str>),
 }
 
+impl From<Cell<'_>> for OwnedCell {
+    fn from(cell: Cell<'_>) -> Self {
+        match cell {
+            Cell::Null => OwnedCell::Null,
+            Cell::Bool(v) => OwnedCell::Bool(v),
+            Cell::Int(v) => OwnedCell::Int(v),
+            Cell::UInt(v) => OwnedCell::UInt(v),
+            Cell::Float(v) => OwnedCell::Float(v),
+            Cell::Decimal(v) => OwnedCell::Decimal(v.into()),
+            Cell::Text(v) => OwnedCell::Text(v.into()),
+            Cell::Bytes(v) => OwnedCell::Bytes(v.into()),
+            Cell::Json(v) => OwnedCell::Json(v.into()),
+            Cell::Undecodable(v) => OwnedCell::Undecodable(v.into()),
+        }
+    }
+}
+
 impl OwnedCell {
     pub fn as_cell(&self) -> Cell<'_> {
         match self {

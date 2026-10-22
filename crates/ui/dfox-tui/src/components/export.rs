@@ -1,9 +1,9 @@
-//! Where to export rows: a file to name, written in the format its
-//! extension names.
+//! Which file to export rows to, or to import rows from: CSV, TSV, JSON
+//! Lines or Parquet, by its extension.
 
 use std::path::PathBuf;
 
-use dfox_core::export::Format;
+use dfox_core::{catalog::NodePath, export::Format};
 use ratatui::{
     layout::Rect,
     text::{Line, Span},
@@ -28,6 +28,8 @@ pub struct ExportDialog {
     pub sql: String,
     /// About how many rows it returns, when the table says.
     pub estimate: Option<u64>,
+    /// The table the file's rows go into, when importing.
+    pub import: Option<NodePath>,
     path: Buffer,
     error: Option<String>,
 }
@@ -43,8 +45,21 @@ impl ExportDialog {
         Self {
             sql,
             estimate,
+            import: None,
             path,
             error: None,
+        }
+    }
+
+    /// A dialog to import a file's rows into the table at `table`.
+    pub fn import(table: NodePath) -> Self {
+        let name = table
+            .name()
+            .unwrap_or("rows")
+            .replace(['/', '\\', ':'], "_");
+        Self {
+            import: Some(table),
+            ..Self::new(&name, String::new(), None)
         }
     }
 
@@ -77,6 +92,12 @@ impl ExportDialog {
     fn target(&self) -> Result<PathBuf, String> {
         let path = PathBuf::from(expand_home(self.path.text().trim()));
         Format::of(&path)?;
+        if self.import.is_some() {
+            return match path.is_file() {
+                true => Ok(path),
+                false => Err(format!("there is no file {}", path.display())),
+            };
+        }
         match path.parent() {
             Some(folder) if !folder.as_os_str().is_empty() && !folder.is_dir() => {
                 Err(format!("there is no folder {}", folder.display()))
@@ -107,6 +128,10 @@ impl ExportDialog {
         let shown: String = text.chars().skip(skip).collect();
         let note = match &self.error {
             Some(why) => Line::styled(format!(" {why}"), theme.danger()),
+            None if self.import.is_some() => Line::styled(
+                " Columns match the table's by name; empty cells get defaults",
+                theme.dim(),
+            ),
             None if self.target().is_ok_and(|p| p.exists()) => {
                 Line::styled(" The file exists and will be replaced", theme.warning())
             }
@@ -117,7 +142,14 @@ impl ExportDialog {
             note,
             Line::from(vec![
                 Span::styled(" Enter", theme.key()),
-                Span::styled(" export  ", theme.dim()),
+                Span::styled(
+                    if self.import.is_some() {
+                        " import  "
+                    } else {
+                        " export  "
+                    },
+                    theme.dim(),
+                ),
                 Span::styled("Esc", theme.key()),
                 Span::styled(" cancel", theme.dim()),
             ]),
@@ -126,7 +158,13 @@ impl ExportDialog {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(theme.border(true))
-            .title(Span::styled(" Export rows to ", theme.title(true)))
+            .title(Span::styled(
+                match self.import.as_ref().and_then(NodePath::name) {
+                    Some(table) => format!(" Import rows into {table} from "),
+                    None => " Export rows to ".to_string(),
+                },
+                theme.title(true),
+            ))
             .style(theme.surface());
         f.render_widget(Clear, popup);
         f.render_widget(Paragraph::new(lines).block(block), popup);
@@ -174,5 +212,26 @@ mod tests {
             Some(DialogEvent::Export(good))
         );
         assert_eq!(dialog.handle(Action::Back), Some(DialogEvent::Close));
+    }
+
+    #[test]
+    fn an_import_needs_a_file_that_exists() {
+        let table: NodePath = ["shop", "public", "orders"].into_iter().collect();
+        let mut dialog = ExportDialog::import(table);
+        let missing = std::env::temp_dir().join("dfox-no-such-file.csv");
+        typed(&mut dialog, &missing.to_string_lossy());
+        assert_eq!(dialog.handle(Action::Confirm), None);
+        assert!(dialog
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("no file")));
+        let file = std::env::temp_dir().join(format!("dfox-import-{}.csv", std::process::id()));
+        std::fs::write(&file, "id\n1\n").expect("file");
+        typed(&mut dialog, &file.to_string_lossy());
+        assert_eq!(
+            dialog.handle(Action::Confirm),
+            Some(DialogEvent::Export(file.clone()))
+        );
+        let _ = std::fs::remove_file(file);
     }
 }
