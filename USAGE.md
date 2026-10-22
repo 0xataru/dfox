@@ -152,8 +152,11 @@ Press **?** (or **F2**) in the app for the full list, generated from your keymap
   below, whose cells left blank get their defaults. **d** marks the row to delete (again
   to keep it), **Ctrl+Z** undoes the last change. Changed cells
   and deleted rows show until **Ctrl+S**, which lists them and saves them together in
-  one transaction (**x** there discards them all); the rows then load again. Postgres,
-  MySQL and SQLite for now
+  one transaction (**x** there discards them all); the rows then load again.
+  Postgres, MySQL, SQLite and MongoDB. In MongoDB a document is found by its `_id`, a
+  changed field keeps its type (a number stays a number), and a new field reads as the
+  mongo shell reads it (`42` a number, `"42"` or `Ann` text, `{…}` a document); the
+  changes are written one by one, as a single server has no transactions
 - **J** - Show the rows as JSON documents, and back to the grid. Each row is a document
   shown on one line; **→** or **Enter** opens it, and the objects and lists in it, **←**
   closes them or goes up. Columns that hold JSON (MongoDB's nested documents, a Redis

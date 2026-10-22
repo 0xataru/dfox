@@ -470,7 +470,7 @@ impl Reader {
 }
 
 /// `2024-01-02`, `2024-01-02T03:04:05Z` and the like.
-fn parse_date(text: &str) -> Option<DateTime> {
+pub fn parse_date(text: &str) -> Option<DateTime> {
     if let Ok(date) = DateTime::parse_rfc3339_str(text) {
         return Some(date);
     }

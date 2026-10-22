@@ -4,6 +4,7 @@
 
 pub mod catalog;
 pub mod convert;
+pub mod edit;
 pub mod literal;
 pub mod shell;
 
@@ -181,7 +182,10 @@ fn lock(state: &Mutex<State>) -> std::sync::MutexGuard<'_, State> {
 
 impl Session for MongoSession {
     fn caps(&self) -> Capabilities {
-        Capabilities::CANCEL | Capabilities::ROW_COUNT_ESTIMATE | Capabilities::MULTI_STATEMENT
+        Capabilities::CANCEL
+            | Capabilities::ROW_COUNT_ESTIMATE
+            | Capabilities::MULTI_STATEMENT
+            | Capabilities::EDIT_BY_PK
     }
 
     fn language(&self) -> QueryLanguage {
@@ -245,11 +249,14 @@ impl Session for MongoSession {
         })
     }
 
-    fn apply(&mut self, _changes: ChangeSet) -> BoxFuture<'_, Result<ApplyReport, DbError>> {
-        Box::pin(async {
-            Err(DbError::General(
-                "editing documents isn't supported yet".into(),
-            ))
+    fn apply(&mut self, changes: ChangeSet) -> BoxFuture<'_, Result<ApplyReport, DbError>> {
+        let client = self.client.clone();
+        let read_only = self.read_only;
+        Box::pin(async move {
+            if read_only {
+                return Err(DbError::General("this connection is read-only".into()));
+            }
+            edit::apply(&client, changes).await
         })
     }
 }

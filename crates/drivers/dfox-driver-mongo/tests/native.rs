@@ -387,3 +387,104 @@ async fn a_wrong_password_fails_to_connect() {
         .expect("refused");
     assert!(err.to_string().starts_with("Connection error"), "{err}");
 }
+
+#[tokio::test]
+async fn grid_edits_keep_each_fields_type() {
+    use dfox_core::{
+        result::OwnedCell,
+        session::{Change, ChangeSet},
+    };
+
+    let database = unique("dfox_it");
+    let Some(mut s) = session(&database).await else {
+        return;
+    };
+    let hex = "64b7f0c2a1b2c3d4e5f60718";
+    execute(
+        s.as_mut(),
+        &format!(
+            "db.people.insertOne({{ _id: ObjectId('{hex}'), name: 'Ann', age: 30, code: '123', tags: ['a'] }})"
+        ),
+    )
+    .await;
+    let table: NodePath = [database.as_str(), "people"].into_iter().collect();
+    let changes = |changes| ChangeSet {
+        table: table.clone(),
+        key: vec!["_id".into()],
+        changes,
+    };
+    // As the grid sends them: text, and the ObjectId as its hex.
+    let report = s
+        .apply(changes(vec![
+            Change::Update {
+                key: vec![OwnedCell::Text(hex.into())],
+                set: vec![
+                    ("age".into(), OwnedCell::Text("31".into())),
+                    ("code".into(), OwnedCell::Text("124".into())),
+                    ("tags".into(), OwnedCell::Text("['b', 'c']".into())),
+                    ("added".into(), OwnedCell::Text("42".into())),
+                ],
+            },
+            Change::Insert(vec![("name".into(), OwnedCell::Text("Bob".into()))]),
+        ]))
+        .await
+        .expect("apply");
+    assert_eq!((report.updated, report.inserted), (1, 1));
+    let types = run(
+        s.as_mut(),
+        "db.people.aggregate([{ $match: { name: 'Ann' } }, { $project: { _id: 0, \
+         age: { $type: '$age' }, code: { $type: '$code' }, tags: '$tags', added: { $type: '$added' } } }])",
+        10,
+    )
+    .await
+    .expect("types");
+    assert_eq!(
+        only_row(&types),
+        [
+            Some("int"),
+            Some("string"),
+            Some("[\"b\",\"c\"]"),
+            Some("int")
+        ]
+    );
+    let bob = run(s.as_mut(), "db.people.countDocuments({ name: 'Bob' })", 10)
+        .await
+        .expect("count");
+    assert_eq!(scalar(&bob), Some("1"));
+
+    // A value that doesn't fit the field is refused, naming it.
+    let err = s
+        .apply(changes(vec![Change::Update {
+            key: vec![OwnedCell::Text(hex.into())],
+            set: vec![("age".into(), OwnedCell::Text("old".into()))],
+        }]))
+        .await
+        .expect_err("not a number");
+    assert!(err.to_string().contains("age"), "{err}");
+
+    let report = s
+        .apply(changes(vec![Change::Delete(vec![OwnedCell::Text(
+            hex.into(),
+        )])]))
+        .await
+        .expect("delete");
+    assert_eq!(report.deleted, 1);
+    drop_database(s.as_mut()).await;
+
+    // A read-only connection writes nothing.
+    let Some(params) = params(&database) else {
+        return;
+    };
+    let mut read_only = MongoDriver
+        .open(&ConnectionParams {
+            read_only: true,
+            ..params
+        })
+        .await
+        .expect("open");
+    let err = read_only
+        .apply(changes(vec![Change::Delete(vec![OwnedCell::Int(1)])]))
+        .await
+        .expect_err("read-only");
+    assert!(err.to_string().contains("read-only"), "{err}");
+}
