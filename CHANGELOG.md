@@ -12,6 +12,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - Adding rows in the grid: **o** adds a row below the table's rows, **e** fills its cells,
   and the cells left blank get their column's defaults, such as a serial key. Saved
   with the other changes (**Ctrl+S**), in the same transaction.
+- Editing documents in MongoDB, the same way: found by `_id` (an ObjectId as the grid
+  shows it), with each changed field keeping its type, and new fields read as the mongo
+  shell reads values. Written one change at a time.
 
 ## [0.4.1] - 2026-10-21
 

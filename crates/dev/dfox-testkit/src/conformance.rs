@@ -302,13 +302,13 @@ async fn transactions(session: &mut dyn Session, fixture: &Fixture) {
 async fn edits(session: &mut dyn Session, fixture: &Fixture) {
     let changes = |changes| ChangeSet {
         table: fixture.table.clone(),
-        key: vec!["id".into()],
+        key: vec![fixture.key.into()],
         changes,
     };
     let report = session
         .apply(changes(vec![
             Change::Insert(vec![
-                ("id".into(), OwnedCell::Int(10)),
+                (fixture.key.into(), OwnedCell::Int(10)),
                 ("name".into(), OwnedCell::Text("x".into())),
             ]),
             Change::Update {
