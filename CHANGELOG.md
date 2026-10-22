@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-22
+
 ### Changed
 
 - A new logo: a fox head made of triangles (`examples/logo.svg`), which in the README breaks
