@@ -129,7 +129,7 @@ impl ExportDialog {
         let note = match &self.error {
             Some(why) => Line::styled(format!(" {why}"), theme.danger()),
             None if self.import.is_some() => Line::styled(
-                " Columns match the table's by name; empty cells get defaults",
+                " Columns match the table's by name; empty cells are NULL",
                 theme.dim(),
             ),
             None if self.target().is_ok_and(|p| p.exists()) => {

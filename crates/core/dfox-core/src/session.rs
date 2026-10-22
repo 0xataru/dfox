@@ -136,6 +136,27 @@ pub enum Change {
     Delete(Vec<OwnedCell>),
 }
 
+impl Change {
+    /// How many changes at the start of `changes` are inserts naming the
+    /// same columns as the first, in the same order: a run a driver can send
+    /// as one bulk insert. 0 when the first isn't an insert or names none.
+    pub fn insert_run(changes: &[Change]) -> usize {
+        let Some(Change::Insert(first)) = changes.first() else {
+            return 0;
+        };
+        if first.is_empty() {
+            return 0;
+        }
+        let same = |values: &[(String, OwnedCell)]| {
+            values.len() == first.len() && values.iter().zip(first).all(|((a, _), (b, _))| a == b)
+        };
+        changes
+            .iter()
+            .take_while(|c| matches!(c, Change::Insert(values) if same(values)))
+            .count()
+    }
+}
+
 /// Edits of one table, keyed by its primary key. The driver writes them as
 /// parametrised statements, in a transaction where it can.
 #[derive(Debug, Clone, PartialEq)]
@@ -198,6 +219,28 @@ mod tests {
         let request = Request::new("select 1").with_row_limit(10);
         assert_eq!(request.row_limit, Some(10));
         assert_eq!(Request::new("x").row_limit, None);
+    }
+
+    #[test]
+    fn runs_of_inserts_share_their_columns() {
+        let insert = |names: &[&str]| {
+            Change::Insert(
+                names
+                    .iter()
+                    .map(|n| (n.to_string(), OwnedCell::Null))
+                    .collect(),
+            )
+        };
+        let changes = [
+            insert(&["a", "b"]),
+            insert(&["a", "b"]),
+            insert(&["b", "a"]),
+            insert(&["a", "b"]),
+        ];
+        assert_eq!(Change::insert_run(&changes), 2);
+        assert_eq!(Change::insert_run(&changes[2..]), 1);
+        assert_eq!(Change::insert_run(&[insert(&[])]), 0);
+        assert_eq!(Change::insert_run(&[Change::Delete(Vec::new())]), 0);
     }
 
     #[test]

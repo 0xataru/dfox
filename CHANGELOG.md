@@ -18,9 +18,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   percentage for a table that estimates its size). **Ctrl+C** cancels; a cancelled or
   failed export leaves no file.
 - Importing a file into a table: **Import…** in a table's menu reads CSV, TSV, JSON Lines
-  or Parquet, matches its columns to the table's by name, leaves empty cells to the
-  defaults, and adds the rows a thousand at a time, with progress in the status bar.
-  Postgres, MySQL, SQLite and MongoDB.
+  or Parquet, matches its columns to the table's by name (empty cells are NULL), and adds
+  the rows ten thousand at a time, with progress in the status bar: by COPY in Postgres,
+  multi-row inserts in MySQL, `insertMany` in MongoDB. About 100,000–200,000 rows a
+  second on a local server. Postgres, MySQL, SQLite and MongoDB.
 - Editing documents in MongoDB, the same way: found by `_id` (an ObjectId as the grid
   shows it), with each changed field keeping its type, and new fields read as the mongo
   shell reads values. Written one change at a time.

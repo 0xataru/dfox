@@ -698,7 +698,44 @@ impl MyCatalog {
             .map_err(db_error)?;
         let result = async {
             let mut report = ApplyReport::default();
-            for change in &changes.changes {
+            let all = &changes.changes;
+            let mut next = 0;
+            while next < all.len() {
+                // A run of inserts naming the same columns goes in as
+                // multi-row inserts, under MySQL's 65,535 parameters each.
+                let run = Change::insert_run(&all[next..]);
+                if run > 1 {
+                    let Change::Insert(first) = &all[next] else {
+                        return Err(DbError::General("a run of inserts starts with one".into()));
+                    };
+                    let columns: Vec<String> = first.iter().map(|(c, _)| quote(c)).collect();
+                    let row = format!("({})", vec!["?"; columns.len()].join(", "));
+                    let per_statement = (u16::MAX as usize / columns.len()).clamp(1, 1000);
+                    for rows in all[next..next + run].chunks(per_statement) {
+                        let values: Vec<Value> = rows
+                            .iter()
+                            .flat_map(|change| match change {
+                                Change::Insert(values) => {
+                                    values.iter().map(|(_, v)| param(v)).collect()
+                                }
+                                _ => Vec::new(),
+                            })
+                            .collect();
+                        let sql = format!(
+                            "INSERT INTO {target} ({}) VALUES {}",
+                            columns.join(", "),
+                            vec![row.as_str(); rows.len()].join(", ")
+                        );
+                        conn.exec_drop(sql, Params::Positional(values))
+                            .await
+                            .map_err(db_error)?;
+                        report.inserted += conn.affected_rows();
+                    }
+                    next += run;
+                    continue;
+                }
+                let change = &all[next];
+                next += 1;
                 let (sql, values): (String, Vec<Value>) = match change {
                     Change::Insert(values) => {
                         // `() VALUES ()` when empty: every column its default.
