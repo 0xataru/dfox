@@ -7,6 +7,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Changed
+
+- A new logo: a fox head made of triangles (`examples/logo.svg`). The splash draws it in the
+  terminal, its pixels flying in from the left and settling into the head, above the name.
+
 ## [0.5.1] - 2026-10-22
 
 ### Added

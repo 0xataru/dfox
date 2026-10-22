@@ -1,6 +1,7 @@
 //! Small drawing pieces shared by the components.
 
 pub mod confirm;
+pub mod fox;
 pub mod help;
 pub mod palette;
 pub mod progress;

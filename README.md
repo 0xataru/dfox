@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="examples/mini_logo.png" alt="DFox logo" width="300">
+  <img src="examples/logo.svg" alt="dfox logo: a fox head made of triangles" width="160">
 </p>
 
 # DFox - ⚡️ Blazing Fast Terminal Database Manager

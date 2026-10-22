@@ -11,6 +11,16 @@ pub enum ColorDepth {
 }
 
 impl ColorDepth {
+    /// The depth `color` was made for: a theme's colours tell what the
+    /// terminal can show.
+    pub fn of(color: Color) -> Self {
+        match color {
+            Color::Rgb(..) => ColorDepth::TrueColor,
+            Color::Indexed(_) => ColorDepth::Ansi256,
+            _ => ColorDepth::Ansi16,
+        }
+    }
+
     /// Reads the terminal's colour support from the environment.
     pub fn detect() -> Self {
         let var = |name| std::env::var(name).unwrap_or_default().to_lowercase();
@@ -143,5 +153,16 @@ mod tests {
             Rgb(250, 250, 250).to_color(ColorDepth::Ansi16),
             Color::White
         );
+    }
+
+    #[test]
+    fn depth_is_read_back_from_a_colour() {
+        for depth in [
+            ColorDepth::TrueColor,
+            ColorDepth::Ansi256,
+            ColorDepth::Ansi16,
+        ] {
+            assert_eq!(ColorDepth::of(Rgb(255, 158, 59).to_color(depth)), depth);
+        }
     }
 }
