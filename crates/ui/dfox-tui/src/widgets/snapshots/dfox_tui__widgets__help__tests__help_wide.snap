@@ -1,6 +1,6 @@
 ---
 source: dfox-tui/src/widgets/help.rs
-expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx))"
+expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &super::Help::default(), ctx))"
 ---
 
 
@@ -38,4 +38,4 @@ expression: "render(&test, 120, 40, |f, area, ctx| super::render(f, area, 0, ctx
                │ n                 New connection           Shift+End         Select to line end        │
                │ e                 Edit / definition                                                    │
                │                                                                                        │
-               ╰─────────────────────────────────── any key to close ───────────────────────────────────╯
+               ╰──────────────────────── Enter change · Del default · Esc close ────────────────────────╯

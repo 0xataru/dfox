@@ -1,6 +1,6 @@
 ---
 source: dfox-tui/src/widgets/help.rs
-expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx))"
+expression: "render(&test, 80, 24, |f, area, ctx|\nsuper::render(f, area, &super::Help::default(), ctx))"
 ---
                  ╭ Keys ───────────────────────────────────────╮
                  │                                             │
@@ -25,4 +25,4 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, 0, ctx)
                  │ J                 Results as JSON / grid    │
                  │ o                 Add a row                 │
                  │                                             │
-                 ╰───── ↑↓ scroll · any other key closes ──────╯
+                 ╰── Enter change · Del default · Esc close ───╯

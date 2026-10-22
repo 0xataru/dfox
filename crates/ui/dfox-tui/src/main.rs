@@ -291,7 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine,
         Setup {
             config,
-            themes_dir: config_dir.map(|dir| dir.join("themes")),
+            config_dir,
             depth: ColorDepth::detect(),
             store,
             secrets: Box::new(Keychain),

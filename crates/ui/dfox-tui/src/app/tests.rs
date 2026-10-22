@@ -52,7 +52,7 @@ fn test_app(name: &str, password: Option<&str>, pgpass_text: &str) -> Test {
         EngineHandle::new(tx),
         Setup {
             config: Config::default(),
-            themes_dir: None,
+            config_dir: None,
             depth: ColorDepth::TrueColor,
             store,
             secrets: Box::new(secrets),
@@ -151,7 +151,7 @@ fn the_manager_pings_every_connection_on_start() {
         EngineHandle::new(tx),
         Setup {
             config: Config::default(),
-            themes_dir: None,
+            config_dir: None,
             depth: ColorDepth::TrueColor,
             store,
             secrets: Box::new(Memory::default()),
@@ -401,7 +401,7 @@ fn a_url_on_the_command_line_connects_right_away() {
         EngineHandle::new(tx),
         Setup {
             config: Config::default(),
-            themes_dir: None,
+            config_dir: None,
             depth: ColorDepth::TrueColor,
             store: Store::default(),
             secrets: Box::new(Memory::default()),
@@ -533,7 +533,7 @@ fn setup_problems_show_as_toasts() {
                 theme: "missing".into(),
                 ..Default::default()
             },
-            themes_dir: None,
+            config_dir: None,
             depth: ColorDepth::TrueColor,
             store: Store::default(),
             secrets: Box::new(Memory::default()),
@@ -639,8 +639,49 @@ fn help_scrolls_and_closes_on_other_keys() {
     test.key(KeyCode::PageUp);
     test.key(KeyCode::Char('j'));
     test.key(KeyCode::Up);
-    assert_eq!(test.app.overlay, Some(Overlay::Help(0)));
+    assert_eq!(test.app.overlay, Some(Overlay::Help(help::Help::default())));
     test.key(KeyCode::Char('x'));
+    assert_eq!(test.app.overlay, None);
+}
+
+#[test]
+fn keys_change_in_the_help_and_are_saved() {
+    let mut test = test_app("rebind", None, "");
+    test.app.config_dir = Some(test.dir.clone());
+    let execute = Action::BINDABLE
+        .iter()
+        .position(|a| *a == Action::Execute)
+        .expect("bindable");
+    test.key(KeyCode::Char('?'));
+    for _ in 0..execute {
+        test.key(KeyCode::Down);
+    }
+    let saved = |test: &Test| Config::load(Some(&test.dir)).0.keys;
+
+    // A free key replaces all of the action's keys.
+    test.key(KeyCode::Enter);
+    test.key(KeyCode::Insert);
+    test.key(KeyCode::F(6));
+    assert_eq!(test.app.keymap.keys_for(Action::Execute), ["F6"]);
+    assert_eq!(saved(&test)["execute"], ["f6"]);
+
+    // A key History has moves only when pressed twice.
+    test.key(KeyCode::Enter);
+    test.ctrl('r');
+    assert_eq!(test.app.keymap.keys_for(Action::Execute), ["F6"]);
+    test.ctrl('r');
+    assert_eq!(test.app.keymap.keys_for(Action::Execute), ["Ctrl+R"]);
+    assert!(test.app.keymap.keys_for(Action::History).is_empty());
+    assert!(saved(&test)["history"].is_empty());
+
+    // Esc while waiting keeps the keys; Delete brings the defaults back.
+    test.key(KeyCode::Enter);
+    test.key(KeyCode::Esc);
+    assert_eq!(test.app.keymap.keys_for(Action::Execute), ["Ctrl+R"]);
+    test.key(KeyCode::Delete);
+    assert_eq!(test.app.keymap.hint(Action::Execute), "F5");
+    assert!(!saved(&test).contains_key("execute"));
+    test.key(KeyCode::Esc);
     assert_eq!(test.app.overlay, None);
 }
 
@@ -751,7 +792,7 @@ fn splash_app(name: &str, animations: bool) -> Test {
                 animations,
                 ..Default::default()
             },
-            themes_dir: None,
+            config_dir: None,
             depth: ColorDepth::TrueColor,
             store,
             secrets: Box::new(Memory::default()),

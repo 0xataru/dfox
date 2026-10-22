@@ -96,6 +96,43 @@ impl Key {
         Some(Key::new(code, modifiers))
     }
 
+    /// How the key is written in `config.toml`, so [`Key::parse`] reads it
+    /// back. `None` for keys it can't read, such as Insert.
+    pub fn name(&self) -> Option<String> {
+        let mut name = String::new();
+        for (modifier, text) in [
+            (KeyModifiers::CONTROL, "ctrl+"),
+            (KeyModifiers::ALT, "alt+"),
+            (KeyModifiers::SHIFT, "shift+"),
+        ] {
+            if self.modifiers.contains(modifier) {
+                name.push_str(text);
+            }
+        }
+        let key = match self.code {
+            KeyCode::Char(' ') => "space".to_string(),
+            KeyCode::Char(c) => c.to_string(),
+            KeyCode::F(n) => format!("f{n}"),
+            KeyCode::Enter => "enter".to_string(),
+            KeyCode::Esc => "esc".to_string(),
+            KeyCode::Tab => "tab".to_string(),
+            KeyCode::BackTab => "shift+tab".to_string(),
+            KeyCode::Backspace => "backspace".to_string(),
+            KeyCode::Delete => "delete".to_string(),
+            KeyCode::Up => "up".to_string(),
+            KeyCode::Down => "down".to_string(),
+            KeyCode::Left => "left".to_string(),
+            KeyCode::Right => "right".to_string(),
+            KeyCode::PageUp => "pageup".to_string(),
+            KeyCode::PageDown => "pagedown".to_string(),
+            KeyCode::Home => "home".to_string(),
+            KeyCode::End => "end".to_string(),
+            _ => return None,
+        };
+        name.push_str(&key);
+        Some(name)
+    }
+
     /// How the key is written in help: `Ctrl+E`, `F5`, `Shift+Tab`, `G`.
     pub fn label(&self) -> String {
         let mut label = String::new();
@@ -170,22 +207,29 @@ impl Keymap {
     }
 
     pub fn action(&self, event: KeyEvent) -> Option<Action> {
-        self.bindings
-            .get(&Key::new(event.code, event.modifiers))
-            .copied()
+        self.owner(Key::new(event.code, event.modifiers))
     }
 
-    /// The keys bound to `action`, as labels, keys with fewer modifiers
-    /// first.
-    pub fn keys_for(&self, action: Action) -> Vec<String> {
-        let mut keys: Vec<&Key> = self
+    /// The action `key` is bound to.
+    pub fn owner(&self, key: Key) -> Option<Action> {
+        self.bindings.get(&key).copied()
+    }
+
+    /// The keys bound to `action`, keys with fewer modifiers first.
+    pub fn keys(&self, action: Action) -> Vec<Key> {
+        let mut keys: Vec<Key> = self
             .bindings
             .iter()
             .filter(|(_, bound)| **bound == action)
-            .map(|(key, _)| key)
+            .map(|(key, _)| *key)
             .collect();
         keys.sort_by_key(|key| (key.modifiers.bits().count_ones(), key.label()));
-        keys.into_iter().map(Key::label).collect()
+        keys
+    }
+
+    /// The keys bound to `action`, as labels.
+    pub fn keys_for(&self, action: Action) -> Vec<String> {
+        self.keys(action).iter().map(Key::label).collect()
     }
 
     /// The first key of `action`, for short hints.
@@ -309,6 +353,32 @@ mod tests {
         }
         assert_eq!(Key::parse("hyper+x"), None);
         assert_eq!(Key::parse("ab"), None);
+    }
+
+    #[test]
+    fn names_read_back_as_the_same_key() {
+        for text in [
+            "ctrl+e",
+            "f5",
+            "shift+tab",
+            "G",
+            "?",
+            "space",
+            "pagedown",
+            "ctrl++",
+            "ctrl+shift+z",
+            "ctrl+enter",
+            "alt+]",
+            "delete",
+            "esc",
+            "shift+left",
+            "ctrl+backspace",
+        ] {
+            let key = Key::parse(text).expect("parses");
+            let name = key.name().expect("a name");
+            assert_eq!(Key::parse(&name), Some(key), "{text} → {name}");
+        }
+        assert_eq!(Key::new(KeyCode::Insert, KeyModifiers::NONE).name(), None);
     }
 
     #[test]
