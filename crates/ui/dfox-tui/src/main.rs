@@ -1,6 +1,9 @@
 use std::{env, sync::Arc};
 
-use dfox_core::driver::{Driver, Drivers};
+use dfox_core::{
+    driver::{Driver, Drivers},
+    engine::Command as DbCommand,
+};
 
 use dfox_tui::{
     app::{App, Detected, Setup},
@@ -51,6 +54,82 @@ macro_rules! out {
 fn usage_error(message: &str) -> ! {
     eprintln!("dfox: {message}\n\n{USAGE}");
     std::process::exit(2);
+}
+
+/// Sessions go through an SSH tunnel when the connection has one.
+fn opener() -> dfox_core::engine::Opener {
+    Arc::new(|driver, params| {
+        Box::pin(async move { dfox_ssh::open(driver.as_ref(), &params).await })
+    })
+}
+
+/// Runs `dfox export` or `dfox copy`, reporting on stderr, and returns the
+/// exit code.
+async fn headless(cli: Cli) -> i32 {
+    let config_dir = Config::dir();
+    let (store, problem) = Store::load(config_dir.as_deref());
+    if let Some(problem) = problem {
+        eprintln!("dfox: {problem}");
+    }
+    let pgpass = pgpass::load();
+    let resolve = |name: &str| dfox_tui::headless::resolve(name, &store, &Keychain, &pgpass);
+    let (from, command, done) = match cli {
+        Cli::Export { from, query, file } => {
+            let done = format!("to {}", file.display());
+            let command = DbCommand::Export {
+                id: 1,
+                sql: query,
+                file,
+            };
+            (from, Ok(command), ("Exported", done))
+        }
+        Cli::Copy {
+            from,
+            query,
+            to,
+            table,
+            create,
+        } => {
+            let command = resolve(&to).map(|(connection, params)| DbCommand::Copy {
+                id: 1,
+                sql: query,
+                target: Box::new(dfox_core::engine::CopyTarget {
+                    db_type: connection.driver,
+                    params,
+                    table: dfox_tui::components::copy::target_path(&connection, &table),
+                    create,
+                }),
+            });
+            let into = dfox_tui::headless::shown(&to);
+            (from, command, ("Copied", format!("into {into}: {table}")))
+        }
+        _ => return 2,
+    };
+    let outcome = match (resolve(&from), command) {
+        (Ok((connection, params)), Ok(command)) => {
+            let (engine, mut events) =
+                dfox_core::engine::spawn_with(Drivers::new(drivers()), opener());
+            let progress = dfox_tui::headless::shows_progress();
+            dfox_tui::headless::run(&engine, &mut events, &connection, params, command, progress)
+                .await
+        }
+        (Err(err), _) | (_, Err(err)) => Err(err),
+    };
+    match outcome {
+        Ok(stats) => {
+            let (verb, place) = done;
+            eprintln!(
+                "{verb} {} rows {place} in {:.1} s",
+                stats.rows,
+                stats.elapsed.as_secs_f64()
+            );
+            0
+        }
+        Err(err) => {
+            eprintln!("dfox: {err}");
+            1
+        }
+    }
 }
 
 #[tokio::main]
@@ -116,6 +195,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
             return Ok(());
+        }
+        Ok(cli @ (Cli::Export { .. } | Cli::Copy { .. })) => {
+            std::process::exit(headless(cli).await);
         }
         Ok(Cli::Run {
             open,
@@ -204,11 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if update {
         dfox_tui::update::refresh(History::dir());
     }
-    // Sessions go through an SSH tunnel when the connection has one.
-    let opener: dfox_core::engine::Opener = std::sync::Arc::new(|driver, params| {
-        Box::pin(async move { dfox_ssh::open(driver.as_ref(), &params).await })
-    });
-    let (engine, events) = dfox_core::engine::spawn_with(Drivers::new(drivers()), opener);
+    let (engine, events) = dfox_core::engine::spawn_with(Drivers::new(drivers()), opener());
     let mut app = App::new(
         engine,
         Setup {
