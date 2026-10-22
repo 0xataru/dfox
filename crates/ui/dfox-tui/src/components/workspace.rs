@@ -68,6 +68,8 @@ pub struct Tab {
 pub struct Exporting {
     pub id: QueryId,
     pub file: std::path::PathBuf,
+    /// The table it imports into; `None` for an export.
+    pub import: Option<NodePath>,
     pub rows: u64,
     /// About how many rows there are, when the table says.
     pub estimate: Option<u64>,
@@ -539,19 +541,45 @@ impl Workspace {
                     return false;
                 }
                 EngineEvent::QueryDone { id, outcome } if id == export.id => {
+                    let Some(export) = self.exporting.take() else {
+                        return false;
+                    };
                     let file = export.file.display().to_string();
-                    self.exporting = None;
-                    match outcome {
-                        Ok(stats) => ctx.toast(
+                    let rows = |n: u64| results::grid::group_digits(&n.to_string());
+                    match (outcome, &export.import) {
+                        (Ok(stats), None) => ctx.toast(
                             Level::Success,
                             format!(
                                 "Exported {} rows to {file} in {}",
-                                results::grid::group_digits(&stats.rows.to_string()),
+                                rows(stats.rows),
                                 results::format_duration(stats.elapsed)
                             ),
                         ),
-                        Err(DbError::Cancelled) => ctx.toast(Level::Info, "Export cancelled"),
-                        Err(err) => ctx.toast(Level::Error, format!("Couldn't export: {err}")),
+                        (Ok(stats), Some(table)) => {
+                            ctx.toast(
+                                Level::Success,
+                                format!(
+                                    "Imported {} rows into {} in {}",
+                                    rows(stats.rows),
+                                    table.name().unwrap_or_default(),
+                                    results::format_duration(stats.elapsed)
+                                ),
+                            );
+                            self.explorer.refresh_table(table, ctx);
+                        }
+                        (Err(DbError::Cancelled), None) => {
+                            ctx.toast(Level::Info, "Export cancelled")
+                        }
+                        (Err(DbError::Cancelled), Some(_)) => ctx.toast(
+                            Level::Info,
+                            format!("Import cancelled after {} rows went in", rows(export.rows)),
+                        ),
+                        (Err(err), None) => {
+                            ctx.toast(Level::Error, format!("Couldn't export: {err}"))
+                        }
+                        (Err(err), Some(_)) => {
+                            ctx.toast(Level::Error, format!("Couldn't import: {err}"))
+                        }
                     }
                     return false;
                 }
@@ -616,7 +644,7 @@ impl Workspace {
         // Then the export, so Ctrl+C stops what is running.
         if let Some(export) = &self.exporting {
             ctx.engine.send(DbCommand::Cancel { id: export.id });
-            ctx.toast(Level::Info, "Cancelling the export…");
+            ctx.toast(Level::Info, "Cancelling…");
             return None;
         }
         self.delegate(Action::Copy, ctx)
@@ -767,6 +795,9 @@ impl Workspace {
                 return self.show_rows(table, query, ctx);
             }
             Choice::Count => ctx.engine.send(DbCommand::Count { path: table }),
+            Choice::Import => {
+                self.export_dialog = Some(ExportDialog::import(table));
+            }
             Choice::Export => {
                 let sql = if self.language == QueryLanguage::RedisCmd {
                     let key_type = self.explorer.detail(&table).unwrap_or_default();
@@ -906,20 +937,28 @@ impl Workspace {
         if self.exporting.is_some() {
             ctx.toast(
                 Level::Warning,
-                "An export is running: wait for it, or cancel it",
+                "An export or import is running: wait for it, or cancel it",
             );
             return;
         }
         self.next_query += 1;
         let id = self.next_query;
-        ctx.engine.send(DbCommand::Export {
-            id,
-            sql: dialog.sql,
-            file: file.clone(),
+        ctx.engine.send(match &dialog.import {
+            Some(table) => DbCommand::Import {
+                id,
+                table: table.clone(),
+                file: file.clone(),
+            },
+            None => DbCommand::Export {
+                id,
+                sql: dialog.sql,
+                file: file.clone(),
+            },
         });
         self.exporting = Some(Exporting {
             id,
             file,
+            import: dialog.import,
             rows: 0,
             estimate: dialog.estimate,
         });

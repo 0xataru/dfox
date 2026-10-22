@@ -46,6 +46,8 @@ pub enum Choice {
     Count,
     /// Every row, to a file.
     Export,
+    /// A file's rows, into the table.
+    Import,
     Script(Script),
     Definition,
     InsertName,
@@ -194,6 +196,7 @@ impl TableMenu {
             items.insert(at, pick('e', "Definition", Choice::Definition));
             if !read_only {
                 if is_table {
+                    items.push(pick('m', "Import…", Choice::Import));
                     items.push(pick('t', "Delete all…", Choice::Truncate));
                 }
                 items.push(pick('d', "Drop…", Choice::Drop { cascade: false }));
@@ -204,6 +207,10 @@ impl TableMenu {
             items.insert(6, pick('e', "Definition", Choice::Definition));
         }
         if !read_only {
+            // Cassandra's sessions can't write rows given this way yet.
+            if is_table && !cql {
+                items.push(pick('m', "Import…", Choice::Import));
+            }
             if is_table {
                 items.push(pick('t', "Truncate…", Choice::Truncate));
             }

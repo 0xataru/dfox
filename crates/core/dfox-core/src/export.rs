@@ -1,7 +1,13 @@
-//! Writing a query's rows to a file as they stream in: CSV, TSV, JSON Lines
-//! or Parquet, picked by the file's extension.
+//! Writing a query's rows to a file as they stream in, and reading rows
+//! from a file to import: CSV, TSV, JSON Lines or Parquet, picked by the
+//! file's extension.
 
-use std::{fs::File, io::BufWriter, path::Path};
+use std::{
+    fs::File,
+    io::{BufReader, BufWriter},
+    path::Path,
+    sync::Arc,
+};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
@@ -98,6 +104,54 @@ impl Writer {
     }
 }
 
+/// Rows of a file, a batch at a time.
+pub type Batches = Box<dyn Iterator<Item = Result<RecordBatch, DbError>> + Send>;
+
+/// Reads the rows of `path`, in the format its extension names. Columns of
+/// CSV and JSON get their types from the first rows.
+pub fn read(path: &Path) -> Result<Batches, DbError> {
+    const INFER_FROM: Option<usize> = Some(1000);
+    let format = Format::of(path).map_err(DbError::Config)?;
+    let open = || File::open(path).map_err(|err| io_error(path, err));
+    let owned = path.to_path_buf();
+    let batches = move |err| io_error(&owned, err);
+    Ok(match format {
+        Format::Csv | Format::Tsv => {
+            let delimiter = if format == Format::Tsv { b'\t' } else { b',' };
+            let (schema, _) = arrow_csv::reader::Format::default()
+                .with_header(true)
+                .with_delimiter(delimiter)
+                .infer_schema(open()?, INFER_FROM)
+                .map_err(|err| io_error(path, err))?;
+            let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+                .with_header(true)
+                .with_delimiter(delimiter)
+                .build(open()?)
+                .map_err(|err| io_error(path, err))?;
+            Box::new(reader.map(move |b| b.map_err(&batches)))
+        }
+        Format::JsonLines => {
+            let (schema, _) = arrow_json::reader::infer_json_schema_from_seekable(
+                BufReader::new(open()?),
+                INFER_FROM,
+            )
+            .map_err(|err| io_error(path, err))?;
+            let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+                .build(BufReader::new(open()?))
+                .map_err(|err| io_error(path, err))?;
+            Box::new(reader.map(move |b| b.map_err(&batches)))
+        }
+        Format::Parquet => {
+            let reader =
+                parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(open()?)
+                    .map_err(|err| io_error(path, err))?
+                    .build()
+                    .map_err(|err| io_error(path, err))?;
+            Box::new(reader.map(move |b| b.map_err(&batches)))
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -155,6 +209,27 @@ mod tests {
             "{\"id\":1,\"name\":\"a, b\"}\n{\"id\":2}\n"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn every_format_reads_back_what_it_wrote() {
+        for name in ["back.csv", "back.tsv", "back.jsonl", "back.parquet"] {
+            let (path, _) = written(name);
+            let batches: Vec<RecordBatch> = read(&path)
+                .expect("read")
+                .collect::<Result<_, _>>()
+                .expect("batches");
+            let rows: usize = batches.iter().map(RecordBatch::num_rows).sum();
+            assert_eq!(rows, 2, "{name}");
+            let names: Vec<String> = batches[0]
+                .schema()
+                .fields()
+                .iter()
+                .map(|f| f.name().clone())
+                .collect();
+            assert_eq!(names, ["id", "name"], "{name}");
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     #[test]

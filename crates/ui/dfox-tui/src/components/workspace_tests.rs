@@ -1508,3 +1508,47 @@ fn a_tabs_rows_are_exported_with_progress() {
         .iter()
         .any(|t| t == "Export cancelled"));
 }
+
+#[test]
+fn a_file_is_imported_into_a_table_from_its_menu() {
+    let mut harness = Harness::new();
+    let mut w = on_orders(&mut harness);
+    w.handle(Action::Confirm, &mut harness.ctx());
+    harness.sent();
+    w.handle(Action::Input('m'), &mut harness.ctx());
+    assert!(w.wants_text(), "the dialog asks for the file");
+    let file = std::env::temp_dir().join(format!("dfox-orders-{}.csv", std::process::id()));
+    std::fs::write(&file, "id,total\n1,10\n").expect("file");
+    for _ in 0..500 {
+        w.handle(Action::Backspace, &mut harness.ctx());
+    }
+    for c in file.to_string_lossy().chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    w.handle(Action::Confirm, &mut harness.ctx());
+    let id = match harness.sent().as_slice() {
+        [DbCommand::Import {
+            id,
+            table,
+            file: from,
+        }] if *table == orders() && *from == file => *id,
+        other => panic!("expected the import, got {other:?}"),
+    };
+    w.on_query_event(EngineEvent::Progress { id, rows: 1 }, &mut harness.ctx());
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats {
+                rows: 1,
+                ..QueryStats::default()
+            }),
+        },
+        &mut harness.ctx(),
+    );
+    assert!(w.exporting().is_none());
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t.starts_with("Imported 1 rows into orders")));
+    let _ = std::fs::remove_file(file);
+}

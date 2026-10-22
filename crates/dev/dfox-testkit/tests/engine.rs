@@ -726,3 +726,245 @@ async fn sqlite_queries_export_to_files_and_failures_leave_none() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn sqlite_files_import_into_tables_by_column_name() {
+    let db = TempDb::new();
+    let mut engine = Driver::connect(DbType::Sqlite, db.params()).await;
+    engine
+        .query(
+            "CREATE TABLE source (n INTEGER, s TEXT);
+             INSERT INTO source WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 2500)
+                 SELECT n, CASE WHEN n % 10 = 0 THEN NULL ELSE 'row ' || n END FROM r;
+             CREATE TABLE target (id INTEGER PRIMARY KEY, N INTEGER, s TEXT DEFAULT 'none');
+             CREATE TABLE narrow (n INTEGER)",
+            0,
+        )
+        .await
+        .outcome
+        .expect("create");
+    let dir = std::env::temp_dir().join(unique("dfox_import"));
+    std::fs::create_dir_all(&dir).expect("dir");
+
+    async fn done(engine: &mut Driver, id: QueryId) -> Result<QueryStats, DbError> {
+        loop {
+            if let EngineEvent::QueryDone { id: of, outcome } = engine.next().await {
+                if of == id {
+                    return outcome;
+                }
+            }
+        }
+    }
+    let target = NodePath::root().child("main").child("target");
+    for name in ["source.csv", "source.jsonl", "source.parquet"] {
+        let file = dir.join(name);
+        engine.next_id += 1;
+        let id = engine.next_id;
+        engine.engine.send(Command::Export {
+            id,
+            sql: "SELECT n, s FROM source ORDER BY n".into(),
+            file: file.clone(),
+        });
+        done(&mut engine, id).await.expect("export");
+
+        engine
+            .query("DELETE FROM target", 0)
+            .await
+            .outcome
+            .expect("empty");
+        engine.next_id += 1;
+        let id = engine.next_id;
+        engine.engine.send(Command::Import {
+            id,
+            table: target.clone(),
+            file: file.clone(),
+        });
+        // Columns match by name whatever their case; empty cells get the
+        // default.
+        assert_eq!(
+            done(&mut engine, id).await.expect(name).rows,
+            2500,
+            "{name}"
+        );
+        assert_eq!(
+            engine
+                .scalar("SELECT count(*) FROM target WHERE s = 'none'")
+                .await
+                .as_deref(),
+            Some("250"),
+            "{name}"
+        );
+        assert!(file.exists(), "the file stays");
+    }
+
+    // A column the table doesn't have stops the import before any row.
+    engine.next_id += 1;
+    let id = engine.next_id;
+    engine.engine.send(Command::Import {
+        id,
+        table: NodePath::root().child("main").child("narrow"),
+        file: dir.join("source.csv"),
+    });
+    let err = done(&mut engine, id).await.expect_err("no column s");
+    assert!(err.to_string().contains("column s"), "{err}");
+    assert_eq!(
+        engine
+            .scalar("SELECT count(*) FROM narrow")
+            .await
+            .as_deref(),
+        Some("0")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Imports a CSV of numbers, decimals, booleans, text and empty cells into
+/// `table`, made by `create` in the database `engine` is on.
+async fn import_csv(engine: &mut Driver, table: NodePath, create: &str) {
+    engine.query(create, 0).await.outcome.expect("create");
+    let file = std::env::temp_dir().join(format!("{}.csv", unique("dfox_import")));
+    std::fs::write(&file, "id,x,b,s\n1,1.5,true,a\n2,,false,\n").expect("file");
+    engine.next_id += 1;
+    let id = engine.next_id;
+    engine.engine.send(Command::Import {
+        id,
+        table: table.clone(),
+        file: file.clone(),
+    });
+    let outcome = loop {
+        if let EngineEvent::QueryDone { id: of, outcome } = engine.next().await {
+            if of == id {
+                break outcome;
+            }
+        }
+    };
+    assert_eq!(outcome.expect("import").rows, 2);
+    let name = table.name().unwrap_or_default().to_string();
+    let rows = engine
+        .query(
+            &format!(
+                "SELECT id, x, CASE WHEN b THEN 'yes' ELSE 'no' END, s FROM {name} ORDER BY id"
+            ),
+            10,
+        )
+        .await;
+    assert_eq!(
+        rows.rows,
+        [
+            [
+                Some("1".into()),
+                Some("1.5".into()),
+                Some("yes".into()),
+                Some("a".to_string())
+            ],
+            [
+                Some("2".into()),
+                None,
+                Some("no".into()),
+                Some("none".to_string())
+            ],
+        ]
+    );
+    let _ = std::fs::remove_file(file);
+}
+
+#[tokio::test]
+async fn postgres_imports_files() {
+    let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
+        return;
+    };
+    let params = params_from_url(&url);
+    let database = params.database.clone().unwrap_or_default();
+    let mut engine = Driver::connect(DbType::Postgres, params).await;
+    let name = unique("import");
+    let create = format!(
+        "CREATE TABLE {name} (id INTEGER PRIMARY KEY, x DOUBLE PRECISION, b BOOLEAN, s TEXT DEFAULT 'none')"
+    );
+    let table: NodePath = [database.as_str(), "public", name.as_str()]
+        .into_iter()
+        .collect();
+    import_csv(&mut engine, table, &create).await;
+    engine
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+}
+
+#[tokio::test]
+async fn mysql_imports_files() {
+    let Some(url) = server_url("DFOX_TEST_MYSQL_URL") else {
+        return;
+    };
+    let params = params_from_url(&url);
+    let database = params.database.clone().unwrap_or_default();
+    let mut engine = Driver::connect(DbType::MySql, params).await;
+    let name = unique("import");
+    let create = format!(
+        "CREATE TABLE {name} (id INTEGER PRIMARY KEY, x DOUBLE, b BOOLEAN, s VARCHAR(20) DEFAULT 'none')"
+    );
+    let table: NodePath = [database.as_str(), name.as_str()].into_iter().collect();
+    import_csv(&mut engine, table, &create).await;
+    engine
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+}
+
+/// `DFOX_TEST_POSTGRES_URL=… cargo test -p dfox-testkit --release --test engine -- --ignored import_speed --nocapture`
+#[tokio::test]
+#[ignore = "timing"]
+async fn import_speed() {
+    let Some(url) = server_url("DFOX_TEST_POSTGRES_URL") else {
+        return;
+    };
+    let params = params_from_url(&url);
+    let database = params.database.clone().unwrap_or_default();
+    let mut engine = Driver::connect(DbType::Postgres, params).await;
+    let name = unique("speed");
+    let rows = 50_000;
+    let file = std::env::temp_dir().join(format!("{name}.csv"));
+    let mut text = String::from("id,name,price\n");
+    for i in 0..rows {
+        text.push_str(&format!("{i},item {i},{}.5\n", i % 1000));
+    }
+    std::fs::write(&file, text).expect("file");
+    engine
+        .query(
+            &format!("CREATE TABLE {name} (id INTEGER PRIMARY KEY, name TEXT, price NUMERIC)"),
+            0,
+        )
+        .await
+        .outcome
+        .expect("create");
+    engine.next_id += 1;
+    let id = engine.next_id;
+    let table: NodePath = [database.as_str(), "public", name.as_str()]
+        .into_iter()
+        .collect();
+    let started = Instant::now();
+    engine.engine.send(Command::Import {
+        id,
+        table,
+        file: file.clone(),
+    });
+    let outcome = loop {
+        if let EngineEvent::QueryDone { id: of, outcome } = engine.next().await {
+            if of == id {
+                break outcome;
+            }
+        }
+    };
+    let took = started.elapsed();
+    assert_eq!(outcome.expect("import").rows, rows);
+    println!(
+        "imported {rows} rows into Postgres in {took:?}: {:.0} rows/s",
+        rows as f64 / took.as_secs_f64()
+    );
+    engine
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+    let _ = std::fs::remove_file(file);
+}

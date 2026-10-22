@@ -130,6 +130,16 @@ pub enum Command {
         sql: String,
         file: std::path::PathBuf,
     },
+    /// Adds the rows of `file` to the table at `table`, as query `id`: its
+    /// columns match the table's by name, and cells left empty get their
+    /// defaults. Rows go in chunks, each in its own transaction; it
+    /// reports [`EngineEvent::Progress`] and ends with
+    /// [`EngineEvent::QueryDone`], and can be cancelled.
+    Import {
+        id: QueryId,
+        table: NodePath,
+        file: std::path::PathBuf,
+    },
     Cancel {
         id: QueryId,
     },
@@ -196,7 +206,7 @@ pub enum EngineEvent {
         id: QueryId,
         message: String,
     },
-    /// An export has written `rows` rows so far.
+    /// An export has written, or an import added, `rows` rows so far.
     Progress {
         id: QueryId,
         rows: u64,
@@ -411,6 +421,7 @@ impl Engine {
             ),
             Command::Apply { changes } => self.apply(changes),
             Command::Export { id, sql, file } => self.export(id, sql, file),
+            Command::Import { id, table, file } => self.import(id, table, file),
             Command::Cancel { id } => self.cancel(id),
         }
     }
@@ -538,6 +549,20 @@ impl Engine {
         self.track(id, task, Some(file));
     }
 
+    fn import(&mut self, id: QueryId, table: NodePath, file: std::path::PathBuf) {
+        let events = self.events.clone();
+        let Some(live) = self.live.clone() else {
+            tokio::spawn(async move {
+                let outcome = Err(Self::not_connected());
+                let _ = events.send(EngineEvent::QueryDone { id, outcome }).await;
+            });
+            return;
+        };
+        let task = tokio::spawn(import_file(live.session, id, table, file, events));
+        // The file is the source: whatever happens, it stays.
+        self.track(id, task, None);
+    }
+
     /// Keeps `query` cancellable as `id`, and reports how it ended. A
     /// failed export's `file` is removed.
     fn track(
@@ -657,6 +682,115 @@ async fn stream_query(
     }
     stats.elapsed = started.elapsed();
     stats.truncated = has_rows && limit > 0 && stats.rows >= limit as u64;
+    Ok(stats)
+}
+
+/// Rows an import adds in one transaction.
+const IMPORT_CHUNK: usize = 1000;
+
+/// Reads `file` on a blocking thread and adds its rows to `table`, a chunk
+/// at a time.
+async fn import_file(
+    session: Shared,
+    id: QueryId,
+    table: NodePath,
+    file: std::path::PathBuf,
+    events: mpsc::Sender<EngineEvent>,
+) -> Result<QueryStats, DbError> {
+    use crate::{
+        arrow::ArrowResultSet,
+        result::{OwnedCell, ResultSet},
+        session::{Change, ChangeSet},
+    };
+
+    let started = Instant::now();
+    let columns: Vec<String> = {
+        let mut session = session.lock().await;
+        let info = session.catalog().describe(&table).await?;
+        info.columns.into_iter().map(|c| c.name).collect()
+    };
+    let (tx, mut rx) = mpsc::channel::<Result<RecordBatch, DbError>>(4);
+    let read = tokio::task::spawn_blocking(move || {
+        let batches = match crate::export::read(&file) {
+            Ok(batches) => batches,
+            Err(err) => {
+                let _ = tx.blocking_send(Err(err));
+                return;
+            }
+        };
+        for batch in batches {
+            let failed = batch.is_err();
+            if tx.blocking_send(batch).is_err() || failed {
+                return;
+            }
+        }
+    });
+    let mut stats = QueryStats::default();
+    let mut names: Option<Vec<String>> = None;
+    while let Some(batch) = rx.recv().await {
+        let batch = batch?;
+        // The table's name for each of the file's columns, matched once.
+        let names = match &names {
+            Some(names) => names,
+            None => {
+                let mut matched = Vec::new();
+                for field in batch.schema().fields() {
+                    let name = columns
+                        .iter()
+                        .find(|c| c.eq_ignore_ascii_case(field.name()))
+                        .ok_or_else(|| {
+                            DbError::General(format!(
+                                "the file's column {} isn't in the table",
+                                field.name()
+                            ))
+                        })?;
+                    matched.push(name.clone());
+                }
+                names.insert(matched)
+            }
+        };
+        let mut rows = ArrowResultSet::new(batch.schema());
+        rows.push(batch);
+        rows.finish();
+        let count = rows.row_count();
+        for first in (0..count).step_by(IMPORT_CHUNK) {
+            let changes = (first..count.min(first + IMPORT_CHUNK))
+                .map(|row| {
+                    // Empty cells are left out, so they get the defaults.
+                    Change::Insert(
+                        names
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(col, name)| {
+                                let cell = OwnedCell::from(rows.cell(row, col)?);
+                                (cell != OwnedCell::Null).then(|| (name.clone(), cell))
+                            })
+                            .collect(),
+                    )
+                })
+                .collect();
+            let report = session
+                .lock()
+                .await
+                .apply(ChangeSet {
+                    table: table.clone(),
+                    key: Vec::new(),
+                    changes,
+                })
+                .await
+                .map_err(|err| {
+                    DbError::General(format!("{err} (after {} rows went in)", stats.rows))
+                })?;
+            stats.rows += report.inserted;
+            let rows = stats.rows;
+            let _ = events.send(EngineEvent::Progress { id, rows }).await;
+        }
+    }
+    if names.is_none() {
+        return Err(DbError::General("the file has no rows".into()));
+    }
+    let _ = read.await;
+    stats.elapsed = started.elapsed();
     Ok(stats)
 }
 

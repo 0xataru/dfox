@@ -3,7 +3,6 @@ source: dfox-tui/src/components/table_menu.rs
 expression: snapshot(&m)
 ---
 
-
            ╭ orders ──────────────────╮
            │ f  First 100 rows        │
            │ l  Last 100 rows         │
@@ -15,6 +14,7 @@ expression: snapshot(&m)
            │ i  Insert name           │
            │ p  Properties            │
            │ r  Refresh               │
+           │ m  Import…               │
            │ t  Truncate…             │
            │ d  Drop…                 │
            │ D  Drop cascade…         │

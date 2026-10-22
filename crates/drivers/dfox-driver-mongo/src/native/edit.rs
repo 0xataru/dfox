@@ -105,7 +105,12 @@ pub async fn apply(client: &Client, changes: ChangeSet) -> Result<ApplyReport, D
     let [database, collection] = changes.table.parts() else {
         return Err(DbError::General("edits go to a collection".into()));
     };
-    if changes.key != ["_id"] {
+    // Updates and deletes find documents by `_id`; inserts need no key.
+    let finds = changes
+        .changes
+        .iter()
+        .any(|c| !matches!(c, Change::Insert(_)));
+    if finds && changes.key != ["_id"] {
         return Err(DbError::General("a document is found by its _id".into()));
     }
     let coll = client.database(database).collection::<Document>(collection);
