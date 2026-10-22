@@ -27,6 +27,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   from the rows' columns in that database's own types (`BIGINT`, `NUMERIC`, `JSONB`,
   `TIMESTAMPTZ`, …). The rows stream across through the bulk inserts, with progress in
   the status bar; **Ctrl+C** cancels.
+- `dfox export <connection> <query> -o <file>` and `dfox copy <from> <query> <to> <table>
+  [--create]` export and copy rows without the TUI, for scripts: a connection is a saved
+  name or a URL, secrets come from the keychain, `~/.pgpass` or the URL, progress shows
+  on stderr, and a failure exits with 1.
 - Editing documents in MongoDB, the same way: found by `_id` (an ObjectId as the grid
   shows it), with each changed field keeping its type, and new fields read as the mongo
   shell reads values. Written one change at a time.

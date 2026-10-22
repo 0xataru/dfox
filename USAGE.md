@@ -27,6 +27,19 @@ dfox version              # the version and the databases this build supports
 dfox help                 # all commands and options
 ```
 
+Rows can be exported and copied without the TUI, for scripts and cron jobs:
+
+```bash
+dfox export prod "SELECT * FROM orders" -o orders.parquet    # .csv, .tsv, .jsonl or .parquet
+dfox copy prod "SELECT * FROM orders" warehouse orders --create
+dfox export postgres://app@db.local/shop "SELECT 1" -o one.csv
+```
+
+A connection is a saved one's name or a URL. Passwords come from the keychain,
+`~/.pgpass` or the URL: these commands never ask, and never print a URL's password.
+The rows written show on stderr as they go, then a summary; the exit code is 1 when it
+fails. `--create` makes the target table from the rows' columns.
+
 `--version`, `-V`, `--help` and `-h` work too. A mistake on the command line,
 such as an unknown command or a bad URL, is reported in the terminal before
 the TUI starts.

@@ -13,10 +13,19 @@ Usage: dfox [OPTIONS] [URL]
 
 Commands:
   connect <NAME>     open a saved connection
+  export <CONNECTION> <QUERY> -o <FILE>
+                     write a query's rows to a .csv, .tsv, .jsonl or
+                     .parquet file
+  copy <FROM> <QUERY> <TO> <TABLE> [--create]
+                     add a query's rows to a table of another connection,
+                     creating it from the rows' columns with --create
   list               list the saved connections
   paths              show where settings, connections and history live
   version            show the version and the databases this build supports
   help               show this help
+
+A CONNECTION is a saved connection's name or a URL. Passwords come from the
+keychain, ~/.pgpass or the URL: these commands never ask.
 
 Options:
   --reduced-motion   no splash, transitions or spinners (also with NO_COLOR
@@ -36,6 +45,20 @@ pub enum Cli {
     Paths,
     Version,
     Help,
+    /// Write `query`'s rows from `from` to `file`.
+    Export {
+        from: String,
+        query: String,
+        file: std::path::PathBuf,
+    },
+    /// Add `query`'s rows from `from` to `table` of `to`.
+    Copy {
+        from: String,
+        query: String,
+        to: String,
+        table: String,
+        create: bool,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,11 +73,16 @@ pub enum Open {
 pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
     let mut words = Vec::new();
     let mut reduced_motion = false;
-    for arg in args {
+    let mut output = None;
+    let mut create = false;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Ok(Cli::Help),
             "-V" | "--version" => return Ok(Cli::Version),
             "--reduced-motion" => reduced_motion = true,
+            "--create" => create = true,
+            "-o" | "--output" => output = Some(args.next().ok_or("-o needs a file name")?),
             flag if flag.starts_with('-') && flag.len() > 1 => {
                 return Err(format!("unknown option {flag}"))
             }
@@ -72,6 +100,32 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
         Some("version") => Cli::Version,
         Some("list") => Cli::List,
         Some("paths") => Cli::Paths,
+        Some("export") => {
+            let usage = "usage: dfox export <connection> <query> -o <file>";
+            let (Some(from), Some(query)) = (words.next(), words.next()) else {
+                return Err(usage.into());
+            };
+            let file = output.take().ok_or(usage)?;
+            Cli::Export {
+                from,
+                query,
+                file: file.into(),
+            }
+        }
+        Some("copy") => {
+            let (Some(from), Some(query), Some(to), Some(table)) =
+                (words.next(), words.next(), words.next(), words.next())
+            else {
+                return Err("usage: dfox copy <from> <query> <to> <table> [--create]".into());
+            };
+            Cli::Copy {
+                from,
+                query,
+                to,
+                table,
+                create,
+            }
+        }
         Some("connect") => {
             let name = words
                 .next()
@@ -86,9 +140,15 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Cli, String> {
             reduced_motion,
         },
     };
-    match words.next() {
-        Some(extra) => Err(format!("unexpected argument {extra:?}")),
-        None => Ok(cli),
+    if let Some(extra) = words.next() {
+        return Err(format!("unexpected argument {extra:?}"));
+    }
+    match (output, create, &cli) {
+        (Some(_), _, _) => Err("-o only goes with export".into()),
+        (_, true, cli) if !matches!(cli, Cli::Copy { .. }) => {
+            Err("--create only goes with copy".into())
+        }
+        _ => Ok(cli),
     }
 }
 
@@ -137,6 +197,55 @@ mod tests {
         assert_eq!(
             parse(&["connect", "prod db"]),
             Ok(run(Some(Open::Saved("prod db".into()))))
+        );
+    }
+
+    #[test]
+    fn rows_export_and_copy_from_the_command_line() {
+        assert_eq!(
+            parse(&[
+                "export",
+                "prod",
+                "SELECT * FROM orders",
+                "-o",
+                "orders.parquet"
+            ]),
+            Ok(Cli::Export {
+                from: "prod".into(),
+                query: "SELECT * FROM orders".into(),
+                file: "orders.parquet".into(),
+            })
+        );
+        assert_eq!(
+            parse(&[
+                "copy",
+                "prod",
+                "SELECT * FROM orders",
+                "dw",
+                "orders",
+                "--create"
+            ]),
+            Ok(Cli::Copy {
+                from: "prod".into(),
+                query: "SELECT * FROM orders".into(),
+                to: "dw".into(),
+                table: "orders".into(),
+                create: true,
+            })
+        );
+        assert!(parse(&["export", "prod", "SELECT 1"])
+            .unwrap_err()
+            .contains("-o"));
+        assert!(parse(&["copy", "prod", "SELECT 1", "dw"])
+            .unwrap_err()
+            .contains("usage"));
+        assert_eq!(
+            parse(&["list", "--create"]),
+            Err("--create only goes with copy".into())
+        );
+        assert_eq!(
+            parse(&["-o", "x.csv"]),
+            Err("-o only goes with export".into())
         );
     }
 

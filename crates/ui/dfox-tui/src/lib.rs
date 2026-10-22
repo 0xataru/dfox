@@ -11,6 +11,7 @@ pub mod component;
 pub mod components;
 pub mod config;
 pub mod connections;
+pub mod headless;
 pub mod history;
 pub mod icons;
 pub mod keymap;
