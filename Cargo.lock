@@ -1563,7 +1563,7 @@ dependencies = [
 
 [[package]]
 name = "dfox"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arboard",
  "arrow-array",
@@ -1606,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-bench"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1624,7 +1624,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-core"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-cast",
@@ -1642,7 +1642,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-driver-cassandra"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1658,7 +1658,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-driver-mongo"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1674,7 +1674,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-driver-mysql"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1692,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-driver-postgres"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -1713,7 +1713,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-driver-redis"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1730,7 +1730,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-driver-sqlite"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1745,14 +1745,14 @@ dependencies = [
 
 [[package]]
 name = "dfox-sql"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "sqlparser",
 ]
 
 [[package]]
 name = "dfox-ssh"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "dfox-core",
  "dfox-driver-mysql",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "dfox-testkit"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
