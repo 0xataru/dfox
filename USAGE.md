@@ -107,9 +107,10 @@ key = "~/.ssh/id_ed25519"
 ## Keyboard Shortcuts
 
 Press **?** (or **F2**) in the app for the full list, generated from your keymap.
-To change a key there, move to the action, press **Enter**, then the new key: it
-replaces the action's keys and is saved in `config.toml`. A key another action has
-moves only when pressed twice. **Delete** brings the action's default keys back.
+To change a key there, move to the action, press **Enter**, then the new key, then
+**Enter** again to confirm (any other key cancels): it replaces the action's keys and
+is saved in `config.toml`. The confirmation says when the key is taken from another
+action. **Delete**, confirmed the same way, brings the action's default keys back.
 **Ctrl+P** opens the command palette: type part of a command's name and press **Enter**.
 **Space** opens a command menu outside text fields.
 
