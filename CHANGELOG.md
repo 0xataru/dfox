@@ -7,7 +7,7 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
-## [0.5.31] - 2026-10-23
+## [0.5.32] - 2026-10-23
 
 ### Changed
 
