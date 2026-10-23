@@ -110,6 +110,18 @@ pub type Batches = Box<dyn Iterator<Item = Result<RecordBatch, DbError>> + Send>
 /// Reads the rows of `path`, in the format its extension names. Columns of
 /// CSV and JSON get their types from the first rows.
 pub fn read(path: &Path) -> Result<Batches, DbError> {
+    open(path).map(|(_, batches)| batches)
+}
+
+/// The names of the columns of the file at `path`, read from its header or
+/// first rows, without reading the rest.
+pub fn columns(path: &Path) -> Result<Vec<String>, DbError> {
+    let (schema, _) = open(path)?;
+    Ok(schema.fields().iter().map(|f| f.name().clone()).collect())
+}
+
+/// The file's columns, and a reader of its rows.
+fn open(path: &Path) -> Result<(arrow_schema::SchemaRef, Batches), DbError> {
     const INFER_FROM: Option<usize> = Some(1000);
     let format = Format::of(path).map_err(DbError::Config)?;
     let open = || File::open(path).map_err(|err| io_error(path, err));
@@ -123,12 +135,13 @@ pub fn read(path: &Path) -> Result<Batches, DbError> {
                 .with_delimiter(delimiter)
                 .infer_schema(open()?, INFER_FROM)
                 .map_err(|err| io_error(path, err))?;
-            let reader = arrow_csv::ReaderBuilder::new(Arc::new(schema))
+            let schema = Arc::new(schema);
+            let reader = arrow_csv::ReaderBuilder::new(schema.clone())
                 .with_header(true)
                 .with_delimiter(delimiter)
                 .build(open()?)
                 .map_err(|err| io_error(path, err))?;
-            Box::new(reader.map(move |b| b.map_err(&batches)))
+            (schema, Box::new(reader.map(move |b| b.map_err(&batches))))
         }
         Format::JsonLines => {
             let (schema, _) = arrow_json::reader::infer_json_schema_from_seekable(
@@ -136,10 +149,11 @@ pub fn read(path: &Path) -> Result<Batches, DbError> {
                 INFER_FROM,
             )
             .map_err(|err| io_error(path, err))?;
-            let reader = arrow_json::ReaderBuilder::new(Arc::new(schema))
+            let schema = Arc::new(schema);
+            let reader = arrow_json::ReaderBuilder::new(schema.clone())
                 .build(BufReader::new(open()?))
                 .map_err(|err| io_error(path, err))?;
-            Box::new(reader.map(move |b| b.map_err(&batches)))
+            (schema, Box::new(reader.map(move |b| b.map_err(&batches))))
         }
         Format::Parquet => {
             let reader =
@@ -147,7 +161,8 @@ pub fn read(path: &Path) -> Result<Batches, DbError> {
                     .map_err(|err| io_error(path, err))?
                     .build()
                     .map_err(|err| io_error(path, err))?;
-            Box::new(reader.map(move |b| b.map_err(&batches)))
+            let schema = arrow_array::RecordBatchReader::schema(&reader);
+            (schema, Box::new(reader.map(move |b| b.map_err(&batches))))
         }
     })
 }

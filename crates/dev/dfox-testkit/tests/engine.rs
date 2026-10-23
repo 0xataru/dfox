@@ -775,6 +775,7 @@ async fn sqlite_files_import_into_tables_by_column_name() {
         engine.next_id += 1;
         let id = engine.next_id;
         engine.engine.send(Command::Import {
+            columns: None,
             id,
             table: target.clone(),
             file: file.clone(),
@@ -800,6 +801,7 @@ async fn sqlite_files_import_into_tables_by_column_name() {
     engine.next_id += 1;
     let id = engine.next_id;
     engine.engine.send(Command::Import {
+        columns: None,
         id,
         table: NodePath::root().child("main").child("narrow"),
         file: dir.join("source.csv"),
@@ -813,6 +815,27 @@ async fn sqlite_files_import_into_tables_by_column_name() {
             .as_deref(),
         Some("0")
     );
+
+    // Mapped: n into n, s left out; then nothing mapped.
+    let narrow = NodePath::root().child("main").child("narrow");
+    for (columns, rows) in [
+        (vec![Some("n".to_string()), None], Some(2500)),
+        (vec![None, None], None),
+    ] {
+        engine.next_id += 1;
+        let id = engine.next_id;
+        engine.engine.send(Command::Import {
+            columns: Some(columns),
+            id,
+            table: narrow.clone(),
+            file: dir.join("source.csv"),
+        });
+        match (done(&mut engine, id).await, rows) {
+            (Ok(stats), Some(rows)) => assert_eq!(stats.rows, rows),
+            (Err(err), None) => assert!(err.to_string().contains("no columns"), "{err}"),
+            (outcome, _) => panic!("unexpected {outcome:?}"),
+        }
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -825,6 +848,7 @@ async fn import_csv(engine: &mut Driver, table: NodePath, create: &str) {
     engine.next_id += 1;
     let id = engine.next_id;
     engine.engine.send(Command::Import {
+        columns: None,
         id,
         table: table.clone(),
         file: file.clone(),
@@ -921,6 +945,7 @@ async fn import_rows(engine: &mut Driver, what: &str, table: NodePath, create: &
     let id = engine.next_id;
     let started = Instant::now();
     engine.engine.send(Command::Import {
+        columns: None,
         id,
         table,
         file: file.clone(),
