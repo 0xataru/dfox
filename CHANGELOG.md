@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.31] - 2026-10-23
+
 ### Changed
 
 - The update notice shows on the first start after a release: the daily check runs while
