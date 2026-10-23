@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-23
+
 ### Fixed
 
 - The update notice tells Homebrew users to run `brew update && brew upgrade dfox` again,
