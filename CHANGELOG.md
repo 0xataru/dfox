@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.34] - 2026-10-23
+
 ### Changed
 
 - dfox asks GitHub for the latest release at every start instead of once a day, so a new
