@@ -110,7 +110,8 @@ key = "~/.ssh/id_ed25519"
 ## Keyboard Shortcuts
 
 Press **?** (or **F2**) in the app for the full list, generated from your keymap.
-To change a key there, move to the action, press **Enter**, then the new key, then
+**↑/↓** move through the list and **←/→** between its columns. To change a key
+there, move to the action, press **Enter**, then the new key, then
 **Enter** again to confirm (any other key cancels): it replaces the action's keys and
 is saved in `config.toml`. The confirmation says when the key is taken from another
 action. **Delete**, confirmed the same way, brings the action's default keys back.

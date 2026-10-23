@@ -557,6 +557,8 @@ impl App {
                 match key.code {
                     KeyCode::Down | KeyCode::Char('j') => help.select(1),
                     KeyCode::Up | KeyCode::Char('k') => help.select(-1),
+                    KeyCode::Right | KeyCode::Char('l') => help.select_column(true),
+                    KeyCode::Left | KeyCode::Char('h') => help.select_column(false),
                     KeyCode::PageDown => help.select(10),
                     KeyCode::PageUp => help.select(-10),
                     KeyCode::Enter => help.capturing = true,

@@ -38,4 +38,4 @@ expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &supe
                │ R                 Refresh                  Shift+Home        Select to line start      │
                │ n                 New connection           Shift+End         Select to line end        │
                │                                                                                        │
-               ╰──────────────────────── Enter change · Del default · Esc close ────────────────────────╯
+               ╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯
