@@ -40,6 +40,9 @@ const RELEASES: &str = "github.com/0xataru/dfox/releases";
 /// How to upgrade the dfox at `exe`, told by how it was installed. `etc`
 /// holds the package managers' settings.
 fn how_to_upgrade(exe: &Path, etc: &Path) -> &'static str {
+    // Homebrew starts dfox through a link in its bin folder; the file itself
+    // is in the Cellar.
+    let exe = &exe.canonicalize().unwrap_or_else(|_| exe.to_path_buf());
     if exe.to_string_lossy().contains("/Cellar/") {
         return "brew update && brew upgrade dfox";
     }
@@ -165,6 +168,19 @@ mod tests {
 
         let brew = Path::new("/opt/homebrew/Cellar/dfox/0.3.5/bin/dfox");
         assert_eq!(how(brew), "brew update && brew upgrade dfox");
+        // Started through Homebrew's link, as it always is.
+        #[cfg(unix)]
+        {
+            let cellar = dir.join("Cellar/dfox/0.4.1/bin");
+            std::fs::create_dir_all(&cellar).expect("cellar");
+            std::fs::write(cellar.join("dfox"), "").expect("exe");
+            std::fs::create_dir_all(dir.join("bin")).expect("bin");
+            std::os::unix::fs::symlink(cellar.join("dfox"), dir.join("bin/dfox")).expect("link");
+            assert_eq!(
+                how(&dir.join("bin/dfox")),
+                "brew update && brew upgrade dfox"
+            );
+        }
 
         let exe = dir.join("dfox");
         assert_eq!(how(&exe), RELEASES);
