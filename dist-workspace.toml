@@ -20,8 +20,9 @@ install-updater = true
 # The Homebrew tap the formula is pushed to, and the formula's name
 tap = "0xataru/homebrew-tap"
 formula = "dfox"
-# Publish jobs to run in CI
-publish-jobs = ["homebrew"]
+# Publish jobs to run in CI: our own Homebrew job, which adds a test to the
+# formula
+publish-jobs = ["./homebrew-formula"]
 # Actions pinned to commits, as in the other workflows
 github-action-commits = { "actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/upload-artifact" = "cf430e030ddbb5b0abf93d22962f4752f3646cd9", "actions/download-artifact" = "9000827ccba6bdab643e8b6fd33ac0654aef8333" }
 # Build only the dfox package, not the whole workspace
