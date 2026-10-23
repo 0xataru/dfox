@@ -1562,3 +1562,31 @@ fn a_file_is_imported_into_a_table_from_its_menu() {
         .any(|t| t.starts_with("Imported 1 rows into orders")));
     let _ = std::fs::remove_file(file);
 }
+
+#[test]
+fn a_transaction_stays_open_until_it_is_committed() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    let mut run = |w: &mut Workspace, sql: &str, ok: bool| {
+        w.editor_mut().set_text(sql);
+        w.handle(Action::ExecuteAll, &mut harness.ctx());
+        let id = sent_query(&mut harness);
+        let outcome = if ok {
+            Ok(QueryStats::default())
+        } else {
+            Err(DbError::General("boom".into()))
+        };
+        w.on_query_event(EngineEvent::QueryDone { id, outcome }, &mut harness.ctx());
+    };
+    run(&mut w, "BEGIN", true);
+    assert!(w.in_transaction);
+    // A failed statement leaves it open; a plain query doesn't touch it.
+    run(&mut w, "UPDATE nope SET a = 1 WHERE id = 1", false);
+    run(&mut w, "SELECT 1", true);
+    assert!(w.in_transaction);
+    run(&mut w, "COMMIT", true);
+    assert!(!w.in_transaction);
+    // A script that opens one and fails part way has still opened it.
+    run(&mut w, "BEGIN; UPDATE nope SET a = 1 WHERE id = 1", false);
+    assert!(w.in_transaction);
+}

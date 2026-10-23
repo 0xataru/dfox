@@ -153,6 +153,8 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - **Ctrl+R** - Search the query history; **Enter** puts the query in the editor
 - `DELETE` or `UPDATE` without `WHERE`, `DROP`, `TRUNCATE` and `ALTER … DROP` ask first
   (**y** runs them; **Enter** doesn't). Read-only connections don't send queries that write
+- A **TXN** badge in the status bar marks a transaction you opened (`BEGIN`, `START
+  TRANSACTION`) and haven't closed (`COMMIT`, `ROLLBACK`, `END`) yet
 - **Ctrl+N** / **Ctrl+W** - New / close query tab; **Ctrl+PgDn** / **Ctrl+PgUp** (or
   **Alt+]** / **Alt+[**, or a click on a tab's name) switch tabs. Each tab keeps its own
   results. On a Mac keyboard, Ctrl+PgDn is **Ctrl+Fn+↓**

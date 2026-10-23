@@ -115,6 +115,8 @@ impl App {
                 if let Some(w) = app.workspace {
                     w.catalog = Default::default();
                     w.explorer.set_active(&database, ctx);
+                    // A new session: nothing of the old one's is open.
+                    w.in_transaction = false;
                 }
             });
         } else {

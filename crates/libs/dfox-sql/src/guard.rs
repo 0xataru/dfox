@@ -41,6 +41,31 @@ pub fn check(sql: &str, dialect: Dialect) -> Findings {
     findings
 }
 
+/// What running `sql` does to the session's transaction: `Some(true)` when
+/// it is left open, `Some(false)` when it is closed, `None` when untouched.
+/// The last `BEGIN` / `START TRANSACTION` or `COMMIT` / `END` / `ROLLBACK`
+/// decides; `ROLLBACK TO` a savepoint keeps it open.
+pub fn transaction(sql: &str, dialect: Dialect) -> Option<bool> {
+    let lines: Vec<String> = sql.split('\n').map(str::to_string).collect();
+    let mut state = None;
+    for statement in statements(sql, dialect) {
+        let text = slice(&lines, statement.start, statement.end);
+        let words: Vec<Option<String>> = lex(&text, dialect)
+            .iter()
+            .filter(|l| !l.trivia && !l.semicolon)
+            .map(Lexeme::keyword)
+            .collect();
+        let word = |i: usize| words.get(i).cloned().flatten();
+        state = match (word(0).as_deref(), word(1).as_deref()) {
+            (Some("BEGIN"), _) | (Some("START"), Some("TRANSACTION")) => Some(true),
+            (Some("ROLLBACK"), _) if words.iter().flatten().any(|w| w == "TO") => state,
+            (Some("COMMIT" | "END" | "ROLLBACK"), _) => Some(false),
+            _ => state,
+        };
+    }
+    state
+}
+
 /// A statement's tokens, each with its depth in parentheses.
 fn depths(tokens: &[Lexeme]) -> Vec<usize> {
     let mut depth = 0usize;
@@ -150,6 +175,34 @@ fn first_name(target: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transactions_open_and_close_with_their_statements() {
+        let pg = |sql: &str| transaction(sql, Dialect::Postgres);
+        assert_eq!(pg("SELECT 1"), None);
+        assert_eq!(pg("BEGIN"), Some(true));
+        assert_eq!(pg("begin; update t set a = 1"), Some(true));
+        assert_eq!(pg("BEGIN; UPDATE t SET a = 1; COMMIT;"), Some(false));
+        assert_eq!(pg("ROLLBACK"), Some(false));
+        assert_eq!(pg("END"), Some(false));
+        assert_eq!(pg("ROLLBACK TO SAVEPOINT a"), None);
+        assert_eq!(pg("SAVEPOINT a; ROLLBACK TO a"), None);
+        // A function body's BEGIN is the CREATE's, not a transaction.
+        assert_eq!(
+            pg("CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql"),
+            None
+        );
+        let my = |sql: &str| transaction(sql, Dialect::MySql);
+        assert_eq!(
+            my("START TRANSACTION; DELETE FROM t WHERE id = 1"),
+            Some(true)
+        );
+        assert_eq!(my("CREATE PROCEDURE p() BEGIN SELECT 1; END"), None);
+        assert_eq!(
+            transaction("BEGIN IMMEDIATE; COMMIT", Dialect::Sqlite),
+            Some(false)
+        );
+    }
 
     fn destructive(sql: &str) -> Vec<String> {
         check(sql, Dialect::Postgres).destructive

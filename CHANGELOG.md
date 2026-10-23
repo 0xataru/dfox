@@ -9,6 +9,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- A **TXN** badge in the status bar while a transaction you opened with `BEGIN` or `START
+  TRANSACTION` is open; `COMMIT`, `ROLLBACK` or `END` clears it, `ROLLBACK TO` a savepoint
+  doesn't, and a failed statement leaves it open, as the server does.
 - **s** in the results sorts the rows by the cursor's column: ascending (▲ in the header),
   descending (▼), then back to the order they came in. It sorts the fetched rows, once they
   are all in; decimals sort as numbers and NULLs go last.
