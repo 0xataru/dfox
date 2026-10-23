@@ -281,9 +281,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mouse = config.mouse;
     let update = config.update_check;
-    if update {
-        dfox_tui::update::refresh(History::dir());
-    }
+    let checking = update
+        .then(|| dfox_tui::update::refresh(History::dir()))
+        .flatten();
     let (engine, events) = dfox_core::engine::spawn_with(Drivers::new(drivers()), opener());
     let mut app = App::new(
         engine,
@@ -308,7 +308,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Restores the terminal on panic too.
     let mut terminal = terminal::init(mouse)?;
-    let result = app.run(&mut terminal, events).await;
+    let result = app.run(&mut terminal, events, checking).await;
     terminal::restore();
     result?;
 

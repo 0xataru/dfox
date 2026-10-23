@@ -10,6 +10,7 @@ use std::{
 };
 
 use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
+use tokio::sync::oneshot;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -68,17 +69,17 @@ fn how_to_upgrade(exe: &Path, etc: &Path) -> &'static str {
 }
 
 /// Asks GitHub for the latest release in the background, unless that was
-/// done less than a day ago.
-pub fn refresh(state_dir: Option<PathBuf>) {
-    let Some(path) = state_dir.map(|dir| dir.join(FILE)) else {
-        return;
-    };
+/// done less than a day ago. The answer comes back as the notice to show, so
+/// the dfox that asked shows it at once.
+pub fn refresh(state_dir: Option<PathBuf>) -> Option<oneshot::Receiver<Option<String>>> {
+    let path = state_dir.map(|dir| dir.join(FILE))?;
     let checked = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     if checked
         .is_some_and(|t| SystemTime::now().duration_since(t).unwrap_or_default() < CHECK_EVERY)
     {
-        return;
+        return None;
     }
+    let (tx, rx) = oneshot::channel();
     tokio::spawn(async move {
         let latest = match tokio::time::timeout(TIMEOUT, latest()).await {
             Ok(Ok(version)) => version,
@@ -96,7 +97,9 @@ pub fn refresh(state_dir: Option<PathBuf>) {
             let _ = std::fs::create_dir_all(dir);
         }
         let _ = std::fs::write(&path, latest.trim());
+        let _ = tx.send(notice(path.parent()));
     });
+    Some(rx)
 }
 
 /// The version of the latest GitHub release, without the `v`.

@@ -163,7 +163,8 @@ impl App {
         let Some(started) = self.splash else { return };
         let shown = now.saturating_duration_since(started);
         let (answered, total) = self.manager.ping_progress();
-        if shown >= SPLASH_MAX || (answered == total && shown >= SPLASH_MIN) {
+        let done = answered == total && !self.checking_update;
+        if shown >= SPLASH_MAX || (done && shown >= SPLASH_MIN) {
             self.end_splash();
         }
     }
