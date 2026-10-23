@@ -175,6 +175,9 @@ pub struct App {
     overlay: Option<Overlay>,
     /// Shown in the manager's status bar when a newer dfox is out.
     update: Option<String>,
+    /// The update check is still out; the splash waits for it, up to its
+    /// longest.
+    checking_update: bool,
     pub should_quit: bool,
     frame: u64,
     motion: crate::motion::Motion,
@@ -244,6 +247,7 @@ impl App {
             log: EventLog::default(),
             clipboard,
             history,
+            checking_update: false,
             overlay: None,
             update,
             should_quit: false,
@@ -270,7 +274,10 @@ impl App {
         &mut self,
         terminal: &mut DefaultTerminal,
         mut events: mpsc::Receiver<EngineEvent>,
+        // The update check started with this run, whose answer shows at once.
+        mut checking: Option<tokio::sync::oneshot::Receiver<Option<String>>>,
     ) -> io::Result<()> {
+        self.checking_update = checking.is_some();
         let mut input = EventStream::new();
         let period = if self.config.animations {
             FRAME
@@ -343,6 +350,14 @@ impl App {
                     dirty = true;
                 }
                 _ = tokio::time::sleep_until(drawn + SMOOTH_FRAME.max(fx_frame)), if self.smooth(drawn) => {
+                    dirty = true;
+                }
+                answer = async { checking.as_mut().expect("checking").await }, if checking.is_some() => {
+                    checking = None;
+                    self.checking_update = false;
+                    if let Ok(notice) = answer {
+                        self.update = notice;
+                    }
                     dirty = true;
                 }
                 _ = pings.tick(), if self.screen == Screen::Manager => {

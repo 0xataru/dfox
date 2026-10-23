@@ -872,6 +872,38 @@ fn the_splash_waits_for_the_first_checks() {
 }
 
 #[test]
+fn the_splash_waits_for_the_update_check_up_to_its_longest() {
+    let mut test = splash_app("splash-update", true);
+    let started = test.app.splash.expect("splash");
+    test.app.checking_update = true;
+    // The connection answers; only the update check is out.
+    test.app.update_splash(started + Duration::from_millis(100));
+    let id = match &test.sent()[..] {
+        [DbCommand::Ping { id, .. }] => *id,
+        other => panic!("expected a ping, got {other:?}"),
+    };
+    test.app.on_engine_event(EngineEvent::Pong {
+        id,
+        result: Ok(Duration::from_millis(3)),
+    });
+    test.app.update_splash(started + Duration::from_millis(450));
+    assert_eq!(test.app.screen, Screen::Splash);
+    // Answered, the splash ends as usual.
+    test.app.checking_update = false;
+    test.app.update_splash(started + Duration::from_millis(460));
+    assert_eq!(test.app.screen, Screen::Manager);
+}
+
+#[test]
+fn the_update_check_never_holds_the_splash_past_600_ms() {
+    let mut test = splash_app("splash-update-max", true);
+    let started = test.app.splash.expect("splash");
+    test.app.checking_update = true;
+    test.app.update_splash(started + Duration::from_millis(600));
+    assert_eq!(test.app.screen, Screen::Manager);
+}
+
+#[test]
 fn the_splash_never_outstays_600_ms() {
     let mut test = splash_app("splash-max", true);
     let started = test.app.splash.expect("splash");

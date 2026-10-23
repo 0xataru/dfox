@@ -7,6 +7,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Changed
+
+- The update notice shows on the first start after a release: the daily check runs while
+  the splash is up (which waits for it, at most its usual 0.6 s), and if GitHub answers
+  later, the notice appears in the status bar as soon as it does. Starting never waits on
+  the network.
+
 ## [0.5.3] - 2026-10-23
 
 ### Fixed
