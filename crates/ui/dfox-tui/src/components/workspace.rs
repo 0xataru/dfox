@@ -155,6 +155,8 @@ pub struct Workspace {
     /// When to reload the rows of a tab whose edits were just saved: after
     /// the saved rows' effect has played.
     refresh_at: Option<(tokio::time::Instant, usize)>,
+    /// A transaction was opened by a query run here and not closed yet.
+    pub in_transaction: bool,
 }
 
 impl Workspace {
@@ -183,6 +185,7 @@ impl Workspace {
             export_dialog: None,
             exporting: None,
             refresh_at: None,
+            in_transaction: false,
         };
         workspace.explorer.driver = Some(driver);
         workspace.new_tab();
@@ -658,6 +661,15 @@ impl Workspace {
                 let Some(sql) = &finished.sql else {
                     return false;
                 };
+                // A failed run may still have opened one (BEGIN; bad; …), but
+                // whether it closed one is unknown.
+                if matches!(self.language, QueryLanguage::Sql(_)) {
+                    match guard::transaction(sql, self.dialect) {
+                        Some(true) => self.in_transaction = true,
+                        Some(false) if finished.ok => self.in_transaction = false,
+                        _ => {}
+                    }
+                }
                 let entry = Entry {
                     ok: finished.ok,
                     rows: finished.rows,

@@ -66,6 +66,16 @@ impl App {
             if session.connection.read_only {
                 location.push(Span::styled(" read-only", theme.warning()));
             }
+            if self.workspace.as_ref().is_some_and(|w| w.in_transaction) {
+                location.push(Span::raw(" "));
+                location.push(Span::styled(
+                    " TXN ",
+                    Style::default()
+                        .fg(theme.bg)
+                        .bg(theme.warning)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                ));
+            }
         }
 
         let running = self
