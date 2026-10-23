@@ -15,6 +15,8 @@ futures-util = { version = "0.3.31", default-features = false, features = ["allo
 tokio = { version = "1.40.0", features = ["full"] }
 
 [dev-dependencies]
+dfox = { path = "../../ui/dfox-tui" }
+dfox-driver-mongo = { path = "../../drivers/dfox-driver-mongo" }
 dfox-driver-mysql = { path = "../../drivers/dfox-driver-mysql" }
 dfox-driver-postgres = { path = "../../drivers/dfox-driver-postgres" }
 dfox-driver-sqlite = { path = "../../drivers/dfox-driver-sqlite" }

@@ -1773,7 +1773,9 @@ version = "0.5.32"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "dfox",
  "dfox-core",
+ "dfox-driver-mongo",
  "dfox-driver-mysql",
  "dfox-driver-postgres",
  "dfox-driver-sqlite",
