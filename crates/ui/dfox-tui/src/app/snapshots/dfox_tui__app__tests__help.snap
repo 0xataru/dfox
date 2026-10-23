@@ -32,5 +32,5 @@ expression: "test.snapshot(120, 32)"
 │              │ Shift+Tab         Previous panel           Shift+↑           Select up                 │              │
 │              │ /                 Filter                   Shift+↓           Select down               │              │
 │              │                                                                                        │              │
-╰──────────────╰──────────────────────── Enter change · Del default · Esc close ────────────────────────╯──────────────╯
+╰──────────────╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯──────────────╯
  dfox 0.0.0                                                                        Enter connect  n new  e edit  ? keys

@@ -20,6 +20,8 @@ pub struct Help {
     pub capturing: bool,
     /// A change waiting for Enter; any other key drops it.
     pub confirm: Option<Change>,
+    /// Actions in a column as last drawn: how far ← and → move.
+    pub column_rows: std::cell::Cell<usize>,
 }
 
 /// A change to the selected action's keys, asked about before it is made.
@@ -34,6 +36,17 @@ pub enum Change {
 impl Help {
     pub fn action(&self) -> Action {
         Action::BINDABLE[self.selected]
+    }
+
+    /// Moves the cursor to the next column (`right`) or the previous one,
+    /// staying put at the edge.
+    pub fn select_column(&mut self, right: bool) {
+        let rows = self.column_rows.get().max(1);
+        if right && self.selected + rows < Action::BINDABLE.len() {
+            self.selected += rows;
+        } else if !right && self.selected >= rows {
+            self.selected -= rows;
+        }
     }
 
     /// Moves the cursor `by` actions, stopping at the ends.
@@ -79,6 +92,7 @@ pub fn render(f: &mut Frame, area: Rect, help: &Help, ctx: &RenderCtx) {
         1
     };
     let rows = entries.len().div_ceil(columns);
+    help.column_rows.set(rows);
     let width = columns as u16 * (KEY_WIDTH as u16 + 25) + 4;
     let popup = centered(area, width, rows as u16 + 4);
     let shown = (popup.height as usize).saturating_sub(4).max(1);
@@ -97,6 +111,10 @@ pub fn render(f: &mut Frame, area: Rect, help: &Help, ctx: &RenderCtx) {
         }
         (Some(Change::Reset), _) => format!(" {action} back to default? Enter yes · Esc no "),
         (None, true) => format!(" key for {action}? Esc cancels "),
+        // ← and → only move with more than one column.
+        (None, false) if columns > 1 => {
+            " ↑↓←→ move · Enter change · Del default · Esc close ".to_string()
+        }
         (None, false) => " Enter change · Del default · Esc close ".to_string(),
     };
 

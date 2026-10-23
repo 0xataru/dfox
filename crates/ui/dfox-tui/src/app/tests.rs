@@ -630,6 +630,33 @@ fn the_mouse_reaches_the_workspace() {
 }
 
 #[test]
+fn side_arrows_move_between_the_key_lists_columns() {
+    let mut test = test_app("help-columns", None, "");
+    test.key(KeyCode::Char('?'));
+    // Drawn in columns: how many rows a column has decides how far → goes.
+    let _ = test.snapshot(120, 40);
+    let selected = |test: &Test| match &test.app.overlay {
+        Some(Overlay::Help(help)) => help.selected,
+        other => panic!("the key list closed: {other:?}"),
+    };
+    let rows = match &test.app.overlay {
+        Some(Overlay::Help(help)) => help.column_rows.get(),
+        _ => unreachable!(),
+    };
+    assert!(rows > 1 && rows < Action::BINDABLE.len());
+    test.key(KeyCode::Down);
+    test.key(KeyCode::Right);
+    assert_eq!(selected(&test), rows + 1);
+    test.key(KeyCode::Left);
+    assert_eq!(selected(&test), 1);
+    // At the edge it stays, and stays open.
+    test.key(KeyCode::Left);
+    assert_eq!(selected(&test), 1);
+    test.key(KeyCode::Char('l'));
+    assert_eq!(selected(&test), rows + 1);
+}
+
+#[test]
 fn help_scrolls_and_closes_on_other_keys() {
     let mut test = test_app("help", None, "");
     test.key(KeyCode::Char('?'));

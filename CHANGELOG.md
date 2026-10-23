@@ -7,6 +7,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Fixed
+
+- In the key list (**?**), **←/→** (and **h/l**) move between its columns instead of
+  closing it.
+
 ### Added
 
 - MySQL passwords from `~/.my.cnf`: for a saved MySQL connection without a password in the
