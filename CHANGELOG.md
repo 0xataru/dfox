@@ -7,6 +7,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- **s** in the results sorts the rows by the cursor's column: ascending (▲ in the header),
+  descending (▼), then back to the order they came in. It sorts the fetched rows, once they
+  are all in; decimals sort as numbers and NULLs go last.
+
 ## [0.5.32] - 2026-10-23
 
 ### Changed

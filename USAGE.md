@@ -163,6 +163,8 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - **Ctrl+C** - Copy the cell or the selection (tab-separated)
 - **y** - Copy as TSV, CSV, JSON, Markdown or `INSERT` statements (the selection, or every row)
 - **>** / **<** - Widen / narrow the column
+- **s** - Sort by the column: ascending (▲), descending (▼), then back to the order the rows
+  came in. It sorts the rows fetched, once they are all in; decimals sort as numbers
 - **Enter** or **i** - Inspect the row: every field in full, JSON pretty-printed, binary as a hex dump
 - **e** - Edit the cell, in rows opened from a table that has a primary key: type, then
   **Enter** keeps the change, **Esc** drops it, **Del** makes it NULL. **o** adds a row
@@ -259,6 +261,7 @@ action without a key. The actions and their default keys:
 | `add_row` | Add a row | `o` |
 | `export` | Export rows to a file | `x` |
 | `wider` | Widen column | `>` |
+| `sort` | Sort by column | `s` |
 | `narrower` | Narrow column | `<` |
 | `next_focus` | Next panel | `tab` |
 | `prev_focus` | Previous panel | `shift+tab` |

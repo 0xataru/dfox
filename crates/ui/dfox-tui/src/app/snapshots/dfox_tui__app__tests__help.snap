@@ -4,33 +4,33 @@ expression: "test.snapshot(120, 32)"
 ---
 ╭ Connections 1╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮──────────────╮
 │ Saved        │                                                                                        │              │
-│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          Delete d          Delete                    │              │
-│              │ F5 Ctrl+E         Run statement/selection  Ctrl+S            Save                      │              │
-│              │ Shift+F5          Run the whole script     F1                Connection list           │              │
-│              │ Ctrl+Space        Suggest names            Ctrl+T            Next theme                │              │
-│              │ Ctrl+R            Query history            F12               Event log                 │              │
-│              │ Ctrl+N            New query tab            Space             Command menu              │              │
-│              │ Ctrl+W            Close query tab          ? F2              Show keys                 │              │
-│              │ Alt+] Ctrl+PgDn   Next query tab           Esc               Back / close              │              │
-│              │ Alt+[ Ctrl+PgUp   Previous query tab       q Ctrl+Q          Quit                      │              │
-│              │ Ctrl+C            Copy / cancel query      Enter             Select / new line         │              │
-│              │ y                 Copy as CSV, JSON, …     ↑                 Up                        │              │
-│              │ Ctrl+X            Cut                      ↓                 Down                      │              │
-│              │ Ctrl+V            Paste                    ←                 Left / previous column    │              │
-│              │ Ctrl+A            Select all               →                 Right / next column       │              │
-│              │ V                 Select whole rows        PgUp              Page up                   │              │
-│              │ Ctrl+Z            Undo                     PgDn              Page down                 │              │
-│              │ Ctrl+Y            Redo                     Home              First row / line start    │              │
-│              │ i                 Inspect / insert name    End               Last row / line end       │              │
-│              │ J                 Results as JSON / grid   Backspace         Delete back               │              │
-│              │ o                 Add a row                Alt+Backspace     Delete a word             │              │
-│              │ x                 Export rows to a file    Alt+B Alt+←       Previous word             │              │
-│              │ >                 Widen column             Alt+F Alt+→       Next word                 │              │
+│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          e                 Edit / definition         │              │
+│              │ F5 Ctrl+E         Run statement/selection  Delete d          Delete                    │              │
+│              │ Shift+F5          Run the whole script     Ctrl+S            Save                      │              │
+│              │ Ctrl+Space        Suggest names            F1                Connection list           │              │
+│              │ Ctrl+R            Query history            Ctrl+T            Next theme                │              │
+│              │ Ctrl+N            New query tab            F12               Event log                 │              │
+│              │ Ctrl+W            Close query tab          Space             Command menu              │              │
+│              │ Alt+] Ctrl+PgDn   Next query tab           ? F2              Show keys                 │              │
+│              │ Alt+[ Ctrl+PgUp   Previous query tab       Esc               Back / close              │              │
+│              │ Ctrl+C            Copy / cancel query      q Ctrl+Q          Quit                      │              │
+│              │ y                 Copy as CSV, JSON, …     Enter             Select / new line         │              │
+│              │ Ctrl+X            Cut                      ↑                 Up                        │              │
+│              │ Ctrl+V            Paste                    ↓                 Down                      │              │
+│              │ Ctrl+A            Select all               ←                 Left / previous column    │              │
+│              │ V                 Select whole rows        →                 Right / next column       │              │
+│              │ Ctrl+Z            Undo                     PgUp              Page up                   │              │
+│              │ Ctrl+Y            Redo                     PgDn              Page down                 │              │
+│              │ i                 Inspect / insert name    Home              First row / line start    │              │
+│              │ J                 Results as JSON / grid   End               Last row / line end       │              │
+│              │ o                 Add a row                Backspace         Delete back               │              │
+│              │ x                 Export rows to a file    Alt+Backspace     Delete a word             │              │
+│              │ >                 Widen column             Alt+B Alt+←       Previous word             │              │
+│              │ s                 Sort by column           Alt+F Alt+→       Next word                 │              │
 │              │ <                 Narrow column            Shift+←           Select left               │              │
 │              │ Tab               Next panel               Shift+→           Select right              │              │
 │              │ Shift+Tab         Previous panel           Shift+↑           Select up                 │              │
 │              │ /                 Filter                   Shift+↓           Select down               │              │
-│              │ R                 Refresh                  Shift+Home        Select to line start      │              │
 │              │                                                                                        │              │
 ╰──────────────╰──────────────────────── Enter change · Del default · Esc close ────────────────────────╯──────────────╯
  dfox 0.0.0                                                                        Enter connect  n new  e edit  ? keys

@@ -208,6 +208,49 @@ impl ArrowResultSet {
         self.complete = true;
     }
 
+    /// The order that sorts the rows by column `col`, NULLs last: row `i`
+    /// sorted is row `order[i]` here. Decimals, kept as text, sort as numbers.
+    pub fn sort_order(
+        &self,
+        col: usize,
+        descending: bool,
+    ) -> Result<arrow_array::UInt32Array, arrow_schema::ArrowError> {
+        let parts: Vec<&dyn Array> = self
+            .batches
+            .iter()
+            .map(|b| b.column(col).as_ref())
+            .collect();
+        let mut column = if parts.is_empty() {
+            arrow_array::new_empty_array(self.schema.field(col).data_type())
+        } else {
+            arrow_select::concat::concat(&parts)?
+        };
+        if matches!(self.kinds[col], TextKind::Decimal) {
+            column = arrow_cast::cast(&column, &arrow_schema::DataType::Float64)?;
+        }
+        let options = arrow_schema::SortOptions {
+            descending,
+            nulls_first: false,
+        };
+        arrow_ord::sort::sort_to_indices(&column, Some(options), None)
+    }
+
+    /// A copy with the rows in `order`, row `i` being row `order[i]` here.
+    pub fn reordered(
+        &self,
+        order: &arrow_array::UInt32Array,
+    ) -> Result<Self, arrow_schema::ArrowError> {
+        let mut out = Self::new(self.schema.clone());
+        if !self.batches.is_empty() {
+            let all = arrow_select::concat::concat_batches(&self.schema, &self.batches)?;
+            out.push(arrow_select::take::take_record_batch(&all, order)?);
+        }
+        if self.complete {
+            out.finish();
+        }
+        Ok(out)
+    }
+
     /// Bytes held by the batches.
     pub fn memory_bytes(&self) -> usize {
         self.bytes
@@ -423,6 +466,49 @@ mod tests {
         result.push(batch);
         result.finish();
         result
+    }
+
+    #[test]
+    fn rows_sort_by_a_column_across_batches_and_back() {
+        use crate::arrow::decimal_field;
+        let schema = schema(vec![
+            field("n", DataType::Int64, "int8"),
+            decimal_field("price", "numeric"),
+        ]);
+        let batch = |n: Vec<Option<i64>>, price: Vec<&str>| {
+            let arrays: Vec<ArrayRef> = vec![
+                Arc::new(Int64Array::from(n)),
+                Arc::new(StringArray::from(price)),
+            ];
+            RecordBatch::try_new(schema.clone(), arrays).expect("batch")
+        };
+        let mut rows = ArrowResultSet::new(schema.clone());
+        rows.push(batch(vec![Some(3), None], vec!["10.5", "9.25"]));
+        rows.push(batch(vec![Some(1), Some(2)], vec!["100", "-1"]));
+        rows.finish();
+        let column = |r: &ArrowResultSet, col: usize| -> Vec<String> {
+            (0..r.row_count())
+                .map(|row| r.cell(row, col).map_or("∅".into(), |v| v.to_string()))
+                .collect()
+        };
+
+        let up = rows.sort_order(0, false).expect("order");
+        let sorted = rows.reordered(&up).expect("sorted");
+        assert_eq!(column(&sorted, 0), ["1", "2", "3", "NULL"]);
+        assert!(sorted.is_complete());
+        // Decimals sort as numbers, not as text.
+        let down = rows.sort_order(1, true).expect("order");
+        assert_eq!(
+            column(&rows.reordered(&down).expect("sorted"), 1),
+            ["100", "10.5", "9.25", "-1"]
+        );
+        // The inverse order puts the rows back.
+        let mut inverse = vec![0u32; up.len()];
+        for (i, from) in up.values().iter().enumerate() {
+            inverse[*from as usize] = i as u32;
+        }
+        let back = sorted.reordered(&inverse.into()).expect("back");
+        assert_eq!(column(&back, 0), column(&rows, 0));
     }
 
     #[test]

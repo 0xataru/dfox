@@ -59,6 +59,8 @@ pub struct Grid {
     adjust: Vec<i16>,
     page: Cell<usize>,
     drawn: RefCell<Drawn>,
+    /// The column the rows are sorted by, and whether downwards.
+    pub sorted: Option<(usize, bool)>,
 }
 
 /// A result with `added` empty rows after its own, for new rows being
@@ -355,6 +357,12 @@ impl Grid {
         buf.set_string(area.x + number_width + 1, y + 1, "┼", rule_style);
         for &(col, x, width) in &placed {
             let name = &result.columns()[col].name;
+            let name = match self.sorted {
+                Some((c, false)) if c == col => format!("{name} ▲"),
+                Some((c, true)) if c == col => format!("{name} ▼"),
+                _ => name.clone(),
+            };
+            let name = &name;
             let style = if col == cursor_col && focused {
                 theme.key()
             } else {
