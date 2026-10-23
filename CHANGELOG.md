@@ -7,6 +7,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Fixed
+
+- The update notice tells Homebrew users to run `brew update && brew upgrade dfox` again,
+  instead of pointing to the releases page: dfox now follows Homebrew's link to the file in
+  the Cellar.
+
 ## [0.5.2] - 2026-10-22
 
 ### Changed
