@@ -9,6 +9,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Importing a file asks which table column each of its columns goes into: matched by name
+  to start with, **←/→** to change one or skip it. Two into the same column, or none at
+  all, are refused before anything is sent.
 - A **TXN** badge in the status bar while a transaction you opened with `BEGIN` or `START
   TRANSACTION` is open; `COMMIT`, `ROLLBACK` or `END` clears it, `ROLLBACK TO` a savepoint
   doesn't, and a failed statement leaves it open, as the server does.

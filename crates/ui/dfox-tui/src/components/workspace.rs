@@ -856,7 +856,12 @@ impl Workspace {
                 });
             }
             Choice::Import => {
-                self.export_dialog = Some(ExportDialog::import(table));
+                let columns = info
+                    .iter()
+                    .flat_map(|info| &info.columns)
+                    .map(|c| c.name.clone())
+                    .collect();
+                self.export_dialog = Some(ExportDialog::import(table, columns));
             }
             Choice::Export => {
                 let sql = if self.language == QueryLanguage::RedisCmd {
@@ -1008,6 +1013,7 @@ impl Workspace {
                 id,
                 table: table.clone(),
                 file: file.clone(),
+                columns: dialog.columns(),
             },
             None => DbCommand::Export {
                 id,

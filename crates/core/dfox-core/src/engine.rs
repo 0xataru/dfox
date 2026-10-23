@@ -131,8 +131,9 @@ pub enum Command {
         file: std::path::PathBuf,
     },
     /// Adds the rows of `file` to the table at `table`, as query `id`: its
-    /// columns match the table's by name, empty cells are NULL, and columns
-    /// the file lacks get their defaults. Rows go in chunks, each in its
+    /// columns go to the table's `columns` names, one per file column, `None`
+    /// skipping it, or with no `columns` to the table's of the same name.
+    /// Empty cells are NULL, and columns left out get their defaults. Rows go in chunks, each in its
     /// own transaction; it
     /// reports [`EngineEvent::Progress`] and ends with
     /// [`EngineEvent::QueryDone`], and can be cancelled.
@@ -140,6 +141,7 @@ pub enum Command {
         id: QueryId,
         table: NodePath,
         file: std::path::PathBuf,
+        columns: Option<Vec<Option<String>>>,
     },
     /// Runs `sql` with no row limit and adds its rows to a table of another
     /// connection, as query `id`, the way an import adds a file's. It opens
@@ -432,7 +434,12 @@ impl Engine {
             ),
             Command::Apply { changes } => self.apply(changes),
             Command::Export { id, sql, file } => self.export(id, sql, file),
-            Command::Import { id, table, file } => self.import(id, table, file),
+            Command::Import {
+                id,
+                table,
+                file,
+                columns,
+            } => self.import(id, table, file, columns),
             Command::Copy { id, sql, target } => self.copy(id, sql, *target),
             Command::Cancel { id } => self.cancel(id),
         }
@@ -561,7 +568,13 @@ impl Engine {
         self.track(id, task, Some(file));
     }
 
-    fn import(&mut self, id: QueryId, table: NodePath, file: std::path::PathBuf) {
+    fn import(
+        &mut self,
+        id: QueryId,
+        table: NodePath,
+        file: std::path::PathBuf,
+        mapping: Option<Vec<Option<String>>>,
+    ) {
         let events = self.events.clone();
         let Some(live) = self.live.clone() else {
             tokio::spawn(async move {
@@ -570,7 +583,7 @@ impl Engine {
             });
             return;
         };
-        let task = tokio::spawn(import_file(live.session, id, table, file, events));
+        let task = tokio::spawn(import_file(live.session, id, table, file, mapping, events));
         // The file is the source: whatever happens, it stays.
         self.track(id, task, None);
     }
@@ -726,6 +739,7 @@ async fn import_file(
     id: QueryId,
     table: NodePath,
     file: std::path::PathBuf,
+    mapping: Option<Vec<Option<String>>>,
     events: mpsc::Sender<EngineEvent>,
 ) -> Result<QueryStats, DbError> {
     let started = Instant::now();
@@ -751,6 +765,7 @@ async fn import_file(
         }
     });
     let mut load = Loader::new(table, columns, "the file's");
+    load.names = mapping;
     while let Some(batch) = rx.recv().await {
         load.add(&session, batch?, id, &events).await?;
     }
@@ -771,8 +786,9 @@ struct Loader {
     columns: Vec<String>,
     /// Whose columns they are, for the error that one is missing.
     whose: &'static str,
-    /// The table's name for each of the batches' columns, matched once.
-    names: Option<Vec<String>>,
+    /// The table's name for each of the batches' columns, matched once or
+    /// given; `None` leaves a column out.
+    names: Option<Vec<Option<String>>>,
     stats: QueryStats,
 }
 
@@ -789,14 +805,25 @@ impl Loader {
 
     /// Matches the batch's columns to the table's, the first time: by name,
     /// whatever their case.
-    fn names(&mut self, batch: &RecordBatch) -> Result<Vec<String>, DbError> {
+    fn names(&mut self, batch: &RecordBatch) -> Result<Vec<Option<String>>, DbError> {
         if let Some(names) = &self.names {
+            if names.len() != batch.num_columns() {
+                return Err(DbError::General(format!(
+                    "{} {} columns don't match the {} mapped",
+                    self.whose,
+                    batch.num_columns(),
+                    names.len()
+                )));
+            }
+            if names.iter().all(Option::is_none) {
+                return Err(DbError::General("no columns to import".into()));
+            }
             return Ok(names.clone());
         }
         let mut matched = Vec::new();
         for field in batch.schema().fields() {
             if self.columns.is_empty() {
-                matched.push(field.name().clone());
+                matched.push(Some(field.name().clone()));
                 continue;
             }
             let name = self
@@ -810,7 +837,7 @@ impl Loader {
                         field.name()
                     ))
                 })?;
-            matched.push(name.clone());
+            matched.push(Some(name.clone()));
         }
         Ok(self.names.insert(matched).clone())
     }
@@ -842,10 +869,10 @@ impl Loader {
                         names
                             .iter()
                             .enumerate()
-                            .map(|(col, name)| {
+                            .filter_map(|(col, name)| {
                                 let cell =
                                     rows.cell(row, col).map_or(OwnedCell::Null, OwnedCell::from);
-                                (name.clone(), cell)
+                                Some((name.clone()?, cell))
                             })
                             .collect(),
                     )

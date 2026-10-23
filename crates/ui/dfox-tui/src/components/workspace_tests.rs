@@ -1524,6 +1524,7 @@ fn a_file_is_imported_into_a_table_from_its_menu() {
     let mut harness = Harness::new();
     let mut w = on_orders(&mut harness);
     w.handle(Action::Confirm, &mut harness.ctx());
+    w.explorer.on_described(&orders(), Ok(orders_info()));
     harness.sent();
     w.handle(Action::Input('m'), &mut harness.ctx());
     assert!(w.wants_text(), "the dialog asks for the file");
@@ -1535,13 +1536,23 @@ fn a_file_is_imported_into_a_table_from_its_menu() {
     for c in file.to_string_lossy().chars() {
         w.handle(Action::Input(c), &mut harness.ctx());
     }
+    // The file, then its columns mapped to the table's.
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(harness.sent().is_empty());
     w.handle(Action::Confirm, &mut harness.ctx());
     let id = match harness.sent().as_slice() {
         [DbCommand::Import {
             id,
             table,
             file: from,
-        }] if *table == orders() && *from == file => *id,
+            columns: Some(columns),
+        }] if *table == orders() && *from == file => {
+            assert_eq!(
+                columns,
+                &[Some("id".to_string()), Some("total".to_string())]
+            );
+            *id
+        }
         other => panic!("expected the import, got {other:?}"),
     };
     w.on_query_event(EngineEvent::Progress { id, rows: 1 }, &mut harness.ctx());

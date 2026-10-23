@@ -183,9 +183,12 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   `.tsv`, `.jsonl` (or `.ndjson`) or `.parquet`. The status bar shows how far it has got;
   **Ctrl+C** cancels it, and a cancelled or failed export leaves no file. Only a query
   that reads can be exported. A table's menu has **Export…** for all its rows, and
-  **Import…** to add a file's rows to the table: its columns match the table's by name
-  (whatever their case), empty cells are NULL, the table's columns the file lacks get
-  their defaults, and a column the table doesn't have stops the import before any row.
+  **Import…** to add a file's rows to the table: after the file, each of its columns is
+  shown with the table column it goes into, matched by name (whatever its case) or
+  skipped; **↑/↓** pick a column, **←/→** change where it goes (or **skip**), **Enter**
+  imports. Empty cells are NULL and the table's columns left out get their defaults.
+  When the table's columns aren't known yet, the file's match them by name, and a column
+  the table doesn't have stops the import before any row.
   Rows go in ten thousand at a time, each batch in its own transaction (a COPY in
   Postgres, multi-row inserts in MySQL, `insertMany` in MongoDB), so a failed import
   says how many went in. **Copy to…** sends all the rows to a table of another saved
