@@ -11,7 +11,7 @@ use dfox_tui::{
     clipboard,
     components::manager::EntryKey,
     config::Config,
-    connections::{self, pgpass, secrets::Keychain, Store},
+    connections::{self, mycnf, pgpass, secrets::Keychain, Store},
     history::History,
     terminal,
     theme::ColorDepth,
@@ -71,7 +71,8 @@ async fn headless(cli: Cli) -> i32 {
     if let Some(problem) = problem {
         eprintln!("dfox: {problem}");
     }
-    let pgpass = pgpass::load();
+    // Passwords from ~/.pgpass for Postgres and ~/.my.cnf for MySQL.
+    let pgpass: Vec<_> = pgpass::load().into_iter().chain(mycnf::load()).collect();
     let resolve = |name: &str| dfox_tui::headless::resolve(name, &store, &Keychain, &pgpass);
     let (from, command, done) = match cli {
         Cli::Export { from, query, file } => {
@@ -231,7 +232,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .chain(history_problem)
         .collect();
 
-    let pgpass = pgpass::load();
+    // Passwords from ~/.pgpass for Postgres and ~/.my.cnf for MySQL.
+    let pgpass: Vec<_> = pgpass::load().into_iter().chain(mycnf::load()).collect();
     let mut detected = Vec::new();
     let mut connect = None;
     match open {
@@ -269,15 +271,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(err) => problems.push(format!("DATABASE_URL: {err}")),
         }
     }
-    detected.extend(
-        pgpass::connections(&pgpass)
-            .into_iter()
-            .map(|connection| Detected {
-                password: pgpass::lookup(&pgpass, &connection).map(str::to_string),
-                connection,
-                source: ".pgpass".to_string(),
-            }),
-    );
+    detected.extend(pgpass::connections(&pgpass).into_iter().map(|connection| {
+        Detected {
+            password: pgpass::lookup(&pgpass, &connection).map(str::to_string),
+            source: match connection.driver {
+                dfox_core::models::connections::DbType::MySql => ".my.cnf",
+                _ => ".pgpass",
+            }
+            .to_string(),
+            connection,
+        }
+    }));
 
     let mouse = config.mouse;
     let update = config.update_check;

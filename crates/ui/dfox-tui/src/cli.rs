@@ -25,7 +25,7 @@ Commands:
   help               show this help
 
 A CONNECTION is a saved connection's name or a URL. Passwords come from the
-keychain, ~/.pgpass or the URL: these commands never ask.
+keychain, ~/.pgpass, ~/.my.cnf or the URL: these commands never ask.
 
 Options:
   --reduced-motion   no splash, transitions or spinners (also with NO_COLOR

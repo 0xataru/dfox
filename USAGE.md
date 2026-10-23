@@ -36,7 +36,8 @@ dfox export postgres://app@db.local/shop "SELECT 1" -o one.csv
 ```
 
 A connection is a saved one's name or a URL. Passwords come from the keychain,
-`~/.pgpass` or the URL: these commands never ask, and never print a URL's password.
+`~/.pgpass`, `~/.my.cnf` or the URL: these commands never ask, and never print a URL's
+password.
 The rows written show on stderr as they go, then a summary; the exit code is 1 when it
 fails. `--create` makes the target table from the rows' columns.
 
@@ -64,11 +65,13 @@ in `DFOX_STATE_DIR`), readable only by you.
 Saved connections live in `connections.toml` in the config directory, and
 their passwords in the OS keychain (Keychain on macOS, Credential Manager on
 Windows, the Secret Service on Linux), never in the file. Without a saved
-password, dfox looks in `~/.pgpass` (or `$PGPASSFILE`) for Postgres, and
-otherwise asks.
+password, dfox looks in `~/.pgpass` (or `$PGPASSFILE`) for Postgres and in
+`~/.my.cnf` (its `[client]` and `[mysql]` sections, for the user it names) for
+MySQL, and otherwise asks.
 
 The manager also lists connections found on the machine: `DATABASE_URL`
-(from the environment or a `.env` file) and the entries of `~/.pgpass`. Press
+(from the environment or a `.env` file), the entries of `~/.pgpass`, and
+`~/.my.cnf` when it names a host. Press
 **e** on one to save it. Every connection is checked in the background, so a
 dot shows whether it is reachable and a sparkline shows its latency.
 

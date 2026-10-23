@@ -60,7 +60,11 @@ impl App {
             Command::SaveDetected(index) => {
                 if let Some(found) = self.manager.detected.get(index).cloned() {
                     let mut connection = found.connection;
-                    connection.name = connection.name.trim_start_matches("pgpass: ").to_string();
+                    connection.name = connection
+                        .name
+                        .trim_start_matches("pgpass: ")
+                        .trim_start_matches("my.cnf: ")
+                        .to_string();
                     self.open_form(ConnectionForm::edit(None, &connection, found.password));
                 }
             }
