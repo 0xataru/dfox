@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.33] - 2026-10-23
+
 ### Fixed
 
 - In the key list (**?**), **←/→** (and **h/l**) move between its columns instead of
