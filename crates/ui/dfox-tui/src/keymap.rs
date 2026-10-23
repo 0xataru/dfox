@@ -288,6 +288,7 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["o"], Action::AddRow),
         bind(&["x"], Action::Export),
         bind(&[">"], Action::Wider),
+        bind(&["s"], Action::Sort),
         bind(&["<"], Action::Narrower),
         bind(&["ctrl+left", "alt+left", "alt+b"], Action::WordLeft),
         bind(&["ctrl+right", "alt+right", "alt+f"], Action::WordRight),

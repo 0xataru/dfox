@@ -16,6 +16,8 @@ arrow-schema = "60.0.0"
 arrow-cast = "60.0.0"
 arrow-csv = "60.0.0"
 arrow-json = "60.0.0"
+arrow-ord = "60.0.0"
+arrow-select = "60.0.0"
 # Snappy only: the other codecs build C libraries.
 parquet = { version = "60.0.0", default-features = false, features = ["arrow", "snap"] }
 bitflags = "2.13.2"

@@ -81,6 +81,9 @@ pub struct ResultsPanel {
     pub running: Option<RunningQuery>,
     /// When the last query's rows were counted, to roll the count up.
     counted: Option<(Instant, QueryStats)>,
+    /// The order the rows are sorted in, row `i` being row `order[i]` as
+    /// they came; `None` while unsorted.
+    unsorted: Option<arrow_array::UInt32Array>,
     pub grid: Grid,
     pub focused: bool,
     dialect: Dialect,
@@ -132,6 +135,7 @@ impl ResultsPanel {
             message: None,
             running: None,
             counted: None,
+            unsorted: None,
             grid: Grid::default(),
             focused: false,
             dialect,
@@ -345,6 +349,7 @@ impl ResultsPanel {
         self.error = None;
         self.message = None;
         self.grid = Grid::default();
+        self.unsorted = None;
         // New rows, the same view.
         if self.json.is_some() {
             self.json = Some(json::JsonView::default());
@@ -417,6 +422,62 @@ impl ResultsPanel {
             }
         }
         Some(finished)
+    }
+
+    /// Sorts the rows by the cursor's column: up, then down, then as they
+    /// came. Only the rows fetched, and only once they are all in.
+    fn sort(&mut self, ctx: &mut Ctx) {
+        if self.store.row_count() == 0 {
+            return;
+        }
+        if self.running.is_some() || !self.store.is_complete() {
+            ctx.toast(Level::Warning, "Sort once the rows are all in");
+            return;
+        }
+        if self.edits.as_ref().is_some_and(|e| e.count() > 0) {
+            ctx.toast(Level::Warning, "Save or undo the edits before sorting");
+            return;
+        }
+        let col = self.grid.cursor().1;
+        let next = match self.grid.sorted {
+            Some((c, false)) if c == col => Some((col, true)),
+            Some((c, true)) if c == col => None,
+            _ => Some((col, false)),
+        };
+        // Back to the rows as they came...
+        if let Some(order) = self.unsorted.take() {
+            let mut back = vec![0u32; order.len()];
+            for (i, from) in order.values().iter().enumerate() {
+                back[*from as usize] = i as u32;
+            }
+            match self.store.reordered(&back.into()) {
+                Ok(rows) => {
+                    self.store = rows;
+                    self.grid.sorted = None;
+                }
+                Err(err) => {
+                    self.unsorted = Some(order);
+                    ctx.toast(Level::Error, format!("Couldn't sort: {err}"));
+                    return;
+                }
+            }
+        }
+        // ...then sorted the new way.
+        let Some((col, descending)) = next else {
+            return;
+        };
+        let sorted = self
+            .store
+            .sort_order(col, descending)
+            .and_then(|order| Ok((self.store.reordered(&order)?, order)));
+        match sorted {
+            Ok((rows, order)) => {
+                self.store = rows;
+                self.unsorted = Some(order);
+                self.grid.sorted = next;
+            }
+            Err(err) => ctx.toast(Level::Error, format!("Couldn't sort: {err}")),
+        }
     }
 
     /// Redraws at an animation's pace are wanted: the fox runs while a query
@@ -625,6 +686,7 @@ impl Component for ResultsPanel {
             return None;
         }
         match action {
+            Action::Sort => self.sort(ctx),
             Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
                 self.inspecting = !self.inspecting;
                 self.inspect_scroll.set(0);

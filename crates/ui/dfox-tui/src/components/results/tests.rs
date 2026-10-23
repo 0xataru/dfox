@@ -523,3 +523,34 @@ fn the_row_count_rolls_up() {
     assert_eq!(message(&test), "1000 row(s) · 5 ms");
     assert!(!results.smooth(test.now));
 }
+
+#[test]
+fn s_sorts_by_the_column_up_down_and_back() {
+    let mut harness = Harness::new();
+    let mut results = panel();
+    results.run(1, "SELECT 1", &mut harness.ctx());
+    send_ints(&mut results, 1, &[3, 1, 2]);
+    // Not while rows are still coming.
+    results.handle(Action::Sort, &mut harness.ctx());
+    assert!(harness
+        .toast_texts()
+        .iter()
+        .any(|t| t.starts_with("Sort once")));
+    results.on_done(1, Ok(QueryStats::default()), &mut harness.ctx());
+
+    let values = |r: &ResultsPanel| -> Vec<String> {
+        (0..r.store.row_count())
+            .map(|row| r.store.cell(row, 0).expect("cell").to_string())
+            .collect()
+    };
+    results.handle(Action::Sort, &mut harness.ctx());
+    assert_eq!(values(&results), ["1", "2", "3"]);
+    let test = TestCtx::new();
+    let shown = render(&test, 40, 8, |f, area, ctx| results.render(f, area, ctx));
+    assert!(shown.contains('▲'), "{shown}");
+    results.handle(Action::Sort, &mut harness.ctx());
+    assert_eq!(values(&results), ["3", "2", "1"]);
+    results.handle(Action::Sort, &mut harness.ctx());
+    assert_eq!(values(&results), ["3", "1", "2"]);
+    assert_eq!(results.grid.sorted, None);
+}

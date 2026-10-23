@@ -13,4 +13,5 @@ expression: "render(&test, 80, 16, |f, area, ctx| palette.render(f, area, ctx))"
           │ Results as JSON / grid                                 J │
           │ Narrow column                                          < │
           │ Previous panel                                 Shift+Tab │
+          │ Sort by column                                         s │
           ╰──────────────────────────────────────────────────────────╯
