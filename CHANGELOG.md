@@ -9,6 +9,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- MySQL passwords from `~/.my.cnf`: for a saved MySQL connection without a password in the
+  keychain, dfox takes the one the file's `[client]` or `[mysql]` section gives for that
+  user, as the `mysql` client does; a file that names a host also shows as a detected
+  connection, like `~/.pgpass` entries.
 - Importing a file asks which table column each of its columns goes into: matched by name
   to start with, **←/→** to change one or skip it. Two into the same column, or none at
   all, are refused before anything is sent.

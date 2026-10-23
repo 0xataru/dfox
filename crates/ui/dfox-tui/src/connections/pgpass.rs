@@ -1,5 +1,6 @@
 //! `~/.pgpass` (or `$PGPASSFILE`): Postgres passwords by host, port, database
-//! and user, as libpq reads them.
+//! and user, as libpq reads them. Entries from `~/.my.cnf` (see `mycnf`)
+//! join them for MySQL.
 
 use std::path::PathBuf;
 
@@ -9,6 +10,8 @@ use super::Connection;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
+    /// The database it is for: Postgres from `.pgpass`, MySQL from `.my.cnf`.
+    pub driver: DbType,
     pub host: String,
     pub port: String,
     pub database: String,
@@ -54,6 +57,7 @@ pub fn parse(text: &str) -> Vec<Entry> {
             fields.push(field);
             let [host, port, database, user, password]: [String; 5] = fields.try_into().ok()?;
             Some(Entry {
+                driver: DbType::Postgres,
                 host,
                 port,
                 database,
@@ -64,12 +68,9 @@ pub fn parse(text: &str) -> Vec<Entry> {
         .collect()
 }
 
-/// The password for a Postgres connection: the first matching line, where
-/// `*` matches anything.
+/// The password for a connection: the first matching entry for its
+/// database, where `*` matches anything.
 pub fn lookup<'a>(entries: &'a [Entry], connection: &Connection) -> Option<&'a str> {
-    if connection.driver != DbType::Postgres {
-        return None;
-    }
     let params = connection.target();
     let port = params.port.to_string();
     let database = params.database.unwrap_or_default();
@@ -77,7 +78,8 @@ pub fn lookup<'a>(entries: &'a [Entry], connection: &Connection) -> Option<&'a s
     entries
         .iter()
         .find(|e| {
-            matches(&e.host, &params.host)
+            e.driver == connection.driver
+                && matches(&e.host, &params.host)
                 && matches(&e.port, &port)
                 && matches(&e.database, &database)
                 && matches(&e.user, &params.username)
@@ -92,8 +94,13 @@ pub fn connections(entries: &[Entry]) -> Vec<Connection> {
         .filter(|e| e.host != "*" && e.user != "*")
         .map(|e| {
             let database = (e.database != "*").then(|| e.database.clone());
+            let file = if e.driver == DbType::MySql {
+                "my.cnf"
+            } else {
+                "pgpass"
+            };
             let name = format!(
-                "pgpass: {}@{}{}",
+                "{file}: {}@{}{}",
                 e.user,
                 e.host,
                 database
@@ -106,7 +113,7 @@ pub fn connections(entries: &[Entry]) -> Vec<Connection> {
                 port: e.port.parse().ok(),
                 database,
                 user: e.user.clone(),
-                ..Connection::new(&name, DbType::Postgres)
+                ..Connection::new(&name, e.driver)
             }
         })
         .collect()
