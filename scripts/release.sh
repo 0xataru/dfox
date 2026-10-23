@@ -41,6 +41,7 @@ git commit -q -m "chore: release v$version"
 git push -q -u origin "$branch"
 
 gh pr create --base main --head "$branch" \
+	--label release \
 	--title "chore: release v$version" \
 	--body "$("$root/scripts/release-notes.sh" "$version")"
 

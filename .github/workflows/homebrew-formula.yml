@@ -10,8 +10,10 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: read
+# Nothing from GITHUB_TOKEN: the tap is pushed with HOMEBREW_TAP_TOKEN. The
+# caller grants a publish job only id-token and packages, so asking for more,
+# even `contents: read`, fails the whole release at startup.
+permissions: {}
 
 jobs:
   publish:
