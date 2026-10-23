@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 /// Every driver, as the app is built by default.
 fn drivers() -> Drivers {
     Drivers::new(vec![
+        Arc::new(dfox_driver_mongo::MongoDriver),
         Arc::new(dfox_driver_postgres::PostgresDriver),
         Arc::new(dfox_driver_mysql::MySqlDriver),
         Arc::new(dfox_driver_sqlite::SqliteDriver),
@@ -1218,6 +1219,76 @@ async fn postgres_and_mysql_copy_into_each_other() {
         .outcome
         .expect("drop");
     from_my
+        .query(&format!("DROP TABLE {name}"), 0)
+        .await
+        .outcome
+        .expect("drop");
+}
+
+#[tokio::test]
+async fn postgres_rows_copy_into_a_mongo_collection() {
+    let (Some(pg), Some(mongo)) = (
+        server_url("DFOX_TEST_POSTGRES_URL"),
+        server_url("DFOX_TEST_MONGO_URL"),
+    ) else {
+        return;
+    };
+    let name = unique("to_mongo");
+    let mut from_pg = Driver::connect(DbType::Postgres, params_from_url(&pg)).await;
+    from_pg
+        .query(
+            &format!(
+                "CREATE TABLE {name} (id BIGINT, label TEXT, amount NUMERIC(10, 2), ok BOOLEAN);
+                 INSERT INTO {name} SELECT g, 'n' || g, g / 4.0, g % 2 = 0
+                 FROM generate_series(1, 500) g"
+            ),
+            0,
+        )
+        .await
+        .outcome
+        .expect("pg source");
+
+    // A database of this run's own; MongoDB makes the collection on its
+    // first document, so there is nothing to create.
+    let database = unique("dfox_copy");
+    let params = ConnectionParams {
+        database: Some(database.clone()),
+        ..params_from_url(&mongo)
+    };
+    let to: NodePath = [database.as_str(), "items"].into_iter().collect();
+    let stats = copy(
+        &mut from_pg,
+        &format!("SELECT * FROM {name} ORDER BY id"),
+        DbType::Mongo,
+        params.clone(),
+        to,
+        true,
+    )
+    .await
+    .expect("pg → mongo");
+    assert_eq!(stats.rows, 500);
+
+    let mut in_mongo = Driver::connect(DbType::Mongo, params).await;
+    assert_eq!(
+        in_mongo
+            .scalar("db.items.countDocuments({})")
+            .await
+            .as_deref(),
+        Some("500")
+    );
+    // A document keeps the row's values.
+    let found = in_mongo.query("db.items.find({ id: 7 })", 10).await;
+    found.outcome.expect("find");
+    let row = found.rows.first().expect("document 7");
+    let text = row.iter().flatten().cloned().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("n7") && text.contains("1.75"), "{text}");
+
+    in_mongo
+        .query("db.dropDatabase()", 0)
+        .await
+        .outcome
+        .expect("drop the database");
+    from_pg
         .query(&format!("DROP TABLE {name}"), 0)
         .await
         .outcome
