@@ -7,6 +7,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Changed
+
+- dfox asks GitHub for the latest release at every start instead of once a day, so a new
+  release shows in the update notice the next time dfox starts. Starting still never waits
+  for the answer; without one, the last known version stands.
+
 ## [0.5.33] - 2026-10-23
 
 ### Fixed

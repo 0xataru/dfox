@@ -32,7 +32,7 @@ pub struct Config {
     pub confirm_destructive: bool,
     /// Replaces the keys of an action, for example `execute = ["f5", "ctrl+r"]`.
     pub keys: BTreeMap<String, Vec<String>>,
-    /// Ask GitHub once a day whether a newer dfox is out.
+    /// Ask GitHub at each start whether a newer dfox is out.
     pub update_check: bool,
 }
 

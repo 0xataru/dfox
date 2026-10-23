@@ -1,12 +1,12 @@
-//! Tells when a newer dfox is out. GitHub is asked at most once a day, in
-//! the background; the answer is kept in `latest-version` in the state
-//! directory and shown from the next start. `update_check = false` in
-//! `config.toml` turns it off.
+//! Tells when a newer dfox is out. GitHub is asked at every start, in the
+//! background, and the answer shows as soon as it comes; it is kept in
+//! `latest-version` in the state directory for the starts that can't ask.
+//! `update_check = false` in `config.toml` turns it off.
 
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
@@ -19,7 +19,6 @@ use tokio::{
 const HOST: &str = "api.github.com";
 const REQUEST: &[u8] = b"GET /repos/0xataru/dfox/releases/latest HTTP/1.0\r\n\
 Host: api.github.com\r\nUser-Agent: dfox\r\nAccept: application/vnd.github+json\r\n\r\n";
-const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 const TIMEOUT: Duration = Duration::from_secs(10);
 const FILE: &str = "latest-version";
 
@@ -68,35 +67,23 @@ fn how_to_upgrade(exe: &Path, etc: &Path) -> &'static str {
     RELEASES
 }
 
-/// Asks GitHub for the latest release in the background, unless that was
-/// done less than a day ago. The answer comes back as the notice to show, so
-/// the dfox that asked shows it at once.
+/// Asks GitHub for the latest release in the background. The answer comes
+/// back as the notice to show, so the dfox that asked shows it at once; when
+/// GitHub can't be asked, the last answer stands.
 pub fn refresh(state_dir: Option<PathBuf>) -> Option<oneshot::Receiver<Option<String>>> {
     let path = state_dir.map(|dir| dir.join(FILE))?;
-    let checked = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-    if checked
-        .is_some_and(|t| SystemTime::now().duration_since(t).unwrap_or_default() < CHECK_EVERY)
-    {
-        return None;
-    }
     let (tx, rx) = oneshot::channel();
     tokio::spawn(async move {
-        let latest = match tokio::time::timeout(TIMEOUT, latest()).await {
-            Ok(Ok(version)) => version,
-            Ok(Err(err)) => {
-                log::info!("update check: {err}");
-                // Keep the last answer, and wait a day before asking again.
-                std::fs::read_to_string(&path).unwrap_or_default()
+        match tokio::time::timeout(TIMEOUT, latest()).await {
+            Ok(Ok(version)) => {
+                if let Some(dir) = path.parent() {
+                    let _ = std::fs::create_dir_all(dir);
+                }
+                let _ = std::fs::write(&path, version.trim());
             }
-            Err(_) => {
-                log::info!("update check: timed out");
-                std::fs::read_to_string(&path).unwrap_or_default()
-            }
-        };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+            Ok(Err(err)) => log::info!("update check: {err}"),
+            Err(_) => log::info!("update check: timed out"),
         }
-        let _ = std::fs::write(&path, latest.trim());
         let _ = tx.send(notice(path.parent()));
     });
     Some(rx)

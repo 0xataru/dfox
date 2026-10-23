@@ -307,9 +307,10 @@ action without a key. The actions and their default keys:
 | `select_home` | Select to line start | `shift+home` |
 | `select_end` | Select to line end | `shift+end` |
 
-Once a day dfox asks GitHub, in the background, for the latest release. When
-a newer one is out, the connection manager's status bar says so from the next
-start, with the way to upgrade that fits how dfox was installed: `brew
+At each start dfox asks GitHub, in the background, for the latest release; starting
+never waits for the answer. When a newer one is out, the connection manager's status
+bar says so as soon as GitHub answers, with the way to upgrade that fits how dfox was
+installed: `brew
 update && brew upgrade dfox` for Homebrew, `apt` or `dnf` for their repositories,
 `dfox-update` for the install scripts, or the releases page. Nothing is sent but the request itself.
 
