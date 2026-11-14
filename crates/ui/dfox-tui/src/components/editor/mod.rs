@@ -69,6 +69,9 @@ pub struct EditorPanel {
     screen_cursor: Cell<Option<(u16, u16)>>,
     search: Option<HistorySearch>,
     completion: Option<Completion>,
+    /// The function call the cursor is in: its name, arguments, and the
+    /// argument being typed.
+    signature: Option<(String, &'static str, usize)>,
     /// The last click and how many came quickly on the same spot.
     clicks: Option<(Instant, Pos, u8)>,
 }
@@ -90,6 +93,7 @@ impl EditorPanel {
             screen_cursor: Cell::new(None),
             search: None,
             completion: None,
+            signature: None,
             clicks: None,
         }
     }
@@ -174,6 +178,17 @@ impl EditorPanel {
             _ => false,
         };
         let refresh = refresh && self.buffer.selection().is_none();
+        self.signature = match self.language {
+            QueryLanguage::Sql(_) => {
+                let ctx =
+                    sql::complete::context(&self.buffer.text(), self.buffer.cursor(), self.dialect);
+                ctx.call.and_then(|(name, arg)| {
+                    let args = sql::builtins::arguments(&name, self.dialect)?;
+                    Some((name, args, arg))
+                })
+            }
+            _ => None,
+        };
         self.completion = if refresh && self.language == QueryLanguage::RedisCmd {
             complete::suggest_redis(
                 &self.buffer.text(),
@@ -282,6 +297,7 @@ impl EditorPanel {
         }
         self.buffer.set_cursor((line, col), drag);
         self.buffer.break_undo();
+        self.signature = None;
         if drag {
             return true;
         }

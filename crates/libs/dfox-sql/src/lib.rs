@@ -3,6 +3,7 @@
 //! destructive-statement guard, and the table a query reads from. Built on
 //! the `sqlparser` tokenizer, in the dialect of the connected database.
 
+pub mod builtins;
 pub mod complete;
 pub mod guard;
 pub mod mongo;

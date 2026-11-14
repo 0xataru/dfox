@@ -16,7 +16,7 @@ use crate::{
     catalog::Catalog,
     component::RenderCtx,
     sql::{
-        self,
+        self, builtins,
         complete::{context, TableRef, Want},
         mongo, Dialect, Pos,
     },
@@ -36,6 +36,8 @@ pub enum ItemKind {
     /// A method of a collection.
     Method,
     Keyword,
+    Function,
+    Type,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,17 +95,28 @@ pub fn suggest(
     } else {
         Vec::new()
     };
+    // Functions too, so a name typed in an expression meets them.
+    let functions = if forced || ctx.prefix.chars().count() >= 2 {
+        functions(catalog, dialect, &ctx.prefix)
+    } else {
+        Vec::new()
+    };
     let mut candidates = match &ctx.want {
         Want::Nothing => return None,
+        Want::Types => cased(
+            builtins::types(dialect),
+            &ctx.prefix,
+            ItemKind::Type,
+            "type",
+        ),
         Want::Tables => tables(catalog, None, dialect),
         Want::Member(qualifier) => members(catalog, qualifier, &ctx.tables, dialect),
         Want::Columns => {
-            let columns = columns(catalog, &ctx.tables, dialect);
+            let mut columns = columns(catalog, &ctx.tables, dialect);
             if columns.is_empty() && forced {
-                tables(catalog, None, dialect)
-            } else {
-                columns
+                columns = tables(catalog, None, dialect);
             }
+            columns
         }
         Want::Unknown if forced => {
             let mut all = columns(catalog, &ctx.tables, dialect);
@@ -112,7 +125,15 @@ pub fn suggest(
         }
         Want::Unknown => Vec::new(),
     };
-    candidates.extend(keywords);
+    let expression = matches!(ctx.want, Want::Columns) || (forced && ctx.want == Want::Unknown);
+    // The language's own words match from their start only: fuzzy, `na`
+    // would find `json_agg`.
+    let typed = ctx.prefix.to_lowercase();
+    let starts = |item: &Item| item.label.to_lowercase().starts_with(&typed);
+    candidates.extend(keywords.into_iter().filter(starts));
+    if expression {
+        candidates.extend(functions.into_iter().filter(starts));
+    }
     if !forced && ctx.prefix.is_empty() && !matches!(ctx.want, Want::Member(_)) {
         return None;
     }
@@ -200,25 +221,66 @@ pub fn suggest_redis(text: &str, cursor: Pos, forced: bool) -> Option<Completion
     offer(start, candidates, &prefix, forced)
 }
 
-/// `words` as items, in the case `prefix` is typed in.
 fn keywords(words: &[&str], prefix: &str) -> Vec<Item> {
-    let lower = !prefix.is_empty() && prefix.chars().all(|c| !c.is_ascii_uppercase());
+    cased(words, prefix, ItemKind::Keyword, "keyword")
+}
+
+/// `words` as items, in the case `prefix` is typed in: lower case typed
+/// gives lower case, upper case gives upper case.
+fn cased(words: &[&str], prefix: &str, kind: ItemKind, detail: &str) -> Vec<Item> {
+    let has = |upper: bool| {
+        prefix
+            .chars()
+            .any(|c| c.is_ascii_alphabetic() && c.is_ascii_uppercase() == upper)
+    };
+    let (lower, upper) = (has(false) && !has(true), has(true) && !has(false));
     words
         .iter()
         .map(|word| {
             let insert = if lower {
                 word.to_lowercase()
+            } else if upper {
+                word.to_uppercase()
             } else {
                 (*word).to_string()
             };
             Item {
                 label: insert.clone(),
                 insert,
-                kind: ItemKind::Keyword,
-                detail: "keyword".to_string(),
+                kind,
+                detail: detail.to_string(),
             }
         })
         .collect()
+}
+
+/// The database's own functions, then the dialect's built-in ones with
+/// their arguments. Choosing one inserts its name and `(`.
+fn functions(catalog: &Catalog, dialect: Dialect, prefix: &str) -> Vec<Item> {
+    let upper = prefix.chars().any(|c| c.is_ascii_uppercase())
+        && !prefix.chars().any(|c| c.is_ascii_lowercase());
+    let own = catalog.functions().iter().map(|(name, detail)| Item {
+        label: name.clone(),
+        insert: format!("{}(", sql::quote_ident(name, dialect)),
+        kind: ItemKind::Function,
+        detail: detail
+            .as_ref()
+            .map_or_else(|| "function".to_string(), |d| format!("{name}{d}")),
+    });
+    let builtin = builtins::functions(dialect).map(|(name, args)| {
+        let name = if upper {
+            name.to_uppercase()
+        } else {
+            name.to_string()
+        };
+        Item {
+            label: name.clone(),
+            insert: format!("{name}("),
+            kind: ItemKind::Function,
+            detail: format!("{name}({args})"),
+        }
+    });
+    own.chain(builtin).collect()
 }
 
 /// A field name as an object key: bare when it can be, quoted otherwise.
@@ -384,7 +446,7 @@ pub fn render(completion: &Completion, f: &mut Frame, x: u16, y: u16, ctx: &Rend
         .map(|i| i.detail.chars().count())
         .max()
         .unwrap_or(0)
-        .min(24);
+        .min(40);
     let width = ((label_width + detail_width + 6) as u16).min(screen.width);
     let rows = completion.items.len().min(SHOWN);
     let height = rows as u16 + 2;
@@ -413,6 +475,8 @@ pub fn render(completion: &Completion, f: &mut Frame, x: u16, y: u16, ctx: &Rend
                 ItemKind::Column => ctx.icons.column,
                 ItemKind::Method => "ƒ",
                 ItemKind::Keyword => "k",
+                ItemKind::Function => "ƒ",
+                ItemKind::Type => "τ",
             };
             let style = if i == completion.selected {
                 theme.highlight()
@@ -490,7 +554,7 @@ mod tests {
     #[test]
     fn columns_of_the_statements_tables() {
         assert_eq!(
-            labels("select | from orders o join customers c on true", true),
+            labels("select | from orders o join customers c on true", true)[..9],
             [
                 "id",
                 "customer_id",
@@ -499,13 +563,14 @@ mod tests {
                 "CASE",
                 "NOT",
                 "NULL",
-                "EXISTS"
+                "EXISTS",
+                "abs"
             ]
         );
         assert_eq!(labels("select * from customers where na|", false), ["name"]);
         // Without tables there is nothing to suggest, unless asked.
         assert!(labels("select na|", false).is_empty());
-        assert_eq!(labels("select |", true).len(), 6 + 5);
+        assert_eq!(labels("select |", true)[6..8], ["DISTINCT", "CASE"]);
     }
 
     #[test]
@@ -527,18 +592,55 @@ mod tests {
         assert!(labels("select 'from |", true).is_empty());
         assert!(labels("select * from customers |", false).is_empty());
         // Asked: the names and the keywords that can follow a table.
-        assert_eq!(labels("select * from customers |", true).len(), 8 + 12);
+        let asked = labels("select * from customers |", true);
+        assert_eq!(asked[7..9], ["audit", "WHERE"]);
     }
 
     #[test]
     fn keywords_from_the_second_letter_in_the_case_typed() {
-        assert_eq!(labels("se|", false)[0], "select");
+        assert_eq!(labels("se|", false), ["select"]);
         assert!(labels("s|", false).is_empty());
         assert_eq!(labels("select * from customers WH|", false), ["WHERE"]);
         assert_eq!(
             labels("select * from customers order by name de|", false),
             ["desc"]
         );
+    }
+
+    #[test]
+    fn functions_with_their_arguments_and_types() {
+        let mut catalog = Catalog::default();
+        catalog.on_schemas(&["public".into()]);
+        catalog.on_functions(
+            "public",
+            vec![("order_total".into(), Some("(id integer) → numeric".into()))],
+        );
+        let items = |text: &str| {
+            let cursor = (0, text.chars().count());
+            suggest(text, cursor, Dialect::Postgres, &catalog, false)
+                .map(|c| c.items)
+                .unwrap_or_default()
+        };
+        let found = items("select date_tr");
+        assert_eq!(
+            (found[0].insert.as_str(), found[0].detail.as_str()),
+            ("date_trunc(", "date_trunc(field, source)")
+        );
+        let own = &items("select order_t")[0];
+        assert_eq!(
+            (own.insert.as_str(), own.detail.as_str()),
+            ("order_total(", "order_total(id integer) → numeric")
+        );
+        assert_eq!(items("select COAL")[0].insert, "COALESCE(");
+        // MySQL's own, not Postgres's.
+        let mysql = suggest("select ifn", (0, 10), Dialect::MySql, &catalog, false);
+        assert_eq!(
+            mysql.map(|c| c.items[0].label.clone()).as_deref(),
+            Some("ifnull")
+        );
+        assert_eq!(items("select x::tim")[0].label, "time");
+        assert_eq!(items("select cast(x as VARC")[0].label, "VARCHAR");
+        assert_eq!(items("create table t (id big")[0].label, "bigint");
     }
 
     #[test]

@@ -19,6 +19,9 @@ pub struct TableRef {
 pub enum Want {
     Tables,
     Columns,
+    /// A column type: after `::`, `CAST(x AS`, a column name in `CREATE
+    /// TABLE`, `ADD COLUMN x` or `TYPE`.
+    Types,
     /// After `x.`: a table of schema `x`, or a column of table or alias `x`.
     Member(String),
     /// Nothing obvious, such as an alias position.
@@ -37,6 +40,8 @@ pub struct Context {
     pub tables: Vec<TableRef>,
     /// Keywords that fit here, best first.
     pub keywords: Vec<&'static str>,
+    /// The function call the cursor is in, and which argument, from 0.
+    pub call: Option<(String, usize)>,
 }
 
 /// Keywords after which a table name comes.
@@ -153,11 +158,14 @@ pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
             want: Want::Nothing,
             tables,
             keywords: Vec::new(),
+            call: None,
         };
     }
 
     let before: Vec<&&Lexeme> = tokens.iter().filter(|l| l.end <= start).collect();
+    let (call, wants_type) = parens(&before);
     let want = match before.last().map(|l| &l.token) {
+        _ if wants_type => Want::Types,
         Some(Token::Period) => match before.len().checked_sub(2).map(|i| before[i]) {
             Some(l) => l
                 .name()
@@ -208,7 +216,66 @@ pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
         want,
         tables,
         keywords,
+        call,
     }
+}
+
+/// Reads the open parentheses before the cursor: the innermost function call
+/// and its argument, and whether a column type comes next.
+fn parens(before: &[&&Lexeme]) -> (Option<(String, usize)>, bool) {
+    // Per open parenthesis: the word before it, and the commas seen.
+    let mut open: Vec<(Option<String>, usize)> = Vec::new();
+    for (i, l) in before.iter().enumerate() {
+        match l.token {
+            Token::LParen => {
+                let word = i
+                    .checked_sub(1)
+                    .and_then(|p| before[p].name())
+                    .map(str::to_string);
+                open.push((word, 0));
+            }
+            Token::RParen => {
+                open.pop();
+            }
+            Token::Comma => {
+                if let Some((_, commas)) = open.last_mut() {
+                    *commas += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    let call = open
+        .iter()
+        .rev()
+        .find_map(|(word, commas)| Some((word.clone()?, *commas)))
+        .filter(|(word, _)| !CLAUSE_KEYWORDS.contains(&word.to_uppercase().as_str()));
+    let keyword_at = |back: usize| {
+        before
+            .len()
+            .checked_sub(back)
+            .and_then(|i| before[i].keyword())
+            .unwrap_or_default()
+    };
+    let first = before.first().and_then(|l| l.keyword()).unwrap_or_default();
+    let in_cast = open
+        .last()
+        .and_then(|(word, _)| word.as_deref())
+        .is_some_and(|w| w.eq_ignore_ascii_case("CAST"));
+    let after_name = matches!(before.last().map(|l| &l.token), Some(Token::Word(w))
+        if w.quote_style.is_some() || !LEADS.contains(&w.value.to_uppercase().as_str()));
+    let before_name = before.len().checked_sub(2).map(|i| &before[i].token);
+    let wants_type = match before.last().map(|l| &l.token) {
+        Some(Token::DoubleColon) => true,
+        Some(Token::Word(_)) if keyword_at(1) == "AS" => in_cast,
+        Some(Token::Word(_)) if keyword_at(1) == "TYPE" => true,
+        _ if after_name && first == "CREATE" => {
+            open.len() == 1 && matches!(before_name, Some(Token::LParen | Token::Comma))
+        }
+        _ if after_name && first == "ALTER" => matches!(keyword_at(2).as_str(), "ADD" | "COLUMN"),
+        _ => false,
+    };
+    (call, wants_type)
 }
 
 /// Words that lead somewhere: after one of them comes a name or an
@@ -259,6 +326,13 @@ const LEADS: &[&str] = &[
     "ALL",
     "EXISTS",
     "NULLS",
+    "ADD",
+    "COLUMN",
+    "ALTER",
+    "CREATE",
+    "TYPE",
+    "CAST",
+    "DROP",
 ];
 /// Keywords that start a clause, to tell which one the cursor is in.
 const CLAUSE_KEYWORDS: &[&str] = &[
@@ -612,5 +686,40 @@ mod tests {
         assert!(!words("select * from a |", Dialect::MySql).contains(&"FULL JOIN"));
         assert!(words("|", Dialect::Sqlite).contains(&"PRAGMA"));
         assert!(words("select * from t |", Dialect::Cql).is_empty());
+    }
+
+    #[test]
+    fn types_come_after_casts_and_in_column_definitions() {
+        for text in [
+            "select x::|",
+            "select cast(x as |",
+            "create table t (id |",
+            "create table t (id int, name |",
+            "alter table t add column name |",
+            "alter table t alter column name type |",
+        ] {
+            assert_eq!(at(text).want, Want::Types, "{text}");
+        }
+        assert_ne!(at("create table t (|").want, Want::Types);
+        assert_ne!(at("alter table t add column |").want, Want::Types);
+        assert_ne!(at("select x as |").want, Want::Types);
+    }
+
+    #[test]
+    fn the_call_and_argument_at_the_cursor() {
+        assert_eq!(
+            at("select date_trunc(|").call,
+            Some(("date_trunc".into(), 0))
+        );
+        assert_eq!(
+            at("select date_trunc('day', created|").call,
+            Some(("date_trunc".into(), 1))
+        );
+        assert_eq!(
+            at("select coalesce(lower(a), |").call,
+            Some(("coalesce".into(), 1))
+        );
+        assert_eq!(at("select lower(a) |").call, None);
+        assert_eq!(at("insert into t values (|").call, None);
     }
 }

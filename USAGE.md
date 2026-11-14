@@ -228,7 +228,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - A bar in the margin marks the statement **F5** would run
 - Table names are suggested after `FROM`/`JOIN`, columns after `SELECT`/`WHERE`/…, and members
   after `alias.`, and SQL keywords that fit the clause from the second letter typed (`WHERE`,
-  `LEFT JOIN`, `GROUP BY`, Postgres `RETURNING`, MySQL `ON DUPLICATE KEY UPDATE`…);
+  `LEFT JOIN`, `GROUP BY`, Postgres `RETURNING`, MySQL `ON DUPLICATE KEY UPDATE`…). In an
+  expression come the database's own functions and the dialect's built-in ones with their
+  arguments, and inside a call the arguments show above the cursor, the current one in bold.
+  Column types come after `::`, `CAST(x AS` and a column name in `CREATE TABLE`;
   **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
 
 ## Configuration

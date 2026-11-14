@@ -14,6 +14,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   after `ORDER BY`, `OFFSET` after `LIMIT`, per dialect (`ILIKE`, `RETURNING`, `ON CONFLICT`
   for Postgres, `ON DUPLICATE KEY UPDATE` for MySQL, `PRAGMA` for SQLite). They show from the
   second letter typed, in its case.
+- SQL completion suggests functions where an expression goes: the database's own (Postgres and
+  MySQL, with their arguments where the server gives them) and each dialect's common built-in ones with their arguments
+  (`date_trunc(field, source)`). Choosing one inserts `name(`, and while typing its arguments
+  they show above the cursor, the current one in bold. Column types are suggested after `::`,
+  `CAST(x AS`, a column name in `CREATE TABLE`, `ADD COLUMN x` and `TYPE`.
 
 ## [0.5.36] - 2026-11-14
 

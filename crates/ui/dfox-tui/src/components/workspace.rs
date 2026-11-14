@@ -257,6 +257,14 @@ impl Workspace {
             } else if active {
                 self.catalog.on_schemas(&[name.to_string()]);
             }
+            let functions: Vec<(String, Option<String>)> = nodes
+                .iter()
+                .filter(|n| n.kind == NodeKind::Function)
+                .map(|n| (n.name.clone(), n.detail.clone()))
+                .collect();
+            if !functions.is_empty() {
+                self.catalog.on_functions(name, functions);
+            }
             if !tables.is_empty() {
                 self.catalog.on_tables(name, tables);
                 ctx.engine
