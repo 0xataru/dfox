@@ -487,6 +487,7 @@ impl Catalog for MockCatalog {
                 table: "people".into(),
                 name: name.into(),
                 data_type: data_type.into(),
+                values: Vec::new(),
             };
             Ok(vec![column("id", "INTEGER"), column("name", "TEXT")])
         } else {

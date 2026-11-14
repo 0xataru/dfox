@@ -964,6 +964,7 @@ impl Catalog for MyCatalog {
                 .map(|(table, name, data_type)| TableColumn {
                     table,
                     name,
+                    values: enum_values(&data_type),
                     data_type,
                 })
                 .collect())
@@ -1032,5 +1033,47 @@ mod tests {
         let path: NodePath = ["shop", "orders"].into_iter().collect();
         assert_eq!(table(&path).ok(), Some(("shop", "orders")));
         assert!(table(&NodePath::root().child("shop")).is_err());
+    }
+}
+
+/// The values of an `enum('a','b')` column type, unquoted; empty for other
+/// types.
+fn enum_values(column_type: &str) -> Vec<String> {
+    let Some(list) = column_type
+        .strip_prefix("enum(")
+        .and_then(|rest| rest.strip_suffix(')'))
+    else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    let mut chars = list.chars().peekable();
+    while chars.next() == Some('\'') {
+        let mut value = String::new();
+        while let Some(c) = chars.next() {
+            if c == '\'' {
+                // A doubled quote is a quote in the value.
+                if chars.peek() == Some(&'\'') {
+                    chars.next();
+                } else {
+                    break;
+                }
+            }
+            value.push(c);
+        }
+        values.push(value);
+        chars.next_if_eq(&',');
+    }
+    values
+}
+
+#[cfg(test)]
+mod enum_tests {
+    #[test]
+    fn enum_values_come_out_of_the_column_type() {
+        assert_eq!(
+            super::enum_values("enum('new','it''s','a,b')"),
+            ["new", "it's", "a,b"]
+        );
+        assert!(super::enum_values("varchar(20)").is_empty());
     }
 }

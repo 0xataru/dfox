@@ -551,6 +551,7 @@ impl Catalog for CqlCatalog {
                         table: table.clone(),
                         name: c.name,
                         data_type: c.type_name,
+                        values: Vec::new(),
                     })
                 })
                 .collect())

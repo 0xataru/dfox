@@ -38,6 +38,8 @@ pub enum ItemKind {
     Keyword,
     Function,
     Type,
+    /// An enum column's value.
+    Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,9 +132,36 @@ pub fn suggest(
     // would find `json_agg`.
     let typed = ctx.prefix.to_lowercase();
     let starts = |item: &Item| item.label.to_lowercase().starts_with(&typed);
-    candidates.extend(keywords.into_iter().filter(starts));
-    if expression {
-        candidates.extend(functions.into_iter().filter(starts));
+    if let Some(quote) = ctx.quote {
+        // A quoted name: only names, and the quotes kept.
+        candidates.retain(|i| {
+            matches!(
+                i.kind,
+                ItemKind::Table | ItemKind::Column | ItemKind::Schema
+            )
+        });
+        for item in &mut candidates {
+            item.insert = item
+                .label
+                .split('.')
+                .map(|part| {
+                    format!(
+                        "{quote}{}{quote}",
+                        part.replace(quote, &format!("{quote}{quote}"))
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(".");
+        }
+    } else {
+        candidates.extend(keywords.into_iter().filter(starts));
+        if expression {
+            candidates.extend(functions.into_iter().filter(starts));
+        }
+    }
+    if let Some((qualifier, column)) = &ctx.compared {
+        let values = enum_values(catalog, &ctx.tables, qualifier.as_deref(), column);
+        candidates.splice(0..0, values);
     }
     if !forced && ctx.prefix.is_empty() && !matches!(ctx.want, Want::Member(_)) {
         return None;
@@ -378,6 +407,47 @@ fn members(catalog: &Catalog, qualifier: &str, refs: &[TableRef], dialect: Diale
     columns(catalog, &[table], dialect)
 }
 
+/// The values of the enum column `column`, of the table `qualifier` names
+/// or else of any of the statement's tables, quoted as strings.
+fn enum_values(
+    catalog: &Catalog,
+    refs: &[TableRef],
+    qualifier: Option<&str>,
+    column: &str,
+) -> Vec<Item> {
+    let named = |r: &&TableRef| {
+        qualifier.is_none_or(|q| {
+            r.alias
+                .as_deref()
+                .unwrap_or(&r.name)
+                .eq_ignore_ascii_case(q)
+                || r.name.eq_ignore_ascii_case(q)
+        })
+    };
+    let found = refs.iter().filter(named).find_map(|table| {
+        catalog
+            .columns(table.schema.as_deref(), &table.name)
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(column) && !c.values.is_empty())
+    });
+    let Some(found) = found else {
+        return Vec::new();
+    };
+    found
+        .values
+        .iter()
+        .map(|value| {
+            let quoted = format!("'{}'", value.replace('\'', "''"));
+            Item {
+                label: quoted.clone(),
+                insert: quoted,
+                kind: ItemKind::Value,
+                detail: format!("{} · {}", found.table, found.data_type),
+            }
+        })
+        .collect()
+}
+
 /// The columns of the statement's tables, each name once.
 fn columns(catalog: &Catalog, refs: &[TableRef], dialect: Dialect) -> Vec<Item> {
     let mut items: Vec<Item> = Vec::new();
@@ -477,6 +547,7 @@ pub fn render(completion: &Completion, f: &mut Frame, x: u16, y: u16, ctx: &Rend
                 ItemKind::Keyword => "k",
                 ItemKind::Function => "ƒ",
                 ItemKind::Type => "τ",
+                ItemKind::Value => "=",
             };
             let style = if i == completion.selected {
                 theme.highlight()
@@ -641,6 +712,65 @@ mod tests {
         assert_eq!(items("select x::tim")[0].label, "time");
         assert_eq!(items("select cast(x as VARC")[0].label, "VARCHAR");
         assert_eq!(items("create table t (id big")[0].label, "bigint");
+    }
+
+    #[test]
+    fn a_typed_quote_is_kept() {
+        let catalog = sample_catalog();
+        let c = suggest(
+            "select * from `cus",
+            (0, 18),
+            Dialect::MySql,
+            &catalog,
+            false,
+        );
+        let first = c
+            .as_ref()
+            .and_then(Completion::chosen)
+            .map(|i| i.insert.as_str());
+        assert_eq!(first, Some("`customers`"));
+        // Only names: no keyword or function starts with a quote.
+        let c = suggest("select \"na", (0, 10), Dialect::Postgres, &catalog, true);
+        let kinds: Vec<ItemKind> = c
+            .map(|c| c.items.iter().map(|i| i.kind).collect())
+            .unwrap_or_default();
+        assert!(kinds
+            .iter()
+            .all(|k| matches!(k, ItemKind::Table | ItemKind::Column | ItemKind::Schema)));
+    }
+
+    #[test]
+    fn enum_values_after_a_comparison() {
+        let mut catalog = Catalog::default();
+        catalog.on_schemas(&["public".into()]);
+        catalog.on_tables("public", vec!["orders".into()]);
+        catalog.on_columns(
+            "public",
+            Ok(vec![dfox_core::models::schema::TableColumn {
+                table: "orders".into(),
+                name: "status".into(),
+                data_type: "order_status".into(),
+                values: vec!["new".into(), "paid".into(), "it's".into()],
+            }]),
+        );
+        let labels = |text: &str| {
+            let cursor = (0, text.chars().count());
+            suggest(text, cursor, Dialect::Postgres, &catalog, true)
+                .map(|c| c.items.into_iter().map(|i| i.insert).collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            labels("select * from orders where status = ")[..3],
+            ["'new'", "'paid'", "'it''s'"]
+        );
+        assert_eq!(
+            labels("select * from orders o where o.status in (")[0],
+            "'new'"
+        );
+        assert_eq!(
+            labels("select * from orders where status = pa")[0],
+            "'paid'"
+        );
     }
 
     #[test]

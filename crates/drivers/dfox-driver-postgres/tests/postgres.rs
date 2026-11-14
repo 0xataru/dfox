@@ -234,7 +234,9 @@ async fn schemas_hold_every_kind_of_object() {
              CREATE FUNCTION {schema}.f() RETURNS int LANGUAGE sql AS 'SELECT 1';
              CREATE FUNCTION {schema}.g(a int, b text) RETURNS text LANGUAGE sql AS 'SELECT b';
              CREATE FUNCTION {schema}.g(a int) RETURNS int LANGUAGE sql AS 'SELECT a';
-             CREATE PROCEDURE {schema}.p(n int) LANGUAGE sql AS 'SELECT 1';"
+             CREATE PROCEDURE {schema}.p(n int) LANGUAGE sql AS 'SELECT 1';
+             CREATE TYPE {schema}.mood AS ENUM ('sad', 'ok');
+             CREATE TABLE {schema}.e (mood {schema}.mood);"
         ),
     )
     .await;
@@ -268,6 +270,7 @@ async fn schemas_hold_every_kind_of_object() {
     assert_eq!(
         objects,
         [
+            object("e", NodeKind::Table, None),
             object("f", NodeKind::Function, Some("() → integer")),
             object("g", NodeKind::Function, Some("2 overloads")),
             object("m", NodeKind::MaterializedView, None),
@@ -283,7 +286,15 @@ async fn schemas_hold_every_kind_of_object() {
         .await
         .expect("columns")
         .into_iter()
-        .map(|c| (c.table, c.name, c.data_type))
+        .filter_map(|c| {
+            // An enum column comes with its values, in order.
+            if c.table == "e" {
+                assert_eq!(c.values, ["sad", "ok"]);
+                return None;
+            }
+            assert!(c.values.is_empty());
+            Some((c.table, c.name, c.data_type))
+        })
         .collect();
     let column = |t: &str, n: &str, ty: &str| (t.to_string(), n.to_string(), ty.to_string());
     assert_eq!(
