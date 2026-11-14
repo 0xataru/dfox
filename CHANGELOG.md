@@ -7,6 +7,14 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- SQL completion suggests keywords that fit where the cursor is: statements at the start,
+  `WHERE` and the joins after a table, `AND`, `IN`, `IS NULL` in a condition, `ASC`/`DESC`
+  after `ORDER BY`, `OFFSET` after `LIMIT`, per dialect (`ILIKE`, `RETURNING`, `ON CONFLICT`
+  for Postgres, `ON DUPLICATE KEY UPDATE` for MySQL, `PRAGMA` for SQLite). They show from the
+  second letter typed, in its case.
+
 ## [0.5.36] - 2026-11-14
 
 ### Added

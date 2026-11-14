@@ -35,6 +35,7 @@ pub enum ItemKind {
     Column,
     /// A method of a collection.
     Method,
+    Keyword,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,7 +87,13 @@ pub fn suggest(
     forced: bool,
 ) -> Option<Completion> {
     let ctx = context(text, cursor, dialect);
-    let candidates = match &ctx.want {
+    // Keywords show from the second letter typed, so typing a name stays quiet.
+    let keywords = if forced || ctx.prefix.chars().count() >= 2 {
+        keywords(&ctx.keywords, &ctx.prefix)
+    } else {
+        Vec::new()
+    };
+    let mut candidates = match &ctx.want {
         Want::Nothing => return None,
         Want::Tables => tables(catalog, None, dialect),
         Want::Member(qualifier) => members(catalog, qualifier, &ctx.tables, dialect),
@@ -103,8 +110,9 @@ pub fn suggest(
             all.extend(tables(catalog, None, dialect));
             all
         }
-        Want::Unknown => return None,
+        Want::Unknown => Vec::new(),
     };
+    candidates.extend(keywords);
     if !forced && ctx.prefix.is_empty() && !matches!(ctx.want, Want::Member(_)) {
         return None;
     }
@@ -190,6 +198,27 @@ pub fn suggest_redis(text: &str, cursor: Pos, forced: bool) -> Option<Completion
         })
         .collect();
     offer(start, candidates, &prefix, forced)
+}
+
+/// `words` as items, in the case `prefix` is typed in.
+fn keywords(words: &[&str], prefix: &str) -> Vec<Item> {
+    let lower = !prefix.is_empty() && prefix.chars().all(|c| !c.is_ascii_uppercase());
+    words
+        .iter()
+        .map(|word| {
+            let insert = if lower {
+                word.to_lowercase()
+            } else {
+                (*word).to_string()
+            };
+            Item {
+                label: insert.clone(),
+                insert,
+                kind: ItemKind::Keyword,
+                detail: "keyword".to_string(),
+            }
+        })
+        .collect()
 }
 
 /// A field name as an object key: bare when it can be, quoted otherwise.
@@ -383,6 +412,7 @@ pub fn render(completion: &Completion, f: &mut Frame, x: u16, y: u16, ctx: &Rend
                 ItemKind::Table => ctx.icons.table,
                 ItemKind::Column => ctx.icons.column,
                 ItemKind::Method => "ƒ",
+                ItemKind::Keyword => "k",
             };
             let style = if i == completion.selected {
                 theme.highlight()
@@ -461,12 +491,21 @@ mod tests {
     fn columns_of_the_statements_tables() {
         assert_eq!(
             labels("select | from orders o join customers c on true", true),
-            ["id", "customer_id", "name"]
+            [
+                "id",
+                "customer_id",
+                "name",
+                "DISTINCT",
+                "CASE",
+                "NOT",
+                "NULL",
+                "EXISTS"
+            ]
         );
         assert_eq!(labels("select * from customers where na|", false), ["name"]);
         // Without tables there is nothing to suggest, unless asked.
         assert!(labels("select na|", false).is_empty());
-        assert_eq!(labels("select |", true).len(), 6);
+        assert_eq!(labels("select |", true).len(), 6 + 5);
     }
 
     #[test]
@@ -487,7 +526,19 @@ mod tests {
         assert!(labels("select * from zzz|", false).is_empty());
         assert!(labels("select 'from |", true).is_empty());
         assert!(labels("select * from customers |", false).is_empty());
-        assert_eq!(labels("select * from customers |", true).len(), 8);
+        // Asked: the names and the keywords that can follow a table.
+        assert_eq!(labels("select * from customers |", true).len(), 8 + 12);
+    }
+
+    #[test]
+    fn keywords_from_the_second_letter_in_the_case_typed() {
+        assert_eq!(labels("se|", false)[0], "select");
+        assert!(labels("s|", false).is_empty());
+        assert_eq!(labels("select * from customers WH|", false), ["WHERE"]);
+        assert_eq!(
+            labels("select * from customers order by name de|", false),
+            ["desc"]
+        );
     }
 
     #[test]

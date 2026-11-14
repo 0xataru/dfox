@@ -35,6 +35,8 @@ pub struct Context {
     pub prefix: String,
     pub want: Want,
     pub tables: Vec<TableRef>,
+    /// Keywords that fit here, best first.
+    pub keywords: Vec<&'static str>,
 }
 
 /// Keywords after which a table name comes.
@@ -150,6 +152,7 @@ pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
             prefix,
             want: Want::Nothing,
             tables,
+            keywords: Vec::new(),
         };
     }
 
@@ -198,12 +201,203 @@ pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
         None => Want::Unknown,
         Some(_) => Want::Unknown,
     };
+    let keywords = keywords(&before, &want, dialect);
     Context {
         start,
         prefix,
         want,
         tables,
+        keywords,
     }
+}
+
+/// Words that lead somewhere: after one of them comes a name or an
+/// expression, not another clause.
+const LEADS: &[&str] = &[
+    "SELECT",
+    "FROM",
+    "JOIN",
+    "INTO",
+    "UPDATE",
+    "TABLE",
+    "WHERE",
+    "AND",
+    "OR",
+    "ON",
+    "BY",
+    "SET",
+    "HAVING",
+    "WHEN",
+    "THEN",
+    "ELSE",
+    "DISTINCT",
+    "NOT",
+    "CASE",
+    "RETURNING",
+    "AS",
+    "IS",
+    "IN",
+    "LIKE",
+    "ILIKE",
+    "BETWEEN",
+    "LIMIT",
+    "OFFSET",
+    "VALUES",
+    "GROUP",
+    "ORDER",
+    "LEFT",
+    "RIGHT",
+    "INNER",
+    "OUTER",
+    "CROSS",
+    "FULL",
+    "USING",
+    "DELETE",
+    "INSERT",
+    "WITH",
+    "UNION",
+    "ALL",
+    "EXISTS",
+    "NULLS",
+];
+/// Keywords that start a clause, to tell which one the cursor is in.
+const CLAUSE_KEYWORDS: &[&str] = &[
+    "SELECT",
+    "FROM",
+    "JOIN",
+    "ON",
+    "WHERE",
+    "GROUP",
+    "ORDER",
+    "HAVING",
+    "LIMIT",
+    "SET",
+    "VALUES",
+    "INTO",
+    "UPDATE",
+    "RETURNING",
+    "OFFSET",
+];
+
+/// The keywords that fit after `before`, the statement's tokens up to the
+/// word being typed.
+fn keywords(before: &[&&Lexeme], want: &Want, dialect: Dialect) -> Vec<&'static str> {
+    // CQL has its own words (A1.4).
+    if dialect == Dialect::Cql || matches!(want, Want::Member(_) | Want::Nothing) {
+        return Vec::new();
+    }
+    let pg = dialect == Dialect::Postgres;
+    let mysql = dialect == Dialect::MySql;
+    let sqlite = dialect == Dialect::Sqlite;
+    let only = |on: bool, words: &[&'static str]| if on { words.to_vec() } else { Vec::new() };
+    let Some(last) = before.last() else {
+        let mut words = vec![
+            "SELECT",
+            "INSERT INTO",
+            "UPDATE",
+            "DELETE FROM",
+            "WITH",
+            "CREATE TABLE",
+            "ALTER TABLE",
+            "DROP TABLE",
+            "EXPLAIN",
+            "BEGIN",
+            "COMMIT",
+            "ROLLBACK",
+        ];
+        words.extend(only(pg, &["EXPLAIN ANALYZE", "TRUNCATE"]));
+        words.extend(only(mysql, &["SHOW TABLES", "DESCRIBE", "TRUNCATE"]));
+        words.extend(only(sqlite, &["PRAGMA", "VACUUM"]));
+        return words;
+    };
+    let after_value = match &last.token {
+        Token::Word(word) => {
+            word.quote_style.is_some() || !LEADS.contains(&word.value.to_uppercase().as_str())
+        }
+        Token::Number(..) | Token::SingleQuotedString(_) | Token::RParen | Token::Mul => true,
+        _ => false,
+    };
+    if !after_value {
+        return match want {
+            Want::Columns => {
+                let mut words = Vec::new();
+                if last.keyword().as_deref() == Some("SELECT") {
+                    words.push("DISTINCT");
+                }
+                words.extend(["CASE", "NOT", "NULL", "EXISTS"]);
+                words
+            }
+            _ => Vec::new(),
+        };
+    }
+    let first = before.first().and_then(|l| l.keyword()).unwrap_or_default();
+    let changes = matches!(first.as_str(), "UPDATE" | "DELETE" | "INSERT");
+    let clause = before
+        .iter()
+        .rev()
+        .filter_map(|l| l.keyword())
+        .find(|w| CLAUSE_KEYWORDS.contains(&w.as_str()))
+        .unwrap_or_default();
+    let tail = ["GROUP BY", "ORDER BY", "LIMIT"];
+    let mut words: Vec<&'static str> = match clause.as_str() {
+        "SELECT" => vec!["FROM", "AS"],
+        "FROM" | "JOIN" if first == "DELETE" => vec!["WHERE"],
+        "FROM" | "JOIN" => {
+            let mut words = vec!["WHERE"];
+            if clause == "JOIN" {
+                words.extend(["ON", "USING"]);
+            }
+            words.extend([
+                "JOIN",
+                "LEFT JOIN",
+                "INNER JOIN",
+                "RIGHT JOIN",
+                "CROSS JOIN",
+            ]);
+            words.extend(only(!mysql, &["FULL JOIN"]));
+            words.extend(tail);
+            words.extend(["AS", "UNION"]);
+            words
+        }
+        "ON" | "WHERE" | "HAVING" => {
+            let mut words = vec!["AND", "OR", "NOT", "IN", "LIKE"];
+            words.extend(only(pg, &["ILIKE"]));
+            words.extend(["BETWEEN", "IS NULL", "IS NOT NULL"]);
+            if clause == "ON" {
+                words.extend(["WHERE", "JOIN", "LEFT JOIN"]);
+            }
+            if !changes {
+                words.extend(tail);
+            }
+            words
+        }
+        "GROUP" => vec!["HAVING", "ORDER BY", "LIMIT"],
+        "ORDER" => {
+            let mut words = vec!["ASC", "DESC"];
+            words.extend(only(pg || sqlite, &["NULLS FIRST", "NULLS LAST"]));
+            words.push("LIMIT");
+            words
+        }
+        "LIMIT" => vec!["OFFSET"],
+        "UPDATE" => vec!["SET"],
+        "SET" => vec!["WHERE"],
+        "INTO" => {
+            let mut words = vec!["VALUES", "SELECT"];
+            words.extend(only(pg || sqlite, &["DEFAULT VALUES"]));
+            words
+        }
+        "VALUES" => {
+            let mut words = only(pg || sqlite, &["ON CONFLICT"]);
+            words.extend(only(mysql, &["ON DUPLICATE KEY UPDATE"]));
+            words
+        }
+        _ => Vec::new(),
+    };
+    if changes && (pg || sqlite) && !matches!(clause.as_str(), "RETURNING" | "UPDATE" | "INTO" | "")
+    {
+        words.push("RETURNING");
+    }
+    words
 }
 
 /// The tables named after `FROM`, `JOIN`, `UPDATE` and `INTO`, with their
@@ -364,5 +558,59 @@ mod tests {
         assert_eq!(at("update t x set |").tables, [table(None, "t", Some("x"))]);
         assert_eq!(at("select * from (select 1) s where |").tables, []);
         assert_eq!(at("select * from a. where |").tables, []);
+    }
+
+    fn words(text: &str, dialect: Dialect) -> Vec<&'static str> {
+        let (line, col) = text
+            .lines()
+            .enumerate()
+            .find_map(|(i, l)| l.find('|').map(|c| (i, l[..c].chars().count())))
+            .expect("a cursor");
+        context(&text.replace('|', ""), (line, col), dialect).keywords
+    }
+
+    #[test]
+    fn keywords_fit_the_clause() {
+        let pg = |text| words(text, Dialect::Postgres);
+        assert!(pg("|").contains(&"SELECT"));
+        assert!(pg("select id |").starts_with(&["FROM", "AS"]));
+        assert!(pg("select * from orders o |").contains(&"LEFT JOIN"));
+        assert!(pg("select * from a join b |").starts_with(&["WHERE", "ON", "USING"]));
+        assert!(pg("select * from t where a = 1 |").contains(&"AND"));
+        assert!(pg("select * from t where a = 1 |").contains(&"ORDER BY"));
+        assert_eq!(
+            pg("select * from t group by a |"),
+            ["HAVING", "ORDER BY", "LIMIT"]
+        );
+        assert!(pg("select * from t order by a |").starts_with(&["ASC", "DESC"]));
+        assert_eq!(pg("select * from t limit 10 |"), ["OFFSET"]);
+        assert_eq!(pg("update t |"), ["SET"]);
+        assert_eq!(pg("update t set a = 1 |"), ["WHERE", "RETURNING"]);
+        assert_eq!(pg("delete from t |"), ["WHERE", "RETURNING"]);
+        assert!(pg("insert into t (a) |").starts_with(&["VALUES", "SELECT"]));
+        // Where a name or an expression comes, only expression words.
+        assert!(pg("select * from |").is_empty());
+        assert_eq!(
+            pg("select |"),
+            ["DISTINCT", "CASE", "NOT", "NULL", "EXISTS"]
+        );
+        assert!(pg("select 'a|").is_empty());
+        assert!(pg("select o.|").is_empty());
+    }
+
+    #[test]
+    fn keywords_follow_the_dialect() {
+        let where_ = "select * from t where a |";
+        assert!(words(where_, Dialect::Postgres).contains(&"ILIKE"));
+        assert!(!words(where_, Dialect::MySql).contains(&"ILIKE"));
+        let values = "insert into t values (1) |";
+        assert_eq!(
+            words(values, Dialect::Postgres),
+            ["ON CONFLICT", "RETURNING"]
+        );
+        assert_eq!(words(values, Dialect::MySql), ["ON DUPLICATE KEY UPDATE"]);
+        assert!(!words("select * from a |", Dialect::MySql).contains(&"FULL JOIN"));
+        assert!(words("|", Dialect::Sqlite).contains(&"PRAGMA"));
+        assert!(words("select * from t |", Dialect::Cql).is_empty());
     }
 }
