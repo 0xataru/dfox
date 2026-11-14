@@ -226,3 +226,14 @@ fn every_edit_changes_the_version() {
     b.insert_char('x');
     assert!(b.version() > before);
 }
+
+#[test]
+fn a_paste_replaces_the_selection_keeps_its_indentation_and_undoes_at_once() {
+    let mut b = buffer("    select x");
+    b.set_cursor((0, 11), false);
+    b.set_cursor((0, 12), true);
+    b.insert_str("a,\n      b,\n\tc");
+    assert_eq!(b.text(), "    select a,\n      b,\n\tc");
+    assert!(b.undo());
+    assert_eq!(b.text(), "    select x");
+}
