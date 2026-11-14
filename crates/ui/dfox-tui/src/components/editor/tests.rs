@@ -113,6 +113,32 @@ fn word_motions_and_selection_keys_move_the_cursor() {
 }
 
 #[test]
+fn words_and_lines_select() {
+    let mut harness = Harness::new();
+    let mut e = editor("select name\nfrom t\nwhere x");
+    e.buffer.set_cursor((0, 0), false);
+    press(&mut e, &mut harness, &[Action::SelectWordRight]);
+    assert_eq!(e.buffer.selected_text().as_deref(), Some("select"));
+    press(&mut e, &mut harness, &[Action::End, Action::SelectWordLeft]);
+    assert_eq!(e.buffer.selected_text().as_deref(), Some("name"));
+    press(&mut e, &mut harness, &[Action::SelectLine]);
+    assert_eq!(e.buffer.selected_text().as_deref(), Some("select name\n"));
+    press(&mut e, &mut harness, &[Action::Down, Action::SelectLine]);
+    assert_eq!(e.buffer.selected_text().as_deref(), Some("where x"));
+    press(
+        &mut e,
+        &mut harness,
+        &[
+            Action::Home,
+            Action::Up,
+            Action::SelectLine,
+            Action::SelectLine,
+        ],
+    );
+    assert_eq!(e.buffer.selected_text().as_deref(), Some("from t\nwhere x"));
+}
+
+#[test]
 fn history_search_replaces_the_text() {
     let mut harness = Harness::new();
     for sql in ["select * from users", "select * from orders"] {

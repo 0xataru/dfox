@@ -139,6 +139,20 @@ impl Buffer {
         self.cursor = (last, char_len(&self.lines[last]));
     }
 
+    /// Selects the whole lines the selection or cursor is on, with the line
+    /// break; again, the next line too.
+    pub fn select_line(&mut self) {
+        let (start, end) = self.selection().unwrap_or((self.cursor, self.cursor));
+        self.anchor = Some((start.0, 0));
+        let last = self.lines.len() - 1;
+        self.cursor = if end.0 < last {
+            (end.0 + 1, 0)
+        } else {
+            (last, char_len(&self.lines[last]))
+        };
+        self.goal = None;
+    }
+
     /// Sets the cursor, clamped to the text, optionally extending the
     /// selection.
     pub fn set_cursor(&mut self, (line, col): Pos, select: bool) {

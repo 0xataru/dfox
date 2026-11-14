@@ -358,6 +358,8 @@ impl Component for EditorPanel {
             Action::SelectDown => Some((Motion::Down, true)),
             Action::SelectHome => Some((Motion::Home, true)),
             Action::SelectEnd => Some((Motion::End, true)),
+            Action::SelectWordLeft => Some((Motion::WordLeft, true)),
+            Action::SelectWordRight => Some((Motion::WordRight, true)),
             _ => None,
         };
         if let Some((motion, select)) = motion {
@@ -378,6 +380,7 @@ impl Component for EditorPanel {
                 b.redo();
             }
             Action::SelectAll => b.select_all(),
+            Action::SelectLine => b.select_line(),
             Action::Copy => self.copy(ctx, false),
             Action::Cut => self.copy(ctx, true),
             Action::Paste => match ctx.clipboard.get() {
