@@ -4,25 +4,25 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, &help, 
 ---
                  ╭ Keys ───────────────────────────────────────╮
                  │                                             │
+                 │ n                 New connection            │
+                 │ e                 Edit / definition         │
+                 │ Delete d          Delete                    │
+                 │ Ctrl+S            Save                      │
+                 │ F1                Connection list           │
+                 │ Ctrl+T            Next theme                │
+                 │ F12               Event log                 │
+                 │ Space             Command menu              │
+                 │ ? F2              Show keys                 │
+                 │ Esc               Back / close              │
+                 │ q Ctrl+Q          Quit                      │
+                 │ Enter             Select / new line         │
+                 │ ↑                 Up                        │
                  │ ↓                 Down                      │
                  │ ←                 Left / previous column    │
                  │ →                 Right / next column       │
                  │ PgUp              Page up                   │
                  │ PgDn              Page down                 │
                  │ Home              First row / line start    │
-                 │ End               Last row / line end       │
-                 │ Backspace         Delete back               │
-                 │ Alt+Backspace     Delete a word             │
-                 │ Alt+B Alt+←       Previous word             │
-                 │ Alt+F Alt+→       Next word                 │
-                 │ Shift+←           Select left               │
-                 │ Shift+→           Select right              │
-                 │ Shift+↑           Select up                 │
-                 │ Shift+↓           Select down               │
-                 │ Shift+Home        Select to line start      │
-                 │ Shift+End         Select to line end        │
-                 │ Alt+Shift+←       Select previous word      │
-                 │ Alt+Shift+→       Select next word          │
-                 │ …                 Select the line           │
+                 │ …                 Last row / line end       │
                  │                                             │
-                 ╰─── key for Select the line? Esc cancels ────╯
+                 ╰─ key for Last row / line end? Esc cancels ──╯

@@ -1075,6 +1075,27 @@ fn a_newer_release_shows_in_the_managers_status_bar() {
 }
 
 #[test]
+fn a_selection_in_the_editor_hints_copy_and_cut() {
+    let mut test = test_app("selection-hint", Some("pw"), "");
+    test.open_prod();
+    test.typed("select 1");
+    let status = |test: &Test| {
+        test.snapshot(140, 10)
+            .lines()
+            .last()
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert!(!status(&test).contains("cut"), "{}", status(&test));
+    test.ctrl('a');
+    let shown = status(&test);
+    assert!(
+        shown.contains("Ctrl+C copy") && shown.contains("Ctrl+X cut"),
+        "{shown}"
+    );
+}
+
+#[test]
 fn rows_copy_into_a_saved_connection_with_its_password() {
     let mut test = test_app("copy", Some("secret"), "");
     test.open_prod();
