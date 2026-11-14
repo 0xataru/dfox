@@ -216,6 +216,11 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - **Shift+arrows**, **Shift+Home/End** - Select; **Ctrl+A** selects everything
 - **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (copy without a selection takes the line)
 - **Ctrl+←/→** or **Alt+←/→** - Move by word; **Alt+Backspace** deletes a word
+- On macOS, **Cmd** works as **Ctrl** where the terminal reports it (Ghostty, kitty, WezTerm,
+  iTerm2 with "Report keys using CSI u"): **Cmd+C**, **Cmd+Z**, **Cmd+R** and so on
+  that the terminal leaves to the program. Ghostty keeps Cmd+C, A, Z and Shift+Z for itself;
+  to hand them to dfox, add `keybind = performable:super+c=copy_to_clipboard` and
+  `keybind = super+a=unbind` (likewise `super+z`, `super+shift+z`) to its config
 - A bar in the margin marks the statement **F5** would run
 - Table names are suggested after `FROM`/`JOIN`, columns after `SELECT`/`WHERE`/…, and members
   after `alias.`; **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes

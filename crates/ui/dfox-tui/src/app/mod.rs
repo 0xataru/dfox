@@ -433,7 +433,11 @@ impl App {
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) {
+    pub fn handle_key(&mut self, mut key: KeyEvent) {
+        // Cmd on macOS arrives as Super where the terminal reports it.
+        if key.modifiers.contains(KeyModifiers::SUPER) {
+            key.modifiers = (key.modifiers - KeyModifiers::SUPER) | KeyModifiers::CONTROL;
+        }
         // A key never waits for an effect.
         self.motion.finish();
         if self.splash.is_some() {

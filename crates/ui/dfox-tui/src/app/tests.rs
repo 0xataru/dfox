@@ -598,6 +598,18 @@ fn pasting_into_the_editor_keeps_lines() {
             .text(),
         "select 1;\nselect 2;"
     );
+    // Cmd works as Ctrl: Cmd+Z undoes the paste instead of typing `z`.
+    test.app
+        .handle_key(KeyEvent::new(KeyCode::Char('z'), KeyModifiers::SUPER));
+    assert_eq!(
+        test.app
+            .workspace
+            .as_ref()
+            .expect("workspace")
+            .editor()
+            .text(),
+        ""
+    );
     // An open overlay takes nothing.
     test.key(KeyCode::F(2));
     test.app.paste("x");
