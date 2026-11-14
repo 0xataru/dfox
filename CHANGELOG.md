@@ -7,6 +7,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Cmd works as Ctrl on macOS where the terminal reports it (Ghostty, kitty, WezTerm, iTerm2
+  with CSI u keys): Cmd+C, Cmd+X, Cmd+Z and the other Ctrl keys copy, cut and undo in dfox
+  instead of typing a letter.
+
 ## [0.5.34] - 2026-10-23
 
 ### Changed
