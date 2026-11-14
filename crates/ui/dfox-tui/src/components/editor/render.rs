@@ -3,9 +3,9 @@
 
 use ratatui::{
     layout::Rect,
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Clear, Paragraph},
     Frame,
 };
 use unicode_width::UnicodeWidthChar;
@@ -155,6 +155,9 @@ impl EditorPanel {
         }
         if let (Some(completion), Some((x, y))) = (&self.completion, self.screen_cursor.get()) {
             super::complete::render(completion, f, x, y, ctx);
+        } else if let (Some(signature), Some((x, y))) = (&self.signature, self.screen_cursor.get())
+        {
+            render_signature(signature, f, x, y, ctx);
         }
     }
 }
@@ -270,4 +273,41 @@ pub(super) fn clean(text: &str) -> std::borrow::Cow<'_, str> {
     } else {
         text.into()
     }
+}
+
+/// The function's arguments on the line above the cursor (below it on the
+/// first line), the one being typed in bold.
+fn render_signature(
+    (name, args, current): &(String, &'static str, usize),
+    f: &mut Frame,
+    x: u16,
+    y: u16,
+    ctx: &RenderCtx,
+) {
+    let theme = ctx.theme;
+    let mut spans = vec![Span::styled(format!(" {name}("), theme.dim())];
+    for (i, arg) in args.split(", ").enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(", ", theme.dim()));
+        }
+        // A trailing `…` takes every argument after it.
+        let typing = i == *current || (arg == "…" && i < *current);
+        let style = if typing {
+            theme.base().add_modifier(Modifier::BOLD)
+        } else {
+            theme.dim()
+        };
+        spans.push(Span::styled(arg.to_string(), style));
+    }
+    spans.push(Span::styled(") ", theme.dim()));
+    let line = Line::from(spans);
+    let screen = f.area();
+    let width = (line.width() as u16).min(screen.width);
+    let row = if y > screen.y { y - 1 } else { y + 1 };
+    let left = x
+        .saturating_sub(1)
+        .min(screen.right().saturating_sub(width));
+    let area = Rect::new(left, row, width, 1).intersection(screen);
+    f.render_widget(Clear, area);
+    f.render_widget(Paragraph::new(line).style(theme.surface()), area);
 }

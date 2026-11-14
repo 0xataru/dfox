@@ -327,3 +327,21 @@ fn cut_without_a_selection_takes_the_line() {
     press(&mut e, &mut harness, &[Action::Undo]);
     assert_eq!(e.text(), "one");
 }
+
+#[test]
+fn the_signature_shows_while_typing_the_arguments() {
+    let test = TestCtx::new();
+    let mut e = editor("select date_trunc('day', created");
+    e.language = QueryLanguage::Sql(SqlDialect::Postgres);
+    e.focused = true;
+    e.complete(&Catalog::default(), Action::Input('d'));
+    let screen = render(&test, 50, 6, |f, area, ctx| {
+        e.render(f, area, ctx);
+        e.render_overlay(f, area, ctx);
+    });
+    assert!(screen.contains("date_trunc(field, source)"), "{screen}");
+    // Past the closing parenthesis it goes away.
+    e.buffer.insert_str(") ");
+    e.complete(&Catalog::default(), Action::Input(' '));
+    assert_eq!(e.signature, None);
+}
