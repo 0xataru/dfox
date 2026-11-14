@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.35] - 2026-11-14
+
 ### Added
 
 - The editor selects by word with Ctrl+Shift+←/→ (Alt+Shift+←/→ on macOS), and Ctrl+L
