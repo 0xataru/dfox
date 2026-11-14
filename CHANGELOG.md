@@ -7,8 +7,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.35] - 2026-11-14
+
 ### Added
 
+- Cmd works as Ctrl on macOS where the terminal reports it (Ghostty, kitty, WezTerm, iTerm2
+  with CSI u keys): Cmd+C, Cmd+X, Cmd+Z and the other Ctrl keys copy, cut and undo in dfox
+  instead of typing a letter.
 - The editor selects by word with Ctrl+Shift+←/→ (Alt+Shift+←/→ on macOS), and Ctrl+L
   (Cmd+L) selects the line, the next one with each press.
 - A double click in the editor selects the word, a triple click the line, and Shift+click
@@ -18,12 +23,6 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   toast says which happened ("Cut the line", "Copied the selection").
 - The key list shows the editing keys together, and while text is selected in the editor the
   status bar hints copy, cut and run selection.
-
-### Added
-
-- Cmd works as Ctrl on macOS where the terminal reports it (Ghostty, kitty, WezTerm, iTerm2
-  with CSI u keys): Cmd+C, Cmd+X, Cmd+Z and the other Ctrl keys copy, cut and undo in dfox
-  instead of typing a letter.
 
 ## [0.5.34] - 2026-10-23
 
