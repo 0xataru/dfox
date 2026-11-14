@@ -6,7 +6,10 @@ pub mod complete;
 mod history;
 mod render;
 
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    time::{Duration, Instant},
+};
 
 use ratatui::{
     layout::{Position, Rect},
@@ -66,7 +69,12 @@ pub struct EditorPanel {
     screen_cursor: Cell<Option<(u16, u16)>>,
     search: Option<HistorySearch>,
     completion: Option<Completion>,
+    /// The last click and how many came quickly on the same spot.
+    clicks: Option<(Instant, Pos, u8)>,
 }
+
+/// Clicks closer than this count as a double or triple click.
+const MULTI_CLICK: Duration = Duration::from_millis(500);
 
 impl EditorPanel {
     pub fn new(dialect: Dialect) -> Self {
@@ -82,6 +90,7 @@ impl EditorPanel {
             screen_cursor: Cell::new(None),
             search: None,
             completion: None,
+            clicks: None,
         }
     }
 
@@ -238,14 +247,20 @@ impl EditorPanel {
     }
 
     /// Moves the cursor to a point on screen, extending the selection when
-    /// dragging. Returns false when the point isn't on the text.
+    /// dragging or Shift-clicking. A double click selects the word, a triple
+    /// click the line. Returns false when the point isn't on the text.
     pub fn click(&mut self, column: u16, row: u16, drag: bool) -> bool {
         let area = self.text_area.get();
         if !area.contains(Position::new(column, row)) && !drag {
             return false;
         }
         let (top, left) = self.scroll.get();
-        let line = top + row.saturating_sub(area.y) as usize;
+        // A drag above the text scrolls up; below it, drawing follows the cursor.
+        let line = if row < area.y {
+            top.saturating_sub((area.y - row) as usize)
+        } else {
+            top + (row - area.y) as usize
+        };
         let x = column.saturating_sub(area.x + self.gutter.get()) as usize;
         let Some(text) = self
             .buffer
@@ -267,6 +282,21 @@ impl EditorPanel {
         }
         self.buffer.set_cursor((line, col), drag);
         self.buffer.break_undo();
+        if drag {
+            return true;
+        }
+        let now = Instant::now();
+        let pos = self.buffer.cursor();
+        let count = match self.clicks {
+            Some((at, last, n)) if last == pos && now - at < MULTI_CLICK => n % 3 + 1,
+            _ => 1,
+        };
+        self.clicks = Some((now, pos, count));
+        match count {
+            2 => self.buffer.select_word(),
+            3 => self.buffer.select_line(),
+            _ => {}
+        }
         true
     }
 
