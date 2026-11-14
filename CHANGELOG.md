@@ -7,7 +7,7 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
-## [0.5.35] - 2026-11-14
+## [0.5.36] - 2026-11-14
 
 ### Added
 
@@ -23,6 +23,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   toast says which happened ("Cut the line", "Copied the selection").
 - The key list shows the editing keys together, and while text is selected in the editor the
   status bar hints copy, cut and run selection.
+
+### Fixed
+
+- The macOS binaries build again. v0.5.35 was tagged but never released: GitHub no longer
+  runs the `macos-14` runners its Mac builds asked for, so this release carries its changes.
 
 ## [0.5.34] - 2026-10-23
 
