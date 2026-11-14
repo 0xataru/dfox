@@ -575,12 +575,15 @@ impl ResultsPanel {
             .as_ref()
             .and_then(|view| view.selected(&self.store))
         {
-            ctx.copy(text, "the JSON");
+            ctx.copy(text, "Copied the JSON");
             return;
         }
         let region = self.grid.region(self.store.columns().len());
         let what = describe(region.rows.len(), region.cells());
-        ctx.copy(export::plain(&self.store, &region), &what);
+        ctx.copy(
+            export::plain(&self.store, &region),
+            &format!("Copied {what}"),
+        );
     }
 
     fn copy_as(&mut self, format: Format, name: &str, ctx: &mut Ctx) {
@@ -596,7 +599,7 @@ impl ResultsPanel {
         };
         let text = export::export(&self.store, &region, format, target);
         let rows = region.rows.len();
-        ctx.copy(text, &format!("{rows} row(s) as {name}"));
+        ctx.copy(text, &format!("Copied {rows} row(s) as {name}"));
     }
 
     /// What copy-as covers: the selection, or else every row.

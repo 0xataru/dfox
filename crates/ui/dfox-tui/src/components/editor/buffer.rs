@@ -450,6 +450,32 @@ impl Buffer {
         Some(text)
     }
 
+    /// Removes the cursor's line and returns it with a line break, or None
+    /// when the text is a single empty line.
+    pub fn cut_line(&mut self) -> Option<String> {
+        let (line, _) = self.cursor;
+        let last = self.lines.len() - 1;
+        if last == 0 && self.lines[0].is_empty() {
+            return None;
+        }
+        let text = format!("{}\n", self.lines[line]);
+        // The last line goes with the break before it.
+        let (start, end) = if line < last {
+            ((line, 0), (line + 1, 0))
+        } else if line > 0 {
+            (
+                (line - 1, self.line_len(line - 1)),
+                (line, self.line_len(line)),
+            )
+        } else {
+            ((0, 0), (0, self.line_len(0)))
+        };
+        self.anchor = Some(start);
+        self.cursor = end;
+        self.cut();
+        Some(text)
+    }
+
     pub fn undo(&mut self) -> bool {
         self.swap_history(true)
     }

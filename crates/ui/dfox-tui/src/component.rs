@@ -50,14 +50,11 @@ pub struct Ctx<'a> {
 }
 
 impl Ctx<'_> {
-    /// Copies `text` and says so, naming `what` was copied.
-    pub fn copy(&mut self, text: String, what: &str) {
+    /// Copies `text` and says `done`, such as "Copied the line".
+    pub fn copy(&mut self, text: String, done: &str) {
         match self.clipboard.set(text) {
-            Ok(Via::System) => self.toast(Level::Success, format!("Copied {what}")),
-            Ok(Via::Terminal) => self.toast(
-                Level::Success,
-                format!("Copied {what} (terminal clipboard)"),
-            ),
+            Ok(Via::System) => self.toast(Level::Success, done),
+            Ok(Via::Terminal) => self.toast(Level::Success, format!("{done} (terminal clipboard)")),
             Err(err) => self.toast(Level::Error, format!("Clipboard error: {err}")),
         }
     }

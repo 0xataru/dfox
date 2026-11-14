@@ -77,7 +77,7 @@ fn copy_cut_and_paste_use_the_clipboard() {
     assert_eq!(e.text(), "select 1select 1");
     assert_eq!(
         harness.toast_texts(),
-        ["Copied the line", "Copied the selection"]
+        ["Copied the line", "Cut the selection"]
     );
 
     harness.clipboard.text = None;
@@ -301,4 +301,29 @@ fn dragging_past_the_edges_scrolls() {
     e.click(2 + 3, 5, true);
     render(&test, 40, 6, |f, area, ctx| e.render(f, area, ctx));
     assert!(e.scroll.get().0 >= top);
+}
+
+#[test]
+fn cut_without_a_selection_takes_the_line() {
+    let mut harness = Harness::new();
+    let mut e = editor("one\ntwo\nthree");
+    e.buffer.set_cursor((1, 1), false);
+    press(&mut e, &mut harness, &[Action::Cut]);
+    assert_eq!(e.text(), "one\nthree");
+    assert_eq!(harness.clipboard.text.as_deref(), Some("two\n"));
+    // The last line goes with the break before it.
+    press(&mut e, &mut harness, &[Action::Down, Action::Cut]);
+    assert_eq!(e.text(), "one");
+    assert_eq!(harness.clipboard.text.as_deref(), Some("three\n"));
+    press(&mut e, &mut harness, &[Action::Cut]);
+    assert_eq!(e.text(), "");
+    // Nothing left to cut: the clipboard keeps the line.
+    press(&mut e, &mut harness, &[Action::Cut]);
+    assert_eq!(harness.clipboard.text.as_deref(), Some("one\n"));
+    assert_eq!(
+        harness.toast_texts(),
+        ["Cut the line", "Cut the line", "Cut the line"]
+    );
+    press(&mut e, &mut harness, &[Action::Undo]);
+    assert_eq!(e.text(), "one");
 }

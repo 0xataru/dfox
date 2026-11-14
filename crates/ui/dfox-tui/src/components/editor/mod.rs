@@ -310,18 +310,17 @@ impl EditorPanel {
         self.buffer.move_cursor(motion, false);
     }
 
+    /// Copies or cuts the selection, or the line when nothing is selected.
     fn copy(&mut self, ctx: &mut Ctx, cut: bool) {
-        let selected = if cut {
-            self.buffer.cut()
-        } else {
-            self.buffer.selected_text()
+        let b = &mut self.buffer;
+        let (text, done) = match (cut, b.selection().is_some()) {
+            (false, true) => (b.selected_text(), "Copied the selection"),
+            (true, true) => (b.cut(), "Cut the selection"),
+            (false, false) => (Some(b.lines()[b.cursor().0].clone()), "Copied the line"),
+            (true, false) => (b.cut_line(), "Cut the line"),
         };
-        match selected {
-            Some(text) => ctx.copy(text, "the selection"),
-            None => {
-                let line = self.buffer.lines()[self.buffer.cursor().0].clone();
-                ctx.copy(line, "the line");
-            }
+        if let Some(text) = text {
+            ctx.copy(text, done);
         }
     }
 
