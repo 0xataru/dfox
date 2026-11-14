@@ -210,7 +210,8 @@ impl PgCatalog {
     async fn schemas(&self) -> Result<Vec<Node>, DbError> {
         let sql = format!(
             "SELECT n.nspname::text FROM pg_namespace n WHERE {SYSTEM_SCHEMAS} \
-             ORDER BY n.nspname <> 'public', n.nspname"
+             ORDER BY array_position(current_schemas(false), n.nspname) NULLS LAST, \
+                      n.nspname"
         );
         let rows = self.client.query(&sql, &[]).await.map_err(db_error)?;
         Ok(rows
@@ -1045,7 +1046,9 @@ impl Catalog for PgCatalog {
                 .client
                 .query(
                     "SELECT c.relname::text, a.attname::text, \
-                            format_type(a.atttypid, a.atttypmod) \
+                            format_type(a.atttypid, a.atttypmod), \
+                            ARRAY(SELECT e.enumlabel::text FROM pg_enum e \
+                                  WHERE e.enumtypid = a.atttypid ORDER BY e.enumsortorder) \
                      FROM pg_attribute a \
                      JOIN pg_class c ON c.oid = a.attrelid \
                      JOIN pg_namespace n ON n.oid = c.relnamespace \
@@ -1062,6 +1065,7 @@ impl Catalog for PgCatalog {
                     table: row.get(0),
                     name: row.get(1),
                     data_type: row.get(2),
+                    values: row.get(3),
                 })
                 .collect())
         })

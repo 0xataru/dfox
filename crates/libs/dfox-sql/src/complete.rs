@@ -4,7 +4,7 @@
 
 use sqlparser::tokenizer::{Token, Whitespace};
 
-use super::{lex, Dialect, Kind, Lexeme, Pos};
+use super::{lex, rest_of, Dialect, Kind, Lexeme, Pos};
 
 /// A table the statement names: `FROM shop.orders o` → schema `shop`, name
 /// `orders`, alias `o`.
@@ -42,6 +42,12 @@ pub struct Context {
     pub keywords: Vec<&'static str>,
     /// The function call the cursor is in, and which argument, from 0.
     pub call: Option<(String, usize)>,
+    /// The quote the word being typed opened (`` ` `` in MySQL, `"`
+    /// elsewhere), to keep it.
+    pub quote: Option<char>,
+    /// The column compared with `=`, `<>` or `IN (` before the cursor, and
+    /// its qualifier: an enum's values come next.
+    pub compared: Option<(Option<String>, String)>,
 }
 
 /// Keywords after which a table name comes.
@@ -113,6 +119,19 @@ const NOT_ALIAS: &[&str] = &[
 
 pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
     let all = lex(text, dialect);
+    // A quoted name still being typed: complete it as if it were closed.
+    let quote = if dialect == Dialect::MySql { '`' } else { '"' };
+    let open = all
+        .last()
+        .filter(|l| l.token == Token::EOF && l.end == cursor);
+    let word = open.and_then(|l| rest_of(text, l.start).trim_start().strip_prefix(quote));
+    // Closed, the text holds the quote, so this happens once.
+    if word.is_some_and(|w| !w.contains([quote, '\n'])) {
+        let closed = format!("{text}{quote}");
+        let mut ctx = context(&closed, (cursor.0, cursor.1 + 1), dialect);
+        ctx.quote = Some(quote);
+        return ctx;
+    }
     // Inside a string or a comment there is nothing to complete.
     let inside = all.iter().any(|l| {
         // An unclosed string or comment, or a line comment, also contains
@@ -159,6 +178,8 @@ pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
             tables,
             keywords: Vec::new(),
             call: None,
+            quote: None,
+            compared: None,
         };
     }
 
@@ -217,7 +238,33 @@ pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
         tables,
         keywords,
         call,
+        quote: None,
+        compared: compared(&before),
     }
+}
+
+/// The column before `=`, `<>`, `!=` or `IN (`, ending `before`.
+fn compared(before: &[&&Lexeme]) -> Option<(Option<String>, String)> {
+    let n = before.len();
+    let operator = match &before.last()?.token {
+        Token::Eq | Token::Neq => n - 1,
+        Token::LParen if n >= 2 && before[n - 2].keyword().as_deref() == Some("IN") => n - 2,
+        _ => return None,
+    };
+    let column = before.get(operator.checked_sub(1)?)?;
+    if column
+        .keyword()
+        .is_some_and(|k| LEADS.contains(&k.as_str()))
+    {
+        return None;
+    }
+    let name = column.name()?.to_string();
+    let qualifier = operator
+        .checked_sub(3)
+        .filter(|&i| before[i + 1].token == Token::Period)
+        .and_then(|i| before[i].name())
+        .map(str::to_string);
+    Some((qualifier, name))
 }
 
 /// Reads the open parentheses before the cursor: the innermost function call
@@ -353,6 +400,38 @@ const CLAUSE_KEYWORDS: &[&str] = &[
     "OFFSET",
 ];
 
+/// SQLite's pragmas people look up most.
+const PRAGMAS: &[&str] = &[
+    "table_info",
+    "table_xinfo",
+    "table_list",
+    "index_list",
+    "index_info",
+    "foreign_key_list",
+    "foreign_keys",
+    "foreign_key_check",
+    "database_list",
+    "integrity_check",
+    "quick_check",
+    "journal_mode",
+    "synchronous",
+    "busy_timeout",
+    "user_version",
+    "schema_version",
+    "page_size",
+    "page_count",
+    "cache_size",
+    "auto_vacuum",
+    "encoding",
+    "temp_store",
+    "mmap_size",
+    "wal_checkpoint",
+    "optimize",
+    "compile_options",
+    "function_list",
+    "pragma_list",
+];
+
 /// The keywords that fit after `before`, the statement's tokens up to the
 /// word being typed.
 fn keywords(before: &[&&Lexeme], want: &Want, dialect: Dialect) -> Vec<&'static str> {
@@ -384,6 +463,9 @@ fn keywords(before: &[&&Lexeme], want: &Want, dialect: Dialect) -> Vec<&'static 
         words.extend(only(sqlite, &["PRAGMA", "VACUUM"]));
         return words;
     };
+    if sqlite && before.len() == 1 && last.keyword().as_deref() == Some("PRAGMA") {
+        return PRAGMAS.to_vec();
+    }
     let after_value = match &last.token {
         Token::Word(word) => {
             word.quote_style.is_some() || !LEADS.contains(&word.value.to_uppercase().as_str())
@@ -721,5 +803,57 @@ mod tests {
         );
         assert_eq!(at("select lower(a) |").call, None);
         assert_eq!(at("insert into t values (|").call, None);
+    }
+
+    fn in_dialect(text: &str, dialect: Dialect) -> Context {
+        context(text, (0, text.chars().count()), dialect)
+    }
+
+    #[test]
+    fn an_open_quote_still_completes_and_is_kept() {
+        let c = in_dialect("select * from `ord", Dialect::MySql);
+        assert_eq!(
+            (c.want, c.prefix.as_str(), c.start, c.quote),
+            (Want::Tables, "ord", (0, 14), Some('`'))
+        );
+        let c = in_dialect("select \"Na", Dialect::Postgres);
+        assert_eq!((c.want, c.quote), (Want::Columns, Some('"')));
+        // Strings stay strings.
+        assert_eq!(
+            in_dialect("select 'ord", Dialect::MySql).want,
+            Want::Nothing
+        );
+        assert_eq!(
+            in_dialect("select * from \"ord", Dialect::MySql).want,
+            Want::Nothing
+        );
+    }
+
+    #[test]
+    fn the_column_compared_before_the_cursor() {
+        assert_eq!(
+            at("select * from t where status = |").compared,
+            Some((None, "status".into()))
+        );
+        assert_eq!(
+            at("select * from t o where o.status <> pe|").compared,
+            Some((Some("o".into()), "status".into()))
+        );
+        assert_eq!(
+            at("select * from t where kind in (|").compared,
+            Some((None, "kind".into()))
+        );
+        assert_eq!(at("select * from t where |").compared, None);
+        assert_eq!(at("update t set a = 1 where b = (|").compared, None);
+    }
+
+    #[test]
+    fn pragmas_follow_pragma_in_sqlite() {
+        assert!(in_dialect("pragma ", Dialect::Sqlite)
+            .keywords
+            .contains(&"table_info"));
+        assert!(!in_dialect("pragma ", Dialect::Postgres)
+            .keywords
+            .contains(&"table_info"));
     }
 }

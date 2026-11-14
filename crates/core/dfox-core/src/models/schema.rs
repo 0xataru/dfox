@@ -7,4 +7,7 @@ pub struct TableColumn {
     pub table: String,
     pub name: String,
     pub data_type: String,
+    /// The values an enum column takes, in order; empty for other types.
+    #[serde(default)]
+    pub values: Vec<String>,
 }

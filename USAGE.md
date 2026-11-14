@@ -231,7 +231,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   `LEFT JOIN`, `GROUP BY`, Postgres `RETURNING`, MySQL `ON DUPLICATE KEY UPDATE`…). In an
   expression come the database's own functions and the dialect's built-in ones with their
   arguments, and inside a call the arguments show above the cursor, the current one in bold.
-  Column types come after `::`, `CAST(x AS` and a column name in `CREATE TABLE`;
+  Column types come after `::`, `CAST(x AS` and a column name in `CREATE TABLE`. An enum
+  column's values come after `=`, `<>` and `IN (`, SQLite's pragmas after `PRAGMA`, and a
+  name begun with `` ` `` (MySQL) or `"` keeps its quotes;
   **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
 
 ## Configuration

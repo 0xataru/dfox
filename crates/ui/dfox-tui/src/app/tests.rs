@@ -803,6 +803,7 @@ fn columns_arrive_for_autocomplete() {
             table: "customers".into(),
             name: "email".into(),
             data_type: "text".into(),
+            values: Vec::new(),
         }]),
     });
     let workspace = test.app.workspace.as_ref().expect("workspace");
@@ -822,6 +823,7 @@ fn tab_accepts_a_suggestion() {
             table: "customers".into(),
             name: "email".into(),
             data_type: "text".into(),
+            values: Vec::new(),
         }]),
     });
     test.typed("select * from customers c where c.");

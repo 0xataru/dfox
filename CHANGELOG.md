@@ -19,6 +19,14 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   (`date_trunc(field, source)`). Choosing one inserts `name(`, and while typing its arguments
   they show above the cursor, the current one in bold. Column types are suggested after `::`,
   `CAST(x AS`, a column name in `CREATE TABLE`, `ADD COLUMN x` and `TYPE`.
+- SQL completion offers an enum column's values after `=`, `<>` and `IN (` (Postgres and
+  MySQL), SQLite's pragmas after `PRAGMA`, and completes a name begun with a quote (`` ` `` in
+  MySQL, `"` elsewhere), keeping the quotes. Before, an open quote completed nothing.
+
+### Changed
+
+- Postgres schemas are listed in `search_path` order, then by name, so the default schema for
+  completion is the one Postgres uses.
 
 ## [0.5.36] - 2026-11-14
 

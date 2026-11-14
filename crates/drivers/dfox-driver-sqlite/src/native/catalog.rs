@@ -449,6 +449,7 @@ fn all_columns(conn: &Connection, database: &str) -> Result<Vec<TableColumn>, Db
                 table: row.get(0)?,
                 name: row.get(1)?,
                 data_type: row.get(2)?,
+                values: Vec::new(),
             })
         })
         .map_err(db_error)?;
