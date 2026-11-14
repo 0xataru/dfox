@@ -16,6 +16,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   now scrolls up, as one past the bottom already scrolled down.
 - Ctrl+X in the editor with nothing selected cuts the line, as Ctrl+C copies it, and the
   toast says which happened ("Cut the line", "Copied the selection").
+- The key list shows the editing keys together, and while text is selected in the editor the
+  status bar hints copy, cut and run selection.
 
 ### Added
 

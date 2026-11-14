@@ -14,15 +14,15 @@ expression: "render(&test, 80, 24, |f, area, ctx|\nsuper::render(f, area, &super
                  │ Alt+] Ctrl+PgDn   Next query tab            │
                  │ Alt+[ Ctrl+PgUp   Previous query tab        │
                  │ Ctrl+C            Copy / cancel query       │
-                 │ y                 Copy as CSV, JSON, …      │
                  │ Ctrl+X            Cut                       │
                  │ Ctrl+V            Paste                     │
-                 │ Ctrl+A            Select all                │
-                 │ V                 Select whole rows         │
                  │ Ctrl+Z            Undo                      │
                  │ Ctrl+Y            Redo                      │
-                 │ i                 Inspect / insert name     │
-                 │ J                 Results as JSON / grid    │
-                 │ o                 Add a row                 │
+                 │ Ctrl+A            Select all                │
+                 │ Shift+←           Select left               │
+                 │ Shift+→           Select right              │
+                 │ Shift+↑           Select up                 │
+                 │ Shift+↓           Select down               │
+                 │ Shift+Home        Select to line start      │
                  │                                             │
                  ╰── Enter change · Del default · Esc close ───╯

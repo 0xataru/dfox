@@ -162,6 +162,19 @@ impl App {
             ],
             Screen::Form => &[(Action::Save, "save"), (Action::Back, "cancel")],
             Screen::Workspace => match self.workspace.as_ref().map(|w| w.focused()) {
+                Some(Panel::Editor)
+                    if self
+                        .workspace
+                        .as_ref()
+                        .is_some_and(|w| w.editor().buffer.selection().is_some()) =>
+                {
+                    &[
+                        (Action::Copy, "copy"),
+                        (Action::Cut, "cut"),
+                        (Action::Execute, "run selection"),
+                        (Action::Help, "keys"),
+                    ]
+                }
                 Some(Panel::Editor) => &[
                     (Action::Execute, "run"),
                     (Action::Palette, "commands"),
