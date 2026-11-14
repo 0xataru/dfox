@@ -218,7 +218,7 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - A double click selects the word, a triple click the line; a drag past the panel's top or bottom
   scrolls. **Shift+click** extends the selection in terminals that pass it on (most keep it for
   their own selection)
-- **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (copy without a selection takes the line)
+- **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (without a selection, copy takes the line and cut removes it)
 - **Ctrl+←/→** or **Alt+←/→** - Move by word; **Alt+Backspace** deletes a word
 - On macOS, **Cmd** works as **Ctrl** where the terminal reports it (Ghostty, kitty, WezTerm,
   iTerm2 with "Report keys using CSI u"): **Cmd+C**, **Cmd+Z**, **Cmd+R** and so on
