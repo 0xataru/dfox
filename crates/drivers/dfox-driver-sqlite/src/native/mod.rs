@@ -213,7 +213,6 @@ fn run_statement(
     }
     let meta: Vec<ColumnMeta> = stmt
         .columns()
-        .iter()
         .map(|c| ColumnMeta::new(c.name(), c.decl_type()))
         .collect();
     let mut out = Output::new(Columns::new(meta), tx);
