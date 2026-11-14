@@ -4,9 +4,6 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, &help, 
 ---
                  ╭ Keys ───────────────────────────────────────╮
                  │                                             │
-                 │ q Ctrl+Q          Quit                      │
-                 │ Enter             Select / new line         │
-                 │ ↑                 Up                        │
                  │ ↓                 Down                      │
                  │ ←                 Left / previous column    │
                  │ →                 Right / next column       │
@@ -23,6 +20,9 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, &help, 
                  │ Shift+↑           Select up                 │
                  │ Shift+↓           Select down               │
                  │ Shift+Home        Select to line start      │
-                 │ …                 Select to line end        │
+                 │ Shift+End         Select to line end        │
+                 │ Alt+Shift+←       Select previous word      │
+                 │ Alt+Shift+→       Select next word          │
+                 │ …                 Select the line           │
                  │                                             │
-                 ╰── key for Select to line end? Esc cancels ──╯
+                 ╰─── key for Select the line? Esc cancels ────╯

@@ -9,6 +9,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The editor selects by word with Ctrl+Shift+←/→ (Alt+Shift+←/→ on macOS), and Ctrl+L
+  (Cmd+L) selects the line, the next one with each press.
+
+### Added
+
 - Cmd works as Ctrl on macOS where the terminal reports it (Ghostty, kitty, WezTerm, iTerm2
   with CSI u keys): Cmd+C, Cmd+X, Cmd+Z and the other Ctrl keys copy, cut and undo in dfox
   instead of typing a letter.

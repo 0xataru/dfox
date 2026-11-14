@@ -214,6 +214,7 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - Typing inserts at the cursor; **Enter** starts a new line with the same indentation
 - **Ctrl+Z** / **Ctrl+Y** - Undo / redo
 - **Shift+arrows**, **Shift+Home/End** - Select; **Ctrl+A** selects everything
+- **Ctrl+Shift+←/→** or **Alt+Shift+←/→** - Select by word; **Ctrl+L** selects the line, again the next one
 - **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (copy without a selection takes the line)
 - **Ctrl+←/→** or **Alt+←/→** - Move by word; **Alt+Backspace** deletes a word
 - On macOS, **Cmd** works as **Ctrl** where the terminal reports it (Ghostty, kitty, WezTerm,
