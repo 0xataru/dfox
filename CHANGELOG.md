@@ -11,6 +11,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 - The editor selects by word with Ctrl+Shift+←/→ (Alt+Shift+←/→ on macOS), and Ctrl+L
   (Cmd+L) selects the line, the next one with each press.
+- A double click in the editor selects the word, a triple click the line, and Shift+click
+  extends the selection where the terminal passes it on. A drag past the editor's top edge
+  now scrolls up, as one past the bottom already scrolled down.
 
 ### Added
 

@@ -139,6 +139,27 @@ impl Buffer {
         self.cursor = (last, char_len(&self.lines[last]));
     }
 
+    /// Selects the word, number or run of spaces or punctuation under the
+    /// cursor, or just before it at the line's end.
+    pub fn select_word(&mut self) {
+        let (line, col) = self.cursor;
+        let chars: Vec<char> = self.lines[line].chars().collect();
+        let Some(at) = (col < chars.len()).then_some(col).or(col.checked_sub(1)) else {
+            return;
+        };
+        let kind = class(chars[at]);
+        let start = (0..at)
+            .rev()
+            .take_while(|&i| class(chars[i]) == kind)
+            .last();
+        let end = (at..chars.len())
+            .take_while(|&i| class(chars[i]) == kind)
+            .last();
+        self.anchor = Some((line, start.unwrap_or(at)));
+        self.cursor = (line, end.unwrap_or(at) + 1);
+        self.goal = None;
+    }
+
     /// Selects the whole lines the selection or cursor is on, with the line
     /// break; again, the next line too.
     pub fn select_line(&mut self) {

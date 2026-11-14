@@ -261,3 +261,44 @@ fn control_characters_draw_as_spaces() {
     assert_eq!(horizontal_scroll("abcdefghij", 6, 8, 5), 6);
     assert_eq!(horizontal_scroll("abcdefghij", 8, 2, 5), 4);
 }
+
+#[test]
+fn double_and_triple_clicks_select_the_word_and_the_line() {
+    let test = TestCtx::new();
+    let mut e = editor("select name\nfrom t");
+    e.focused = true;
+    render(&test, 40, 6, |f, area, ctx| e.render(f, area, ctx));
+    // Border, padding, then a 3-column gutter: column 9 is in `name`.
+    let (x, y) = (2 + 3 + 9, 1);
+    e.click(x, y, false);
+    assert_eq!(e.buffer.selection(), None);
+    e.click(x, y, false);
+    assert_eq!(e.buffer.selected_text().as_deref(), Some("name"));
+    e.click(x, y, false);
+    assert_eq!(e.buffer.selected_text().as_deref(), Some("select name\n"));
+    // Shift+click extends from where the cursor was.
+    e.click(2 + 3, 1, false);
+    e.click(2 + 3 + 4, 2, true);
+    assert_eq!(
+        e.buffer.selected_text().as_deref(),
+        Some("select name\nfrom")
+    );
+}
+
+#[test]
+fn dragging_past_the_edges_scrolls() {
+    let test = TestCtx::new();
+    let text: Vec<String> = (0..30).map(|i| format!("select {i};")).collect();
+    let mut e = editor(&text.join("\n"));
+    e.focused = true;
+    e.buffer.set_cursor((20, 0), false);
+    render(&test, 40, 6, |f, area, ctx| e.render(f, area, ctx));
+    let (top, _) = e.scroll.get();
+    e.click(2 + 3, 0, true);
+    assert_eq!(e.buffer.cursor().0, top - 1);
+    render(&test, 40, 6, |f, area, ctx| e.render(f, area, ctx));
+    assert_eq!(e.scroll.get().0, top - 1);
+    e.click(2 + 3, 5, true);
+    render(&test, 40, 6, |f, area, ctx| e.render(f, area, ctx));
+    assert!(e.scroll.get().0 >= top);
+}

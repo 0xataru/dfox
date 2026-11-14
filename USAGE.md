@@ -215,6 +215,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - **Ctrl+Z** / **Ctrl+Y** - Undo / redo
 - **Shift+arrows**, **Shift+Home/End** - Select; **Ctrl+A** selects everything
 - **Ctrl+Shift+←/→** or **Alt+Shift+←/→** - Select by word; **Ctrl+L** selects the line, again the next one
+- A double click selects the word, a triple click the line; a drag past the panel's top or bottom
+  scrolls. **Shift+click** extends the selection in terminals that pass it on (most keep it for
+  their own selection)
 - **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (copy without a selection takes the line)
 - **Ctrl+←/→** or **Alt+←/→** - Move by word; **Alt+Backspace** deletes a word
 - On macOS, **Cmd** works as **Ctrl** where the terminal reports it (Ghostty, kitty, WezTerm,

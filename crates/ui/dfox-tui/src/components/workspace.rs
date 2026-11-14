@@ -1429,7 +1429,7 @@ impl Workspace {
                 match panel {
                     Panel::Explorer => return self.explorer.click(event.column, event.row, ctx),
                     Panel::Editor => {
-                        self.editor_mut().click(event.column, event.row, false);
+                        self.editor_mut().click(event.column, event.row, sideways);
                     }
                     Panel::Results => {
                         self.tab_mut().results.click(event.column, event.row, false);
