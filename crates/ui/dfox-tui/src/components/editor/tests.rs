@@ -125,7 +125,16 @@ fn words_and_lines_select() {
     assert_eq!(e.buffer.selected_text().as_deref(), Some("select name\n"));
     press(&mut e, &mut harness, &[Action::Down, Action::SelectLine]);
     assert_eq!(e.buffer.selected_text().as_deref(), Some("where x"));
-    press(&mut e, &mut harness, &[Action::Home, Action::Up, Action::SelectLine, Action::SelectLine]);
+    press(
+        &mut e,
+        &mut harness,
+        &[
+            Action::Home,
+            Action::Up,
+            Action::SelectLine,
+            Action::SelectLine,
+        ],
+    );
     assert_eq!(e.buffer.selected_text().as_deref(), Some("from t\nwhere x"));
 }
 

@@ -298,8 +298,14 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["shift+down"], Action::SelectDown),
         bind(&["shift+home"], Action::SelectHome),
         bind(&["shift+end"], Action::SelectEnd),
-        bind(&["ctrl+shift+left", "alt+shift+left"], Action::SelectWordLeft),
-        bind(&["ctrl+shift+right", "alt+shift+right"], Action::SelectWordRight),
+        bind(
+            &["ctrl+shift+left", "alt+shift+left"],
+            Action::SelectWordLeft,
+        ),
+        bind(
+            &["ctrl+shift+right", "alt+shift+right"],
+            Action::SelectWordRight,
+        ),
         bind(&["ctrl+l"], Action::SelectLine),
         bind(&["alt+backspace", "ctrl+backspace"], Action::DeleteWord),
         bind(&["f1"], Action::Connections),
