@@ -178,6 +178,8 @@ pub struct App {
     pub form: Option<ConnectionForm>,
     pub workspace: Option<Workspace>,
     connecting: Option<Connecting>,
+    /// A found connection being connected to, saved once its login works.
+    remember: Option<String>,
     session: Option<Session>,
     toasts: Toasts,
     log: EventLog,
@@ -253,6 +255,7 @@ impl App {
             form: None,
             workspace: None,
             connecting: None,
+            remember: None,
             session: None,
             toasts: Toasts::default(),
             log: EventLog::default(),

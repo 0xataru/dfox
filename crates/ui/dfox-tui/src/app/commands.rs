@@ -187,6 +187,45 @@ impl App {
         self.show_manager();
     }
 
+    /// Saves a found connection whose login just worked, with its password
+    /// in the keychain, under a name no saved one has. Returns that name.
+    pub(super) fn remember(&mut self, mut connection: Connection, password: &str) -> String {
+        let base = connection.name.clone();
+        let mut n = 1;
+        while self.store.get(&connection.name).is_some() {
+            n += 1;
+            connection.name = format!("{base} ({n})");
+        }
+        let name = connection.name.clone();
+        let now = Instant::now();
+        if let Err(err) = self.store.save(None, connection) {
+            self.toasts
+                .push(Level::Warning, format!("Couldn't save {name}: {err}"), now);
+            return base;
+        }
+        if !password.is_empty() {
+            if let Err(err) = self.secrets.set(&name, password) {
+                self.toasts.push(
+                    Level::Warning,
+                    format!(
+                        "Couldn't keep the password in the keychain ({err}); dfox will ask for it"
+                    ),
+                    now,
+                );
+            }
+        }
+        self.log.push(format!("Saved connection {name}"));
+        self.toasts.push(
+            Level::Success,
+            format!(
+                "Saved {name} for next time: e in the connection list renames it, d deletes it"
+            ),
+            now,
+        );
+        self.manager.saved = self.store.connections.clone();
+        name
+    }
+
     fn delete_connection(&mut self, name: &str) {
         let now = Instant::now();
         match self.store.remove(name) {
@@ -213,6 +252,12 @@ impl App {
     /// Connects to an entry of the manager, with its password from the URL,
     /// the keychain or `.pgpass`, or asks for one.
     fn connect(&mut self, key: EntryKey) {
+        let key_source = match &key {
+            EntryKey::Detected(index) => {
+                self.manager.detected.get(*index).map(|d| d.source.clone())
+            }
+            EntryKey::Saved(_) => None,
+        };
         let (connection, password) = match key {
             EntryKey::Saved(name) => {
                 let Some(connection) = self.store.get(&name).cloned() else {
@@ -225,6 +270,14 @@ impl App {
                 Some(found) => (found.connection.clone(), found.password.clone()),
                 None => return,
             },
+        };
+        // A found server is kept once its login works, as other clients do;
+        // a URL given on the command line or a SQLite file isn't.
+        self.remember = match &key_source {
+            Some(source) if source != "the command line" && connection.driver != DbType::Sqlite => {
+                Some(connection.name.clone())
+            }
+            _ => None,
         };
         let password =
             password.or_else(|| pgpass::lookup(&self.pgpass, &connection).map(str::to_string));

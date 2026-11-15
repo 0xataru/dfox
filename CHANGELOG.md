@@ -29,6 +29,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   listed once, with every way it was found under "Found in" (`docker: postgres:16 ·
   DATABASE_URL`), and what one source lacks taken from another: a password comes only with
   its own user.
+- A found connection is saved the first time its login works, with the password in the
+  keychain, as other clients do: open the same port forward again and Enter logs straight
+  in. It is named as it was found (`localhost:5432`), and can be renamed or deleted in the
+  connection list. A URL given on the command line and SQLite files aren't saved.
 - The connection manager also lists the database services of the Docker Compose file in the
   folder dfox starts in, running or not, read with `docker compose config` (so with its `.env`
   and overrides), the `DB_CONNECTION`/`DB_HOST`/`DB_DATABASE`/`DB_USERNAME` variables of

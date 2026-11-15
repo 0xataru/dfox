@@ -86,7 +86,10 @@ handshake, not its number, and nothing logs in; connecting to one asks for the
 user (`postgres` or `root` filled in) and the password. While the manager is open, dfox
 looks again every 5 seconds in the background: a forward opened in another
 terminal shows up, and one closed goes. Press
-**e** on one to save it. Every connection is checked in the background, so a
+**e** on one to save it. A found server is also saved by itself the first time
+its login works, with the password in the keychain, so the next time (a port
+forward opened again, say) Enter logs straight in; **e** renames it, **d**
+deletes it. A URL given on the command line and SQLite files aren't saved. Every connection is checked in the background, so a
 dot shows whether it is reachable and a sparkline shows its latency.
 
 A connection can be **read-only**: the server refuses writes (Postgres and
