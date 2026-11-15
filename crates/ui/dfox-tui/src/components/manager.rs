@@ -105,6 +105,28 @@ fn merge(listed: &mut Detected, other: Detected) {
     }
 }
 
+/// The section of the list a found connection shows in, by the way it was
+/// found first: the order, then the heading.
+fn group(found: &Detected) -> (u8, String) {
+    let source = found.source.split(" · ").next().unwrap_or_default();
+    if source.starts_with("docker") || source.starts_with("podman") {
+        (2, "Docker".to_string())
+    } else if let Some(context) = source.strip_prefix("kubernetes: ") {
+        let cluster = crate::connections::kubernetes::short_context(context);
+        (3, format!("Kubernetes · {cluster}"))
+    } else if source == "port-forward from k9s"
+        || source.starts_with("kubectl port-forward")
+        || source == "an SSH tunnel"
+        || source.starts_with("port ")
+    {
+        (4, "Local ports".to_string())
+    } else if source.starts_with("a SQLite file") {
+        (5, "SQLite files".to_string())
+    } else {
+        (1, "Environment and config files".to_string())
+    }
+}
+
 /// Where a connection leads: two at the same place are one database.
 fn place(c: &Connection) -> (DbType, String, u16) {
     // A SQLite database is its file.
@@ -138,10 +160,30 @@ impl Manager {
                 None => once.push(found),
             }
         }
-        Self {
+        let mut manager = Self {
             saved,
             detected: once,
             ..Default::default()
+        };
+        manager.regroup();
+        manager
+    }
+
+    /// Keeps the found connections in their sections' order, the selection
+    /// on the same connection. Within a section, as found.
+    fn regroup(&mut self) {
+        let selected = self.entry(self.selected).map(|(_, c)| c.name.clone());
+        self.detected.sort_by_key(|d| group(d).0);
+        if let Some(name) = selected {
+            let at = self
+                .saved
+                .iter()
+                .map(|c| &c.name)
+                .chain(self.detected.iter().map(|d| &d.connection.name))
+                .position(|n| *n == name);
+            if let Some(at) = at {
+                self.selected = at;
+            }
         }
     }
 
@@ -200,6 +242,7 @@ impl Manager {
             .map(|d| d.connection.name.clone())
             .collect();
         self.scanned.extend(added);
+        self.regroup();
         self.select(self.selected);
     }
 
@@ -361,7 +404,13 @@ impl Manager {
     fn render_list(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
         // Leave room for the section headers.
-        let visible = (inner(area).height as usize).saturating_sub(2).max(1);
+        let headers = 1 + self
+            .detected
+            .iter()
+            .map(|d| group(d).0)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        let visible = (inner(area).height as usize).saturating_sub(headers).max(1);
         self.visible.set(visible);
         let width = inner(area).width as usize;
 
@@ -370,11 +419,16 @@ impl Manager {
             if index == 0 && !self.saved.is_empty() {
                 items.push(ListItem::new(Line::styled("Saved", theme.header())));
             }
-            if index == self.saved.len() {
-                items.push(ListItem::new(Line::styled(
-                    "Found on this machine",
-                    theme.header(),
-                )));
+            // A heading where a section of found connections starts.
+            if let Some(found) = index
+                .checked_sub(self.saved.len())
+                .and_then(|i| self.detected.get(i))
+            {
+                let starts = index == self.saved.len()
+                    || group(&self.detected[index - self.saved.len() - 1]) != group(found);
+                if starts {
+                    items.push(ListItem::new(Line::styled(group(found).1, theme.header())));
+                }
             }
             let Some((_, connection)) = self.entry(index) else {
                 continue;

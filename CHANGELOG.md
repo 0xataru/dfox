@@ -37,6 +37,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - The forward dfox opens to a Kubernetes service while connected no longer shows in the list
   as a found `localhost:58683` database: the port search leaves out the `kubectl` processes dfox
   started itself.
+- Found connections are listed in sections by how they were found: environment and config
+  files, Docker, Kubernetes (a section per cluster), local ports, SQLite files. The cursor stays
+  on its connection when a scan adds or removes some.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

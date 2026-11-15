@@ -92,7 +92,9 @@ listening on this machine: a `kubectl port-forward`, a k9s port-forward, an
 handshake, not its number, and nothing logs in; connecting to one asks for the
 user (`postgres` or `root` filled in) and the password. While the manager is open, dfox
 looks again every 5 seconds in the background: a forward opened in another
-terminal shows up, and one closed goes. Press
+terminal shows up, and one closed goes. They are listed in sections by how
+they were found: environment and config files, Docker, Kubernetes (one per
+cluster), local ports and SQLite files. Press
 **e** on one to save it. A found server is also saved by itself the first time
 its login works, with the password in the keychain, so the next time (a port
 forward opened again, say) Enter logs straight in; **e** renames it, **d**
