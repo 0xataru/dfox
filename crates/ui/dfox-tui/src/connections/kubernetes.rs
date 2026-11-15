@@ -51,7 +51,7 @@ pub async fn find(wanted: Vec<String>) -> Vec<Detected> {
             "json",
         ])
         .await
-        .map(|json| parse_endpoints(&json));
+        .and_then(|json| parse_endpoints(&json));
         collapse(parse(&json, context), endpoints.as_ref(), &externals(&json))
     });
     futures_util::future::join_all(found).await.concat()
@@ -134,9 +134,19 @@ async fn kubectl(args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// A list Kubernetes may send as `null` rather than `[]`, as the
+/// endpoints of a slice without ready pods.
+fn list<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[derive(Deserialize)]
 struct List {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "list")]
     items: Vec<Service>,
 }
 
@@ -158,7 +168,7 @@ struct Metadata {
 struct Spec {
     #[serde(default, rename = "clusterIP")]
     cluster_ip: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "list")]
     ports: Vec<Port>,
     /// `ExternalName` for a service that is another one's DNS name.
     #[serde(default, rename = "type")]
@@ -268,9 +278,9 @@ pub fn parse(json: &str, context: &str) -> Vec<Detected> {
 #[derive(Deserialize)]
 struct Slice {
     metadata: SliceMetadata,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "list")]
     endpoints: Vec<SliceEndpoint>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "list")]
     ports: Vec<SlicePort>,
 }
 
@@ -284,7 +294,7 @@ struct SliceMetadata {
 
 #[derive(Deserialize)]
 struct SliceEndpoint {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "list")]
     addresses: Vec<String>,
     #[serde(default)]
     conditions: Conditions,
@@ -306,14 +316,19 @@ struct SlicePort {
 /// Per namespace and service, the ready pods' addresses it leads to,
 /// sorted, from its EndpointSlices: two services with the same ones reach
 /// the same database, and one with none reaches nothing.
-fn parse_endpoints(json: &str) -> BTreeMap<(String, String), Vec<String>> {
+/// None when they can't be read: then nothing is known about any service.
+fn parse_endpoints(json: &str) -> Option<BTreeMap<(String, String), Vec<String>>> {
     #[derive(Deserialize)]
     struct List {
-        #[serde(default)]
+        #[serde(default, deserialize_with = "list")]
         items: Vec<Slice>,
     }
-    let Ok(list) = serde_json::from_str::<List>(json) else {
-        return BTreeMap::new();
+    let list = match serde_json::from_str::<List>(json) {
+        Ok(list) => list,
+        Err(err) => {
+            log::info!("kubectl get endpointslices: {err}");
+            return None;
+        }
     };
     let mut out: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for slice in list.items {
@@ -339,7 +354,7 @@ fn parse_endpoints(json: &str) -> BTreeMap<(String, String), Vec<String>> {
         at.dedup();
     }
     out.retain(|_, at| !at.is_empty());
-    out
+    Some(out)
 }
 
 /// `ExternalName` services naming another service of the cluster
@@ -569,7 +584,7 @@ mod tests {
         ] }"#;
         let found = collapse(
             parse(services, "do-ams3-stage"),
-            Some(&parse_endpoints(endpoints)),
+            parse_endpoints(endpoints).as_ref(),
             &BTreeMap::new(),
         );
         let shown: Vec<(String, String)> = found
@@ -620,7 +635,7 @@ mod tests {
         ] }"#;
         let found = collapse(
             parse(services, "do"),
-            Some(&parse_endpoints(endpoints)),
+            parse_endpoints(endpoints).as_ref(),
             &externals(services),
         );
         assert_eq!(found.len(), 1);
@@ -650,7 +665,7 @@ mod tests {
           { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "down" } },
             "endpoints": [{ "addresses": ["10.1.0.8"], "conditions": { "ready": false } }], "ports": [{ "port": 5432 }] }
         ] }"#;
-        let endpoints = parse_endpoints(slices);
+        let endpoints = parse_endpoints(slices).expect("slices");
         assert!(
             !endpoints.contains_key(&("stage".into(), "down".into())),
             "not ready"
@@ -661,5 +676,20 @@ mod tests {
             .map(|d| d.connection.kube.as_ref().expect("kube").namespace.as_str())
             .collect();
         assert_eq!(namespaces, ["stage"]);
+    }
+
+    #[test]
+    fn slices_without_endpoints_send_null_and_hide_nothing_else() {
+        // As kubectl prints a slice of a service without ready pods.
+        let slices = r#"{ "items": [
+          { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "pg" } },
+            "endpoints": [{ "addresses": ["10.1.0.7"], "conditions": { "ready": null } }], "ports": [{ "port": 5432 }] },
+          { "metadata": { "namespace": "default", "labels": { "kubernetes.io/service-name": "old" } },
+            "endpoints": null, "ports": null }
+        ] }"#;
+        let endpoints = parse_endpoints(slices).expect("read despite the nulls");
+        assert_eq!(endpoints.len(), 1);
+        // Unreadable slices tell nothing: every service stays.
+        assert!(parse_endpoints("not json").is_none());
     }
 }
