@@ -168,6 +168,9 @@ pub struct Connection {
     /// The SSH jump host to go through, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<Ssh>,
+    /// The Kubernetes service to reach it through, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kube: Option<dfox_core::models::connections::KubeParams>,
 }
 
 impl Connection {
@@ -184,6 +187,7 @@ impl Connection {
             read_only: false,
             tag: Tag::None,
             ssh: None,
+            kube: None,
         }
     }
 
@@ -253,6 +257,7 @@ impl Connection {
             tls: self.tls,
             ca_file: self.ca_file.as_deref().map(expand_home),
             ssh: self.ssh.as_ref().map(|ssh| ssh.params(None)),
+            kube: self.kube.clone(),
             tunnel: None,
             read_only: self.read_only,
         }
@@ -273,6 +278,17 @@ impl Connection {
         }
         if let Some(ssh) = &self.ssh {
             address = format!("{address} via {}", ssh.host);
+        }
+        if let Some(kube) = &self.kube {
+            // The service is the address; its port is the database's.
+            let mut place = format!("svc/{}:{} in {}", kube.service, params.port, kube.namespace);
+            if !self.user.is_empty() {
+                place = format!("{}@{place}", self.user);
+            }
+            if let Some(context) = &kube.context {
+                place = format!("{place} ({context})");
+            }
+            return place;
         }
         address
     }

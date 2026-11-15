@@ -6,7 +6,6 @@ expression: "render(&test, 80, 24, |f, area, ctx| form.render(f, area, ctx))"
 
 
 
-
        ╭ New connection ────────────────────────────────────────────────╮
        │                                                                │
        │   Name          shop                                           │
@@ -18,6 +17,7 @@ expression: "render(&test, 80, 24, |f, area, ctx| form.render(f, area, ctx))"
        │   Password      asked when connecting                          │
        │   TLS           ‹ prefer ›                                     │
        │   SSH           ‹ off ›                                        │
+       │   Kubernetes    ‹ off ›                                        │
        │   Read-only     ‹ no ›                                         │
        │   Tag           ‹ none ›                                       │
        │                                                                │

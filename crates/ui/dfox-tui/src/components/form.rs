@@ -1,6 +1,6 @@
 //! The form for a new connection, or for editing a saved one.
 
-use dfox_core::models::connections::{DbType, TlsMode};
+use dfox_core::models::connections::{DbType, KubeParams, TlsMode};
 use ratatui::{
     layout::Rect,
     style::Style,
@@ -39,6 +39,10 @@ enum Field {
     SshKey,
     SshSecret,
     KnownHosts,
+    Kube,
+    KubeContext,
+    KubeNamespace,
+    KubeService,
     ReadOnly,
     Tag,
 }
@@ -47,7 +51,7 @@ impl Field {
     fn is_text(self) -> bool {
         !matches!(
             self,
-            Field::Driver | Field::Tls | Field::Ssh | Field::ReadOnly | Field::Tag
+            Field::Driver | Field::Tls | Field::Ssh | Field::Kube | Field::ReadOnly | Field::Tag
         )
     }
 }
@@ -95,6 +99,11 @@ pub struct ConnectionForm {
     ssh_key: String,
     ssh_secret: String,
     known_hosts: String,
+    /// Through a Kubernetes service instead of a host.
+    kube: bool,
+    kube_context: String,
+    kube_namespace: String,
+    kube_service: String,
     read_only: bool,
     tag: Tag,
     field: usize,
@@ -136,6 +145,7 @@ impl ConnectionForm {
         password: Option<String>,
     ) -> Self {
         let ssh = connection.ssh.as_ref();
+        let kube = connection.kube.as_ref();
         let ssh_text = |get: fn(&Ssh) -> Option<String>| ssh.and_then(get).unwrap_or_default();
         Self {
             original,
@@ -155,6 +165,10 @@ impl ConnectionForm {
             ssh_key: ssh_text(|s| s.key.clone()),
             ssh_secret: String::new(),
             known_hosts: ssh_text(|s| s.known_hosts.clone()),
+            kube: connection.kube.is_some(),
+            kube_context: kube.and_then(|k| k.context.clone()).unwrap_or_default(),
+            kube_namespace: kube.map(|k| k.namespace.clone()).unwrap_or_default(),
+            kube_service: kube.map(|k| k.service.clone()).unwrap_or_default(),
             read_only: connection.read_only,
             tag: connection.tag,
             field: 0,
@@ -172,21 +186,25 @@ impl ConnectionForm {
                 Field::Tag,
             ];
         }
-        let mut fields = vec![
-            Field::Name,
-            Field::Driver,
-            Field::Host,
+        let mut fields = vec![Field::Name, Field::Driver];
+        // Through Kubernetes the service is the address.
+        if !self.kube {
+            fields.push(Field::Host);
+        }
+        fields.extend([
             Field::Port,
             Field::Database,
             Field::User,
             Field::Password,
             Field::Tls,
-        ];
+        ]);
         if self.tls == TlsMode::VerifyFull {
             fields.push(Field::CaFile);
         }
-        fields.push(Field::Ssh);
-        if let Some(login) = self.ssh {
+        if !self.kube {
+            fields.push(Field::Ssh);
+        }
+        if let Some(login) = self.ssh.filter(|_| !self.kube) {
             fields.extend([Field::SshHost, Field::SshPort, Field::SshUser]);
             if login == SshLogin::Key {
                 fields.push(Field::SshKey);
@@ -195,6 +213,12 @@ impl ConnectionForm {
                 fields.push(Field::SshSecret);
             }
             fields.push(Field::KnownHosts);
+        }
+        if self.ssh.is_none() || self.kube {
+            fields.push(Field::Kube);
+        }
+        if self.kube {
+            fields.extend([Field::KubeContext, Field::KubeNamespace, Field::KubeService]);
         }
         fields.extend([Field::ReadOnly, Field::Tag]);
         fields
@@ -220,6 +244,9 @@ impl ConnectionForm {
             Field::SshKey => &self.ssh_key,
             Field::SshSecret => &self.ssh_secret,
             Field::KnownHosts => &self.known_hosts,
+            Field::KubeContext => &self.kube_context,
+            Field::KubeNamespace => &self.kube_namespace,
+            Field::KubeService => &self.kube_service,
             _ => return None,
         })
     }
@@ -239,6 +266,9 @@ impl ConnectionForm {
             Field::SshKey => &mut self.ssh_key,
             Field::SshSecret => &mut self.ssh_secret,
             Field::KnownHosts => &mut self.known_hosts,
+            Field::KubeContext => &mut self.kube_context,
+            Field::KubeNamespace => &mut self.kube_namespace,
+            Field::KubeService => &mut self.kube_service,
             _ => return None,
         })
     }
@@ -254,6 +284,7 @@ impl ConnectionForm {
             Field::Driver => self.driver = step(&DRIVERS, self.driver, forward),
             Field::Tls => self.tls = step(&TLS, self.tls, forward),
             Field::Ssh => self.ssh = step(&SSH, self.ssh, forward),
+            Field::Kube => self.kube = !self.kube,
             Field::ReadOnly => self.read_only = !self.read_only,
             Field::Tag => self.tag = step(&Tag::ALL, self.tag, forward),
             _ => {}
@@ -280,6 +311,23 @@ impl ConnectionForm {
             login,
             key: key.filter(|_| login == SshLogin::Key),
             known_hosts: optional(&self.known_hosts),
+        }))
+    }
+
+    /// The Kubernetes service described by the form, or what is wrong
+    /// with it.
+    fn kube(&self) -> Result<Option<KubeParams>, String> {
+        if !self.kube {
+            return Ok(None);
+        }
+        let service = self.kube_service.trim();
+        if service.is_empty() {
+            return Err("Enter the Kubernetes service".to_string());
+        }
+        Ok(Some(KubeParams {
+            context: optional(&self.kube_context),
+            namespace: optional(&self.kube_namespace).unwrap_or_else(|| "default".to_string()),
+            service: service.trim_start_matches("svc/").to_string(),
         }))
     }
 
@@ -313,7 +361,12 @@ impl ConnectionForm {
             ca_file: optional(&self.ca_file).filter(|_| !sqlite && self.tls == TlsMode::VerifyFull),
             read_only: self.read_only,
             tag: self.tag,
-            ssh: if sqlite { None } else { self.ssh()? },
+            ssh: if sqlite || self.kube {
+                None
+            } else {
+                self.ssh()?
+            },
+            kube: if sqlite { None } else { self.kube()? },
         })
     }
 
@@ -492,6 +545,14 @@ impl ConnectionForm {
                 self.known_hosts.clone(),
                 "~/.ssh/known_hosts",
             ),
+            Field::Kube => (
+                "Kubernetes",
+                choice(if self.kube { "on" } else { "off" }),
+                "",
+            ),
+            Field::KubeContext => ("  Context", self.kube_context.clone(), "the current one"),
+            Field::KubeNamespace => ("  Namespace", self.kube_namespace.clone(), "default"),
+            Field::KubeService => ("  Service", self.kube_service.clone(), "postgres"),
             Field::ReadOnly => (
                 "Read-only",
                 choice(if self.read_only { "yes" } else { "no" }),
@@ -524,6 +585,40 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_through_a_kubernetes_service() {
+        let mut form = ConnectionForm::new();
+        type_text(&mut form, "crm stage");
+        form.kube = true;
+        // Without a service there is nowhere to forward to.
+        assert_eq!(
+            form.connection().err().as_deref(),
+            Some("Enter the Kubernetes service")
+        );
+        form.kube_service = "svc/crm-db".into();
+        form.kube_namespace = "crm".into();
+        form.user = "app".into();
+        let connection = form.connection().expect("valid");
+        assert_eq!(connection.address(), "app@svc/crm-db:5432 in crm");
+        assert!(connection.ssh.is_none());
+        let params = connection.params("pw", None);
+        assert_eq!(
+            params.kube,
+            Some(KubeParams {
+                context: None,
+                namespace: "crm".into(),
+                service: "crm-db".into(),
+            })
+        );
+        // Host and SSH give way to the service's fields.
+        let fields = form.fields();
+        assert!(!fields.contains(&Field::Host) && !fields.contains(&Field::Ssh));
+        assert!(fields.contains(&Field::KubeService));
+        // Saved and read back, it stays a Kubernetes connection.
+        let edited = ConnectionForm::edit(Some("crm stage".into()), &connection, None);
+        assert_eq!(edited.connection().expect("valid"), connection);
+    }
+
+    #[test]
     fn filling_in_a_server_connection() {
         let mut form = ConnectionForm::new();
         type_text(&mut form, "shop");
@@ -533,10 +628,16 @@ mod tests {
         type_text(&mut form, "app");
         act(&mut form, &[Action::Down]);
         type_text(&mut form, "secret");
-        // Past TLS and SSH to read-only.
+        // Past TLS, SSH and Kubernetes to read-only.
         act(
             &mut form,
-            &[Action::Down, Action::Down, Action::Down, Action::Right],
+            &[
+                Action::Down,
+                Action::Down,
+                Action::Down,
+                Action::Down,
+                Action::Right,
+            ],
         );
 
         match act(&mut form, &[Action::Save]) {

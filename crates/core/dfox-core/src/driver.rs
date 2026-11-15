@@ -160,8 +160,8 @@ impl Drivers {
 }
 
 /// How long it takes to reach the database, without logging in: a TCP
-/// connect to the server (or its SSH jump host), or reading a SQLite file's
-/// metadata. Needs no
+/// connect to the server (or its SSH jump host), asking the cluster for its
+/// Kubernetes service, or reading a SQLite file's metadata. Needs no
 /// password and no driver.
 pub async fn ping(db_type: DbType, params: &ConnectionParams) -> Result<Duration, DbError> {
     const TIMEOUT: Duration = Duration::from_secs(3);
@@ -172,6 +172,39 @@ pub async fn ping(db_type: DbType, params: &ConnectionParams) -> Result<Duration
             tokio::fs::metadata(path)
                 .await
                 .map_err(|err| DbError::Connection(format!("{path}: {err}")))?;
+        }
+        _ if params.kube.is_some() => {
+            let kube = params.kube.as_ref().expect("checked");
+            let mut args: Vec<&str> = Vec::new();
+            if let Some(context) = &kube.context {
+                args.extend(["--context", context]);
+            }
+            args.extend([
+                "-n",
+                &kube.namespace,
+                "get",
+                "service",
+                &kube.service,
+                "-o",
+                "name",
+            ]);
+            // Logging in to a cloud cluster can take a few seconds.
+            let run = tokio::process::Command::new("kubectl")
+                .args(&args)
+                .kill_on_drop(true)
+                .output();
+            let out = tokio::time::timeout(TIMEOUT * 3, run)
+                .await
+                .map_err(|_| DbError::Connection("kubectl: timed out".to_string()))?
+                .map_err(|err| DbError::Connection(format!("kubectl: {err}")))?;
+            if !out.status.success() {
+                let error = String::from_utf8_lossy(&out.stderr);
+                let line = error.lines().last().unwrap_or("kubectl failed").trim();
+                return Err(DbError::Connection(format!(
+                    "kubectl: {}",
+                    line.strip_prefix("error: ").unwrap_or(line)
+                )));
+            }
         }
         _ => {
             // Through a tunnel, the jump host is what has to be reachable.

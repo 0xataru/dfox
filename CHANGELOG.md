@@ -9,6 +9,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- A connection can go through a Kubernetes service: dfox runs `kubectl port-forward` to it on
+  a free local port when connecting and stops it when the session ends, also if dfox dies.
+  The form takes the service, namespace and context; `kubectl` and the kubeconfig do the
+  login, cloud plugins included. It's saved by service, not pod, and the connection list
+  checks the service is there.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

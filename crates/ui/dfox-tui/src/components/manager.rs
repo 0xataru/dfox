@@ -432,7 +432,18 @@ impl Manager {
             lines.push(field("File", connection.address()));
         } else {
             let params = connection.target();
-            lines.push(field("Host", format!("{}:{}", params.host, params.port)));
+            match &connection.kube {
+                Some(kube) => {
+                    let mut service =
+                        format!("svc/{}:{} in {}", kube.service, params.port, kube.namespace);
+                    if let Some(context) = &kube.context {
+                        service.push_str(&format!(" ({context})"));
+                    }
+                    lines.push(field("Service", service));
+                    lines.push(field("Through", "kubectl port-forward".to_string()));
+                }
+                None => lines.push(field("Host", format!("{}:{}", params.host, params.port))),
+            }
             lines.push(field(
                 "Database",
                 connection
