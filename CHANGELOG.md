@@ -43,9 +43,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   as a found `localhost:58683` database: the port search leaves out the `kubectl` processes dfox
   started itself, nor any other dfox's: a forward is told by the shell that stops it, so one
   still stopping after dfox quits doesn't flash under "Local ports" at the next start.
-- Kubernetes services of a namespace that lead to the same pods (as `postgresql` and
-  `stage-postgresql`) show once, under the more specific name, with "also svc/…" in its
-  source.
+- Kubernetes services that lead to the same database show once, under the more specific name,
+  with "also svc/… in ns …" in its source: services of any namespace reaching the same pods
+  (from EndpointSlices), and `ExternalName` services naming another one. A service that
+  reaches no ready pod (a leftover of an old install) isn't listed, and a database saved under
+  one of its names isn't found again under another.
 - Every warning and error the app shows also goes to the event log (F12) and the debug log,
   so a toast cut short can be read whole.
 - Found connections are listed in sections by how they were found: environment and config

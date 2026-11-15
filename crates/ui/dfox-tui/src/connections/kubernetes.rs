@@ -45,15 +45,14 @@ pub async fn find(wanted: Vec<String>) -> Vec<Detected> {
             "--context",
             context,
             "get",
-            "endpoints",
+            "endpointslices",
             "--all-namespaces",
             "-o",
             "json",
         ])
         .await
-        .map(|json| parse_endpoints(&json))
-        .unwrap_or_default();
-        collapse(parse(&json, context), &endpoints)
+        .map(|json| parse_endpoints(&json));
+        collapse(parse(&json, context), endpoints.as_ref(), &externals(&json))
     });
     futures_util::future::join_all(found).await.concat()
 }
@@ -161,6 +160,11 @@ struct Spec {
     cluster_ip: Option<String>,
     #[serde(default)]
     ports: Vec<Port>,
+    /// `ExternalName` for a service that is another one's DNS name.
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
+    #[serde(default, rename = "externalName")]
+    external_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -262,70 +266,146 @@ pub fn parse(json: &str, context: &str) -> Vec<Detected> {
 }
 
 #[derive(Deserialize)]
-struct Endpoints {
-    metadata: Metadata,
+struct Slice {
+    metadata: SliceMetadata,
     #[serde(default)]
-    subsets: Vec<Subset>,
+    endpoints: Vec<SliceEndpoint>,
+    #[serde(default)]
+    ports: Vec<SlicePort>,
 }
 
 #[derive(Deserialize)]
-struct Subset {
+struct SliceMetadata {
     #[serde(default)]
-    addresses: Vec<Address>,
+    namespace: String,
     #[serde(default)]
-    ports: Vec<EndpointPort>,
+    labels: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
-struct Address {
-    ip: String,
+struct SliceEndpoint {
+    #[serde(default)]
+    addresses: Vec<String>,
+    #[serde(default)]
+    conditions: Conditions,
+}
+
+#[derive(Deserialize, Default)]
+struct Conditions {
+    /// Unset means ready.
+    #[serde(default)]
+    ready: Option<bool>,
 }
 
 #[derive(Deserialize)]
-struct EndpointPort {
-    port: u16,
+struct SlicePort {
+    #[serde(default)]
+    port: Option<u16>,
 }
 
-/// Per namespace and service, the pods' addresses it leads to, sorted:
-/// two services with the same ones reach the same database.
+/// Per namespace and service, the ready pods' addresses it leads to,
+/// sorted, from its EndpointSlices: two services with the same ones reach
+/// the same database, and one with none reaches nothing.
 fn parse_endpoints(json: &str) -> BTreeMap<(String, String), Vec<String>> {
     #[derive(Deserialize)]
     struct List {
         #[serde(default)]
-        items: Vec<Endpoints>,
+        items: Vec<Slice>,
     }
+    let Ok(list) = serde_json::from_str::<List>(json) else {
+        return BTreeMap::new();
+    };
+    let mut out: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for slice in list.items {
+        let Some(service) = slice.metadata.labels.get("kubernetes.io/service-name") else {
+            continue;
+        };
+        let ports: Vec<u16> = slice.ports.iter().filter_map(|p| p.port).collect();
+        let at = out
+            .entry((slice.metadata.namespace.clone(), service.clone()))
+            .or_default();
+        for endpoint in slice
+            .endpoints
+            .iter()
+            .filter(|e| e.conditions.ready != Some(false))
+        {
+            for address in &endpoint.addresses {
+                at.extend(ports.iter().map(|port| format!("{address}:{port}")));
+            }
+        }
+    }
+    for at in out.values_mut() {
+        at.sort();
+        at.dedup();
+    }
+    out.retain(|_, at| !at.is_empty());
+    out
+}
+
+/// `ExternalName` services naming another service of the cluster
+/// (`stage-postgresql.stage.svc.cluster.local`): which one, by namespace
+/// and name.
+fn externals(json: &str) -> BTreeMap<(String, String), (String, String)> {
     let Ok(list) = serde_json::from_str::<List>(json) else {
         return BTreeMap::new();
     };
     list.items
         .into_iter()
-        .filter_map(|e| {
-            let mut at: Vec<String> = e
-                .subsets
-                .iter()
-                .flat_map(|s| {
-                    s.addresses
-                        .iter()
-                        .flat_map(|a| s.ports.iter().map(move |p| format!("{}:{}", a.ip, p.port)))
-                })
-                .collect();
-            at.sort();
-            (!at.is_empty()).then_some(((e.metadata.namespace, e.metadata.name), at))
+        .filter(|s| s.spec.kind.as_deref() == Some("ExternalName"))
+        .filter_map(|s| {
+            let target = s.spec.external_name?;
+            let mut parts = target.split('.');
+            let (name, namespace) = (parts.next()?, parts.next()?);
+            (parts.next() == Some("svc")).then(|| {
+                (
+                    (s.metadata.namespace, s.metadata.name),
+                    (namespace.to_string(), name.to_string()),
+                )
+            })
         })
         .collect()
 }
 
-/// One entry per database: services of a namespace that lead to the same
-/// pods show once, under the most specific name (`stage-postgresql` rather
-/// than `postgresql`), the others named in its source.
+/// One entry per database: services that lead to the same pods, in any
+/// namespace (pod addresses are the cluster's own), or that name another
+/// service, show once under the most specific name (`stage-postgresql`
+/// rather than `postgresql`), the others named in its source.
 fn collapse(
     found: Vec<Detected>,
-    endpoints: &BTreeMap<(String, String), Vec<String>>,
+    endpoints: Option<&BTreeMap<(String, String), Vec<String>>>,
+    externals: &BTreeMap<(String, String), (String, String)>,
 ) -> Vec<Detected> {
-    let pods = |d: &Detected| {
+    // Known endpoints tell a service that reaches no pod: left out, as
+    // there is nothing to connect to. Unknown ones (no right to list them)
+    // leave every service in.
+    let none = BTreeMap::new();
+    let (endpoints, known) = match endpoints {
+        Some(endpoints) => (endpoints, true),
+        None => (&none, false),
+    };
+    let found: Vec<Detected> = found
+        .into_iter()
+        .filter(|d| {
+            let Some(kube) = &d.connection.kube else {
+                return true;
+            };
+            let key = (kube.namespace.clone(), kube.service.clone());
+            !known || externals.contains_key(&key) || endpoints.contains_key(&key)
+        })
+        .collect();
+    let pods = |d: &Detected| -> Option<Vec<String>> {
         let kube = d.connection.kube.as_ref()?;
-        let key = (kube.namespace.clone(), kube.service.clone());
-        Some((kube.namespace.clone(), endpoints.get(&key)?.clone()))
+        let mut key = (kube.namespace.clone(), kube.service.clone());
+        if let Some(target) = externals.get(&key) {
+            key = target.clone();
+        }
+        Some(
+            endpoints
+                .get(&key)
+                .cloned()
+                // A service without ready pods is told by its name.
+                .unwrap_or_else(|| vec![format!("svc:{}/{}", key.0, key.1)]),
+        )
     };
     let specific = |d: &Detected| {
         let service = d
@@ -351,11 +431,34 @@ fn collapse(
         let mut keep = keep;
         if let Some(kube) = &other.connection.kube {
             // After ` · `, so the section is still told by the first part.
-            keep.source = format!("{} · also svc/{}", keep.source, kube.service);
+            keep.source = format!(
+                "{} · also svc/{} in ns {}",
+                keep.source, kube.service, kube.namespace
+            );
+        }
+        // The aliases it already had come along.
+        for alias in other
+            .source
+            .split(" · ")
+            .filter(|s| s.starts_with("also svc/"))
+        {
+            keep.source = format!("{} · {alias}", keep.source);
         }
         kept[i] = keep;
     }
     kept
+}
+
+/// The other services a found Kubernetes connection stands for, as
+/// `(namespace, service)`: from its source's `also svc/<name> in ns <ns>`.
+pub fn aliases(source: &str) -> Vec<(String, String)> {
+    source
+        .split(" · ")
+        .filter_map(|part| {
+            let (service, namespace) = part.strip_prefix("also svc/")?.split_once(" in ns ")?;
+            Some((namespace.to_string(), service.to_string()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -457,16 +560,17 @@ mod tests {
             "spec": { "clusterIP": "10.0.0.3", "ports": [{ "port": 5432 }] } }
         ] }"#;
         let endpoints = r#"{ "items": [
-          { "metadata": { "name": "postgresql", "namespace": "stage" },
-            "subsets": [{ "addresses": [{ "ip": "10.1.0.7" }], "ports": [{ "port": 5432 }] }] },
-          { "metadata": { "name": "stage-postgresql", "namespace": "stage" },
-            "subsets": [{ "addresses": [{ "ip": "10.1.0.7" }], "ports": [{ "port": 5432 }] }] },
-          { "metadata": { "name": "other-postgresql", "namespace": "stage" },
-            "subsets": [{ "addresses": [{ "ip": "10.1.0.9" }], "ports": [{ "port": 5432 }] }] }
+          { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "postgresql" } },
+            "endpoints": [{ "addresses": ["10.1.0.7"], "conditions": { "ready": true } }], "ports": [{ "port": 5432 }] },
+          { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "stage-postgresql" } },
+            "endpoints": [{ "addresses": ["10.1.0.7"], "conditions": { "ready": true } }], "ports": [{ "port": 5432 }] },
+          { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "other-postgresql" } },
+            "endpoints": [{ "addresses": ["10.1.0.9"], "conditions": { "ready": true } }], "ports": [{ "port": 5432 }] }
         ] }"#;
         let found = collapse(
             parse(services, "do-ams3-stage"),
-            &parse_endpoints(endpoints),
+            Some(&parse_endpoints(endpoints)),
+            &BTreeMap::new(),
         );
         let shown: Vec<(String, String)> = found
             .iter()
@@ -482,7 +586,7 @@ mod tests {
             [
                 (
                     "stage-postgresql".into(),
-                    "kubernetes: do-ams3-stage · also svc/postgresql".into()
+                    "kubernetes: do-ams3-stage · also svc/postgresql in ns stage".into()
                 ),
                 (
                     "other-postgresql".into(),
@@ -490,7 +594,72 @@ mod tests {
                 ),
             ]
         );
-        // Without endpoints, every service shows.
-        assert_eq!(collapse(parse(services, "x"), &BTreeMap::new()).len(), 3);
+        // Without the right to list endpoints, every service shows.
+        assert_eq!(
+            collapse(parse(services, "x"), None, &BTreeMap::new()).len(),
+            3
+        );
+    }
+
+    #[test]
+    fn aliases_in_other_namespaces_and_external_names_show_once() {
+        let services = r#"{ "items": [
+          { "metadata": { "name": "stage-postgresql", "namespace": "stage" },
+            "spec": { "clusterIP": "10.0.0.2", "ports": [{ "port": 5432 }] } },
+          { "metadata": { "name": "stage-postgresql", "namespace": "default" },
+            "spec": { "clusterIP": "10.0.0.4", "ports": [{ "port": 5432 }] } },
+          { "metadata": { "name": "db", "namespace": "apps" },
+            "spec": { "type": "ExternalName", "externalName": "stage-postgresql.stage.svc.cluster.local",
+                      "ports": [{ "port": 5432 }] } }
+        ] }"#;
+        let endpoints = r#"{ "items": [
+          { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "stage-postgresql" } },
+            "endpoints": [{ "addresses": ["10.1.0.7"], "conditions": { "ready": true } }], "ports": [{ "port": 5432 }] },
+          { "metadata": { "namespace": "default", "labels": { "kubernetes.io/service-name": "stage-postgresql" } },
+            "endpoints": [{ "addresses": ["10.1.0.7"], "conditions": { "ready": true } }], "ports": [{ "port": 5432 }] }
+        ] }"#;
+        let found = collapse(
+            parse(services, "do"),
+            Some(&parse_endpoints(endpoints)),
+            &externals(services),
+        );
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            aliases(&found[0].source),
+            [
+                ("default".to_string(), "stage-postgresql".to_string()),
+                ("apps".to_string(), "db".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_service_that_reaches_no_pod_is_left_out() {
+        let services = r#"{ "items": [
+          { "metadata": { "name": "stage-postgresql", "namespace": "stage" },
+            "spec": { "clusterIP": "10.0.0.2", "ports": [{ "port": 5432 }] } },
+          { "metadata": { "name": "stage-postgresql", "namespace": "default" },
+            "spec": { "clusterIP": "10.0.0.4", "ports": [{ "port": 5432 }] } }
+        ] }"#;
+        // The one in `default` selects pods of its own namespace: none.
+        let slices = r#"{ "items": [
+          { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "stage-postgresql" } },
+            "endpoints": [{ "addresses": ["10.1.0.7"] }], "ports": [{ "port": 5432 }] },
+          { "metadata": { "namespace": "default", "labels": { "kubernetes.io/service-name": "stage-postgresql" } },
+            "endpoints": [], "ports": [{ "port": 5432 }] },
+          { "metadata": { "namespace": "stage", "labels": { "kubernetes.io/service-name": "down" } },
+            "endpoints": [{ "addresses": ["10.1.0.8"], "conditions": { "ready": false } }], "ports": [{ "port": 5432 }] }
+        ] }"#;
+        let endpoints = parse_endpoints(slices);
+        assert!(
+            !endpoints.contains_key(&("stage".into(), "down".into())),
+            "not ready"
+        );
+        let found = collapse(parse(services, "do"), Some(&endpoints), &BTreeMap::new());
+        let namespaces: Vec<&str> = found
+            .iter()
+            .map(|d| d.connection.kube.as_ref().expect("kube").namespace.as_str())
+            .collect();
+        assert_eq!(namespaces, ["stage"]);
     }
 }

@@ -313,3 +313,25 @@ fn each_cluster_has_one_section() {
         .collect();
     assert_eq!(names, ["b", "a", "c"]);
 }
+
+#[test]
+fn a_database_saved_under_an_alias_isnt_found_again() {
+    let kube = |namespace: &str, service: &str| {
+        let mut connection = Connection::new(service, DbType::Postgres);
+        connection.port = Some(5432);
+        connection.kube = Some(dfox_core::models::connections::KubeParams {
+            context: Some("do".into()),
+            namespace: namespace.into(),
+            service: service.into(),
+        });
+        connection
+    };
+    let found = Detected {
+        connection: kube("apps", "db"),
+        password: None,
+        source: "kubernetes: do · also svc/stage-postgresql in ns stage".into(),
+    };
+    let mut manager = Manager::new(vec![kube("stage", "stage-postgresql")], Vec::new());
+    manager.rescanned(vec![found]);
+    assert!(manager.detected.is_empty());
+}

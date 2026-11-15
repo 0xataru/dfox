@@ -127,6 +127,24 @@ fn group(found: &Detected) -> (u8, String) {
     }
 }
 
+/// Every place a found connection leads to: its own, and for a Kubernetes
+/// one, the other services it stands for.
+fn places(found: &Detected) -> Vec<(DbType, String, u16)> {
+    let mut all = vec![place(&found.connection)];
+    if let Some(kube) = &found.connection.kube {
+        for (namespace, service) in crate::connections::kubernetes::aliases(&found.source) {
+            let mut alias = found.connection.clone();
+            alias.kube = Some(dfox_core::models::connections::KubeParams {
+                context: kube.context.clone(),
+                namespace,
+                service,
+            });
+            all.push(place(&alias));
+        }
+    }
+    all
+}
+
 /// Where a connection leads: two at the same place are one database.
 fn place(c: &Connection) -> (DbType, String, u16) {
     // A SQLite database is its file.
@@ -226,7 +244,7 @@ impl Manager {
                 self.detected
                     .iter()
                     .filter(|d| self.scanned.contains(&d.connection.name))
-                    .filter(|d| saved.contains(&place(&d.connection)))
+                    .filter(|d| places(d).iter().any(|p| saved.contains(p)))
                     .map(|d| d.connection.name.clone()),
             )
             .collect();
@@ -252,7 +270,9 @@ impl Manager {
     fn found(&mut self, more: Vec<Detected>) {
         for found in more {
             let at = place(&found.connection);
-            if self.saved.iter().any(|c| place(c) == at) {
+            // Saved under any of the names it goes by: shown as saved.
+            let leads = places(&found);
+            if self.saved.iter().any(|c| leads.contains(&place(c))) {
                 continue;
             }
             match self
