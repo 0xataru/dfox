@@ -70,8 +70,11 @@ password, dfox looks in `~/.pgpass` (or `$PGPASSFILE`) for Postgres and in
 MySQL, and otherwise asks.
 
 The manager also lists connections found on the machine: `DATABASE_URL`
-(from the environment or a `.env` file), the entries of `~/.pgpass`, and
-`~/.my.cnf` when it names a host, and databases running in Docker or Podman
+(from the environment or a `.env` file) and the engines' other variables
+(`POSTGRES_URL`, `REDIS_URL`, `MONGODB_URI`, `PGHOST`/`PGUSER`/`PGDATABASE`,
+`MYSQL_HOST`…), SQLite files in the folder dfox starts in and its `database`,
+`db`, `data`, `prisma` and `storage` folders, the entries of `~/.pgpass`, the
+services of `~/.pg_service.conf`, `~/.my.cnf` when it names a host, and databases running in Docker or Podman
 containers that publish their port (Postgres, MySQL, MariaDB, MongoDB, Redis,
 Valkey, Cassandra, ScyllaDB), with the user, password and database from the
 container's environment (`POSTGRES_PASSWORD`…), and databases behind ports

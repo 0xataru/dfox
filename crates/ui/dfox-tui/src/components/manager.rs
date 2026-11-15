@@ -74,6 +74,10 @@ pub struct Manager {
 
 /// Where a connection leads: two at the same place are one database.
 fn place(c: &Connection) -> (DbType, String, u16) {
+    // A SQLite database is its file.
+    if c.driver == DbType::Sqlite {
+        return (c.driver, c.database.clone().unwrap_or_default(), 0);
+    }
     let params = c.target();
     let host = match params.host.as_str() {
         "localhost" | "::1" => "127.0.0.1".to_string(),
@@ -83,10 +87,22 @@ fn place(c: &Connection) -> (DbType, String, u16) {
 }
 
 impl Manager {
+    /// The manager over `saved` and `detected`, each detected database
+    /// once: the first found of those at the same place stays, so one given
+    /// on the command line keeps its index.
     pub fn new(saved: Vec<Connection>, detected: Vec<Detected>) -> Self {
+        let mut once: Vec<Detected> = Vec::new();
+        for found in detected {
+            if !once
+                .iter()
+                .any(|d| place(&d.connection) == place(&found.connection))
+            {
+                once.push(found);
+            }
+        }
         Self {
             saved,
-            detected,
+            detected: once,
             ..Default::default()
         }
     }
