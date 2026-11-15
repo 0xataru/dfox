@@ -155,3 +155,30 @@ fn scans_add_new_databases_and_drop_gone_ones() {
     manager.rescanned(vec![detected(at("cache", "127.0.0.1", 16379))]);
     assert_eq!(names(&manager), ["from env"]);
 }
+
+#[test]
+fn the_same_database_found_twice_is_listed_once() {
+    let found = |name: &str, url: &str| {
+        let (connection, password) = crate::connections::url::parse(name, url).expect("url");
+        Detected {
+            connection,
+            password,
+            source: name.into(),
+        }
+    };
+    let manager = Manager::new(
+        Vec::new(),
+        vec![
+            found("DATABASE_URL", "postgres://app@localhost:5432/shop"),
+            found("POSTGRES_URL", "postgres://app@127.0.0.1/shop"),
+            found("a.db", "a.db"),
+            found("b.db", "b.db"),
+        ],
+    );
+    let names: Vec<&str> = manager
+        .detected
+        .iter()
+        .map(|d| d.connection.name.as_str())
+        .collect();
+    assert_eq!(names, ["DATABASE_URL", "a.db", "b.db"]);
+}

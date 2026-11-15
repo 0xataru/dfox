@@ -6,6 +6,7 @@
 
 pub mod containers;
 pub mod discover;
+pub mod local;
 pub mod mycnf;
 pub mod pgpass;
 pub mod ports;
