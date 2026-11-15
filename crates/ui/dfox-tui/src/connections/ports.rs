@@ -102,12 +102,34 @@ async fn listeners() -> Option<Vec<Listener>> {
         Some(out) => parse_lsof(&out),
         None => parse_ss(&run("ss", &["-ltnpH"]).await?),
     };
-    Some(
-        found
-            .into_iter()
-            .filter(|l| !is_container_engine(&l.process))
-            .collect(),
-    )
+    let mut kept = Vec::new();
+    for listener in found {
+        // dfox's own forwards to Kubernetes services lead to connections
+        // it already lists.
+        let ours = listener.process == "kubectl" && started_by_dfox(listener.pid).await;
+        if !is_container_engine(&listener.process) && !ours {
+            kept.push(listener);
+        }
+    }
+    Some(kept)
+}
+
+/// Whether `pid` runs under this dfox: its parent, or its parent's parent
+/// (kubectl runs under the shell that stops it).
+async fn started_by_dfox(pid: u32) -> bool {
+    let ours = std::process::id();
+    let mut pid = pid;
+    for _ in 0..2 {
+        let parent = run("ps", &["-o", "ppid=", "-p", &pid.to_string()])
+            .await
+            .and_then(|out| out.trim().parse::<u32>().ok());
+        match parent {
+            Some(parent) if parent == ours => return true,
+            Some(parent) if parent > 1 => pid = parent,
+            _ => return false,
+        }
+    }
+    false
 }
 
 fn is_container_engine(process: &str) -> bool {
@@ -418,5 +440,28 @@ mod tests {
         assert_eq!(identify(cassandra).await, Some(DbType::Cassandra));
         assert_eq!(identify(mongo).await, Some(DbType::Mongo));
         assert_eq!(identify(http).await, None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dfoxs_own_children_are_told_apart() {
+        // A shell started here, and the sleep it runs: both are ours.
+        let mut shell = tokio::process::Command::new("sh")
+            .args(["-c", "sleep 5 & wait"])
+            .kill_on_drop(true)
+            .spawn()
+            .expect("sh");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let shell_pid = shell.id().expect("pid");
+        assert!(started_by_dfox(shell_pid).await);
+        let child = run("pgrep", &["-P", &shell_pid.to_string()])
+            .await
+            .unwrap_or_default();
+        if let Ok(sleep_pid) = child.trim().parse::<u32>() {
+            assert!(started_by_dfox(sleep_pid).await, "a grandchild is ours too");
+        }
+        // The first process isn't.
+        assert!(!started_by_dfox(1).await);
+        let _ = shell.kill().await;
     }
 }

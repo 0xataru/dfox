@@ -34,6 +34,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   prod) and applies at once. Each cluster is asked on its own. Found services read `crm-redis · ns stage · stage-crm-1 (do)`:
   the namespace said as one and the cluster by a short name (GKE, DigitalOcean, EKS, kind),
   and their check reads `service found · kubectl took 180 ms`, not a database latency.
+- The forward dfox opens to a Kubernetes service while connected no longer shows in the list
+  as a found `localhost:58683` database: the port search leaves out the `kubectl` processes dfox
+  started itself.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They
