@@ -288,10 +288,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checking = update
         .then(|| dfox_tui::update::refresh(History::dir()))
         .flatten();
-    // Databases in local containers, found while the TUI starts.
+    // Databases in local containers and behind local ports, found while
+    // the TUI starts.
     let (found_tx, found) = tokio::sync::mpsc::unbounded_channel();
+    let ports_tx = found_tx.clone();
     tokio::spawn(async move {
         let _ = found_tx.send(connections::containers::find().await);
+    });
+    tokio::spawn(async move {
+        let _ = ports_tx.send(connections::ports::find().await);
     });
     let (engine, events) = dfox_core::engine::spawn_with(Drivers::new(drivers()), opener());
     let mut app = App::new(
