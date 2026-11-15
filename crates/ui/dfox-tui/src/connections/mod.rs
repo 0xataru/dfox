@@ -7,6 +7,7 @@
 pub mod compose;
 pub mod containers;
 pub mod discover;
+pub mod frameworks;
 pub mod local;
 pub mod mycnf;
 pub mod pgpass;
