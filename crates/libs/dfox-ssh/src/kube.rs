@@ -2,13 +2,18 @@
 //! kubeconfig and its auth plugins doing the login: no client crate, no new
 //! dependency, and EKS, GKE and AKS logins work as they do in a shell.
 //!
-//! `kubectl` runs under a small `sh` that stops it when dfox's end of its
-//! stdin closes, which happens when the [`Forward`] drops and when dfox
-//! exits or dies: the forward never outlives dfox.
+//! `kubectl` runs under a small `sh` that waits for it, so an early exit
+//! (a missing service, an expired login) is reported at once, while a
+//! watcher stops it when dfox's end of the shell's stdin closes, which
+//! happens when the [`Forward`] drops and when dfox exits or dies: the
+//! forward never outlives dfox.
 
 use std::{net::SocketAddr, process::Stdio, time::Duration};
 
-use dfox_core::{errors::DbError, models::connections::KubeParams};
+use dfox_core::{
+    errors::DbError,
+    models::connections::{KubeParams, KUBECTL_MISSING},
+};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::{Child, ChildStdin, Command},
@@ -38,15 +43,19 @@ impl Forward {
 
     async fn open_with(kubectl: &str, kube: &KubeParams, port: u16) -> Result<Forward, DbError> {
         let mut command = if cfg!(unix) {
-            // The shell outlives nothing: it stops kubectl once its stdin
-            // closes, then ends itself, so it isn't killed on drop.
+            // The shell waits for kubectl, so an early exit ends it and its
+            // pipes at once. The watcher reads the shell's stdin through fd 3,
+            // as a background job's own stdin is /dev/null (dash sets it
+            // before any redirection), writes nowhere, and stops kubectl when
+            // that stdin closes. The shell isn't killed on drop: it ends by
+            // itself once kubectl is stopped.
+            let script = r#"command -v "$1" >/dev/null 2>&1 || exit 127
+exec 3<&0
+"$@" 3<&- & pid=$!
+(read -r _ <&3; kill "$pid" 2>/dev/null) >/dev/null 2>&1 &
+wait "$pid""#;
             let mut sh = Command::new("sh");
-            sh.args([
-                "-c",
-                r#""$@" & pid=$!; read -r _; kill "$pid""#,
-                "sh",
-                kubectl,
-            ]);
+            sh.args(["-c", script, "sh", kubectl]);
             sh
         } else {
             // shortcut: on Windows kubectl stops with the forward, but not if
@@ -60,9 +69,12 @@ impl Forward {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command
-            .spawn()
-            .map_err(|err| DbError::Connection(format!("kubectl: {err}")))?;
+        let mut child = command.spawn().map_err(|err| {
+            DbError::Connection(match err.kind() {
+                std::io::ErrorKind::NotFound => KUBECTL_MISSING.to_string(),
+                _ => format!("kubectl: {err}"),
+            })
+        })?;
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
         let mut stderr = child.stderr.take().expect("piped stderr");
@@ -90,6 +102,9 @@ impl Forward {
             Ok(None) => {
                 let mut error = String::new();
                 let _ = stderr.read_to_string(&mut error).await;
+                if child.wait().await.ok().and_then(|s| s.code()) == Some(127) {
+                    return Err(DbError::Connection(KUBECTL_MISSING.to_string()));
+                }
                 Err(DbError::Connection(kubectl_error(&error)))
             }
             Err(_) => Err(DbError::Connection(format!(
@@ -208,5 +223,44 @@ mod tests {
         }
         assert!(!marker.exists(), "kubectl stopped");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    fn fake_kubectl(name: &str, body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("dfox-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let kubectl = dir.join("kubectl");
+        std::fs::write(&kubectl, format!("#!/bin/sh\n{body}\n")).expect("write");
+        std::fs::set_permissions(&kubectl, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        kubectl
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kubectl_failing_or_missing_is_told_at_once() {
+        let started = std::time::Instant::now();
+        let failing = fake_kubectl(
+            "failing",
+            "echo 'error: services \"pg\" not found' >&2; exit 1",
+        );
+        let err = Forward::open_with(failing.to_str().expect("utf-8"), &kube(None), 5432)
+            .await
+            .expect_err("no service");
+        assert!(
+            err.to_string()
+                .contains("kubectl: services \"pg\" not found"),
+            "{err}"
+        );
+        let missing = Forward::open_with("/nowhere/kubectl", &kube(None), 5432)
+            .await
+            .expect_err("no kubectl");
+        assert!(
+            missing.to_string().contains("kubectl isn't installed"),
+            "{missing}"
+        );
+        // Both well before the 20 s start limit.
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let _ = std::fs::remove_dir_all(failing.parent().expect("dir"));
     }
 }

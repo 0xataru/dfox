@@ -45,6 +45,9 @@ pub struct ConnectionParams {
     pub read_only: bool,
 }
 
+/// What to say when `kubectl` isn't there.
+pub const KUBECTL_MISSING: &str = "kubectl isn't installed: dfox reaches Kubernetes services with it (https://kubernetes.io/docs/tasks/tools/)";
+
 /// A Kubernetes service to forward a local port to with `kubectl`, in the
 /// user's kubeconfig. Saved by name, never by pod, so a restarted pod still
 /// works.
