@@ -224,14 +224,23 @@ async fn the_catalog_shows_keys_indexes_and_definitions() {
         1
     );
     let columns = s.catalog().all_columns(&ks).await.expect("columns");
-    let events: Vec<&str> = columns
+    let events: Vec<(&str, Option<&str>)> = columns
         .iter()
         .filter(|c| c.table == "events")
-        .map(|c| c.name.as_str())
+        .map(|c| (c.name.as_str(), c.key.as_deref()))
         .collect();
+    let (partition, clustering) = (Some("partition key"), Some("clustering key"));
     assert_eq!(
         events,
-        ["tenant", "region", "day", "seq", "total", "kind", "payload"]
+        [
+            ("tenant", partition),
+            ("region", partition),
+            ("day", clustering),
+            ("seq", clustering),
+            ("total", None),
+            ("kind", None),
+            ("payload", None)
+        ]
     );
     drop_keyspace(s.as_mut(), &keyspace).await;
 }

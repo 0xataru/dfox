@@ -238,6 +238,13 @@ impl Workspace {
         result: Result<Vec<Node>, DbError>,
         ctx: &mut Ctx,
     ) {
+        if let (Ok(nodes), true) = (&result, path.parts().is_empty()) {
+            let databases = nodes
+                .iter()
+                .filter(|n| n.kind == NodeKind::Database)
+                .map(|n| n.name.clone());
+            self.catalog.on_databases(databases.collect());
+        }
         if let (Ok(nodes), Some(name)) = (&result, path.name()) {
             let tables: Vec<String> = nodes
                 .iter()

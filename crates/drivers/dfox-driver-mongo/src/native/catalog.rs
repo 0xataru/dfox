@@ -383,6 +383,7 @@ impl Catalog for MongoCatalog {
                     name: field.clone(),
                     data_type: kind.name().to_string(),
                     values: Vec::new(),
+                    key: None,
                 }));
             }
             Ok(out)

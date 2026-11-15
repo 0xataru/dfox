@@ -965,6 +965,7 @@ impl Catalog for MyCatalog {
                     table,
                     name,
                     values: enum_values(&data_type),
+                    key: None,
                     data_type,
                 })
                 .collect())

@@ -13,6 +13,8 @@ pub struct Catalog {
     tables: BTreeMap<String, Vec<String>>,
     /// Per schema, per table, the columns in order.
     columns: HashMap<String, HashMap<String, Vec<TableColumn>>>,
+    /// The server's databases (keyspaces in Cassandra).
+    databases: Vec<String>,
     /// Per schema, the database's own functions: name, and arguments when
     /// the server told them.
     functions: BTreeMap<String, Vec<(String, Option<String>)>>,
@@ -26,6 +28,14 @@ impl Catalog {
     /// Records the tables and views of `schema`.
     pub fn on_tables(&mut self, schema: &str, tables: Vec<String>) {
         self.tables.insert(schema.to_string(), tables);
+    }
+
+    pub fn on_databases(&mut self, databases: Vec<String>) {
+        self.databases = databases;
+    }
+
+    pub fn databases(&self) -> &[String] {
+        &self.databases
     }
 
     pub fn on_functions(&mut self, schema: &str, functions: Vec<(String, Option<String>)>) {

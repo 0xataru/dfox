@@ -233,7 +233,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   arguments, and inside a call the arguments show above the cursor, the current one in bold.
   Column types come after `::`, `CAST(x AS` and a column name in `CREATE TABLE`. An enum
   column's values come after `=`, `<>` and `IN (`, SQLite's pragmas after `PRAGMA`, and a
-  name begun with `` ` `` (MySQL) or `"` keeps its quotes;
+  name begun with `` ` `` (MySQL) or `"` keeps its quotes. CQL gets its own keywords
+  (`ALLOW FILTERING`, `USING TTL`, `IF NOT EXISTS`…), functions and types, keyspaces after
+  `USE`, and columns marked as partition or clustering key, the partition key first;
   **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
 
 ## Configuration

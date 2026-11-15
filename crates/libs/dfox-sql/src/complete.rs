@@ -19,6 +19,8 @@ pub struct TableRef {
 pub enum Want {
     Tables,
     Columns,
+    /// A database (a keyspace in CQL): after `USE`.
+    Databases,
     /// A column type: after `::`, `CAST(x AS`, a column name in `CREATE
     /// TABLE`, `ADD COLUMN x` or `TYPE`.
     Types,
@@ -219,7 +221,9 @@ pub fn context(text: &str, cursor: Pos, dialect: Dialect) -> Context {
         ) => Want::Columns,
         Some(Token::Word(_)) => {
             let word = before.last().and_then(|l| l.keyword()).unwrap_or_default();
-            if BEFORE_TABLE.contains(&word.as_str()) {
+            if word == "USE" && before.len() == 1 {
+                Want::Databases
+            } else if BEFORE_TABLE.contains(&word.as_str()) {
                 Want::Tables
             } else if BEFORE_COLUMN.contains(&word.as_str()) {
                 Want::Columns
@@ -380,6 +384,7 @@ const LEADS: &[&str] = &[
     "TYPE",
     "CAST",
     "DROP",
+    "USE",
 ];
 /// Keywords that start a clause, to tell which one the cursor is in.
 const CLAUSE_KEYWORDS: &[&str] = &[
@@ -399,6 +404,34 @@ const CLAUSE_KEYWORDS: &[&str] = &[
     "RETURNING",
     "OFFSET",
 ];
+
+/// CQL's keywords after a value in `clause` of a statement starting with
+/// `first`. No joins: a query reads one table, by its keys.
+fn cql_keywords(clause: &str, first: &str) -> Vec<&'static str> {
+    let changes = matches!(first, "UPDATE" | "DELETE");
+    match clause {
+        "SELECT" => vec!["FROM", "AS"],
+        "FROM" if first == "DELETE" => vec!["WHERE", "USING TIMESTAMP"],
+        "FROM" => vec!["WHERE", "LIMIT", "PER PARTITION LIMIT", "ALLOW FILTERING"],
+        "WHERE" if changes => vec!["AND", "IN", "IF EXISTS", "IF"],
+        "WHERE" => vec![
+            "AND",
+            "IN",
+            "CONTAINS",
+            "CONTAINS KEY",
+            "ORDER BY",
+            "LIMIT",
+            "ALLOW FILTERING",
+        ],
+        "ORDER" => vec!["ASC", "DESC", "LIMIT", "ALLOW FILTERING"],
+        "LIMIT" => vec!["ALLOW FILTERING"],
+        "UPDATE" => vec!["SET", "USING TTL", "USING TIMESTAMP"],
+        "SET" => vec!["WHERE"],
+        "INTO" => vec!["VALUES", "JSON"],
+        "VALUES" => vec!["IF NOT EXISTS", "USING TTL", "USING TIMESTAMP"],
+        _ => Vec::new(),
+    }
+}
 
 /// SQLite's pragmas people look up most.
 const PRAGMAS: &[&str] = &[
@@ -435,15 +468,33 @@ const PRAGMAS: &[&str] = &[
 /// The keywords that fit after `before`, the statement's tokens up to the
 /// word being typed.
 fn keywords(before: &[&&Lexeme], want: &Want, dialect: Dialect) -> Vec<&'static str> {
-    // CQL has its own words (A1.4).
-    if dialect == Dialect::Cql || matches!(want, Want::Member(_) | Want::Nothing) {
+    if matches!(want, Want::Member(_) | Want::Nothing | Want::Databases) {
         return Vec::new();
     }
+    let cql = dialect == Dialect::Cql;
     let pg = dialect == Dialect::Postgres;
     let mysql = dialect == Dialect::MySql;
     let sqlite = dialect == Dialect::Sqlite;
     let only = |on: bool, words: &[&'static str]| if on { words.to_vec() } else { Vec::new() };
     let Some(last) = before.last() else {
+        if cql {
+            return vec![
+                "SELECT",
+                "INSERT INTO",
+                "UPDATE",
+                "DELETE FROM",
+                "USE",
+                "CREATE TABLE",
+                "CREATE KEYSPACE",
+                "CREATE INDEX",
+                "ALTER TABLE",
+                "DROP TABLE",
+                "TRUNCATE",
+                "DESCRIBE",
+                "BEGIN BATCH",
+                "APPLY BATCH",
+            ];
+        }
         let mut words = vec![
             "SELECT",
             "INSERT INTO",
@@ -475,6 +526,10 @@ fn keywords(before: &[&&Lexeme], want: &Want, dialect: Dialect) -> Vec<&'static 
     };
     if !after_value {
         return match want {
+            Want::Columns if cql => match last.keyword().as_deref() {
+                Some("SELECT") => vec!["DISTINCT", "JSON"],
+                _ => Vec::new(),
+            },
             Want::Columns => {
                 let mut words = Vec::new();
                 if last.keyword().as_deref() == Some("SELECT") {
@@ -494,6 +549,9 @@ fn keywords(before: &[&&Lexeme], want: &Want, dialect: Dialect) -> Vec<&'static 
         .filter_map(|l| l.keyword())
         .find(|w| CLAUSE_KEYWORDS.contains(&w.as_str()))
         .unwrap_or_default();
+    if cql {
+        return cql_keywords(&clause, &first);
+    }
     let tail = ["GROUP BY", "ORDER BY", "LIMIT"];
     let mut words: Vec<&'static str> = match clause.as_str() {
         "SELECT" => vec!["FROM", "AS"],
@@ -767,7 +825,7 @@ mod tests {
         assert_eq!(words(values, Dialect::MySql), ["ON DUPLICATE KEY UPDATE"]);
         assert!(!words("select * from a |", Dialect::MySql).contains(&"FULL JOIN"));
         assert!(words("|", Dialect::Sqlite).contains(&"PRAGMA"));
-        assert!(words("select * from t |", Dialect::Cql).is_empty());
+        assert!(!words("select * from t |", Dialect::Cql).contains(&"JOIN"));
     }
 
     #[test]
@@ -855,5 +913,27 @@ mod tests {
         assert!(!in_dialect("pragma ", Dialect::Postgres)
             .keywords
             .contains(&"table_info"));
+    }
+
+    #[test]
+    fn cql_has_its_own_keywords() {
+        let cql = |text: &str| in_dialect(text, Dialect::Cql);
+        assert!(cql("").keywords.contains(&"CREATE KEYSPACE"));
+        assert_eq!(cql("use ").want, Want::Databases);
+        assert_eq!(in_dialect("use ", Dialect::MySql).want, Want::Databases);
+        assert!(cql("select * from t ")
+            .keywords
+            .contains(&"PER PARTITION LIMIT"));
+        assert!(cql("select * from t where a = 1 ")
+            .keywords
+            .contains(&"CONTAINS KEY"));
+        assert_eq!(
+            cql("update t ").keywords,
+            ["SET", "USING TTL", "USING TIMESTAMP"]
+        );
+        assert!(cql("insert into t (a) values (1) ")
+            .keywords
+            .contains(&"IF NOT EXISTS"));
+        assert!(!cql("select * from t ").keywords.contains(&"LEFT JOIN"));
     }
 }

@@ -978,6 +978,7 @@ fn mongo_commands_run_under_the_cursor_and_ask_before_deleting() {
             name: "age".into(),
             data_type: "int".into(),
             values: Vec::new(),
+            key: None,
         }]),
     );
     harness.sent();

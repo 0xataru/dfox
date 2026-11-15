@@ -1066,6 +1066,7 @@ impl Catalog for PgCatalog {
                     name: row.get(1),
                     data_type: row.get(2),
                     values: row.get(3),
+                    key: None,
                 })
                 .collect())
         })
