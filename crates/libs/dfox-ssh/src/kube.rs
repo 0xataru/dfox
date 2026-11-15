@@ -44,13 +44,15 @@ impl Forward {
     async fn open_with(kubectl: &str, kube: &KubeParams, port: u16) -> Result<Forward, DbError> {
         let mut command = if cfg!(unix) {
             // The shell waits for kubectl, so an early exit ends it and its
-            // pipes at once. The watcher reads the shell's own stdin, given
-            // explicitly as a background job's is /dev/null, writes nowhere,
-            // and stops kubectl when that stdin closes. The shell isn't
-            // killed on drop: it ends by itself once kubectl is stopped.
+            // pipes at once. The watcher reads the shell's stdin through fd 3,
+            // as a background job's own stdin is /dev/null (dash sets it
+            // before any redirection), writes nowhere, and stops kubectl when
+            // that stdin closes. The shell isn't killed on drop: it ends by
+            // itself once kubectl is stopped.
             let script = r#"command -v "$1" >/dev/null 2>&1 || exit 127
-"$@" & pid=$!
-(read -r _; kill "$pid" 2>/dev/null) <&0 >/dev/null 2>&1 &
+exec 3<&0
+"$@" 3<&- & pid=$!
+(read -r _ <&3; kill "$pid" 2>/dev/null) >/dev/null 2>&1 &
 wait "$pid""#;
             let mut sh = Command::new("sh");
             sh.args(["-c", script, "sh", kubectl]);
