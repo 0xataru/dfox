@@ -283,3 +283,33 @@ fn found_connections_sit_in_sections_and_the_cursor_stays_put() {
     );
     assert_eq!(group(&manager.detected[3]).1, "Kubernetes · stage (do)");
 }
+
+#[test]
+fn each_cluster_has_one_section() {
+    let found = |name: &str, port: u16, source: &str| {
+        let mut connection = Connection::new(name, DbType::Postgres);
+        connection.host = "127.0.0.1".into();
+        connection.port = Some(port);
+        Detected {
+            connection,
+            password: None,
+            source: source.into(),
+        }
+    };
+    let mut manager = Manager::new(
+        Vec::new(),
+        vec![
+            found("a", 1, "kubernetes: do-ams3-stage"),
+            found("b", 2, "kubernetes: gke_p_z_prod"),
+        ],
+    );
+    // A stage one found later joins its cluster, not the end; clusters
+    // follow their headings' order.
+    manager.rescanned(vec![found("c", 3, "kubernetes: do-ams3-stage")]);
+    let names: Vec<&str> = manager
+        .detected
+        .iter()
+        .map(|d| d.connection.name.as_str())
+        .collect();
+    assert_eq!(names, ["b", "a", "c"]);
+}

@@ -173,7 +173,8 @@ impl Manager {
     /// on the same connection. Within a section, as found.
     fn regroup(&mut self) {
         let selected = self.entry(self.selected).map(|(_, c)| c.name.clone());
-        self.detected.sort_by_key(|d| group(d).0);
+        // By section and then by its heading, a cluster's together.
+        self.detected.sort_by_key(group);
         if let Some(name) = selected {
             let at = self
                 .saved

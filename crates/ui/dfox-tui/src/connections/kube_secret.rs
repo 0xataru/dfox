@@ -45,10 +45,21 @@ pub async fn find(kube: &KubeParams, user: &str, any_user: bool) -> Result<Found
         tried.push(format!("{name} (keys {})", keys.join(", ")));
     }
     Err(match tried.is_empty() {
-        true => format!(
-            "no Secret next to svc/{} in {} looks like its database's",
-            kube.service, kube.namespace
-        ),
+        true => {
+            // The names only, to see which one holds it.
+            let shown: Vec<&str> = names.iter().copied().take(12).collect();
+            let more = if names.len() > shown.len() {
+                ", …"
+            } else {
+                ""
+            };
+            format!(
+                "no Secret next to svc/{} in {} looks like its database's (Secrets there: {}{more})",
+                kube.service,
+                kube.namespace,
+                shown.join(", ")
+            )
+        }
         false => format!(
             "no password for {} in Secret {}",
             if user.is_empty() { "any user" } else { user },
@@ -110,6 +121,16 @@ fn base(service: &str) -> &str {
     service
 }
 
+/// Whether `part` is a whole dash-separated part of `name`: `postgresql` in
+/// `stage-postgresql` and `postgresql-auth`, not in a Zalando credential's
+/// `….postgresql.acid.zalan.do`.
+fn names_part(name: &str, part: &str) -> bool {
+    name.split('-')
+        .collect::<Vec<_>>()
+        .windows(part.split('-').count())
+        .any(|w| w.join("-") == part)
+}
+
 /// The Secrets to read, the likeliest first, among the namespace's `names`.
 fn candidates(service: &str, user: &str, names: &[&str]) -> Vec<String> {
     let base = base(service);
@@ -129,7 +150,7 @@ fn candidates(service: &str, user: &str, names: &[&str]) -> Vec<String> {
     wanted.extend(
         names
             .iter()
-            .filter(|n| n.starts_with(base) && !n.contains("tls") && !n.contains("token"))
+            .filter(|n| names_part(n, base) && !n.contains("tls") && !n.contains("token"))
             .map(|n| n.to_string()),
     );
     let mut out: Vec<String> = Vec::new();
@@ -278,6 +299,8 @@ mod tests {
             candidates("stage-postgresql", "app", &names),
             ["stage-postgresql"]
         );
+        // A service whose release prefixes its Secret.
+        assert_eq!(candidates("postgresql", "", &names), ["stage-postgresql"]);
         assert!(candidates("other", "", &names).is_empty());
     }
 

@@ -30,7 +30,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   forbidden Secret leaves the prompt for the password typed. At the user prompt a Secret that names its
   own user gives that user; pgbouncer's `userlist.txt` gives a password kept in plain text and
   says when it holds only a hash; and when no password fits, the warning names the Secrets
-  read and their keys (never the values).
+  read and their keys (never the values). A Secret named for the release (`stage-postgresql`
+  for the service `postgresql`) is found too, and when none fits, the warning lists the
+  namespace's Secrets by name.
 - **K** in the connection list picks which Kubernetes clusters' databases it lists, from the
   kubeconfig's contexts: the current one, others by name, a prod one only when ticked (with a
   warning). The choice is kept as `kube_contexts` in the config (`["all"]` there means all but
@@ -44,7 +46,7 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   so a toast cut short can be read whole.
 - Found connections are listed in sections by how they were found: environment and config
   files, Docker, Kubernetes (a section per cluster), local ports, SQLite files. The cursor stays
-  on its connection when a scan adds or removes some.
+  on its connection when a scan adds or removes some, and each cluster has one section.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They
