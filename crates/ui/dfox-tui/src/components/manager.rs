@@ -68,6 +68,8 @@ pub struct Manager {
     health: HashMap<String, Health>,
     pings: HashMap<u64, String>,
     next_ping: u64,
+    /// The found connections that came from scanning the machine, by name.
+    scanned: Vec<String>,
 }
 
 impl Manager {
@@ -99,9 +101,35 @@ impl Manager {
         self.entry(self.selected).map(|(key, _)| key)
     }
 
+    /// Takes what a scan of the machine found now: the ones no longer there
+    /// go, new ones join unless already listed (the same engine at the same
+    /// host and port).
+    pub fn rescanned(&mut self, now: Vec<Detected>) {
+        let gone: Vec<String> = self
+            .scanned
+            .iter()
+            .filter(|name| !now.iter().any(|d| &d.connection.name == *name))
+            .cloned()
+            .collect();
+        self.detected.retain(|d| !gone.contains(&d.connection.name));
+        self.scanned.retain(|name| !gone.contains(name));
+        let fresh: Vec<Detected> = now
+            .into_iter()
+            .filter(|d| !self.scanned.contains(&d.connection.name))
+            .collect();
+        let before = self.detected.len();
+        self.found(fresh);
+        let added: Vec<String> = self.detected[before..]
+            .iter()
+            .map(|d| d.connection.name.clone())
+            .collect();
+        self.scanned.extend(added);
+        self.select(self.selected);
+    }
+
     /// Adds connections found after the start, leaving out those already
     /// listed: the same engine at the same host and port.
-    pub fn found(&mut self, more: Vec<Detected>) {
+    fn found(&mut self, more: Vec<Detected>) {
         fn place(c: &Connection) -> (DbType, String, u16) {
             let params = c.target();
             let host = match params.host.as_str() {
@@ -136,10 +164,20 @@ impl Manager {
 
     /// Pings every connection that isn't being pinged already.
     pub fn ping_all(&mut self, ctx: &mut Ctx) {
+        self.ping(ctx, false);
+    }
+
+    /// Pings the connections never pinged yet, as ones just found.
+    pub fn ping_new(&mut self, ctx: &mut Ctx) {
+        self.ping(ctx, true);
+    }
+
+    fn ping(&mut self, ctx: &mut Ctx, only_new: bool) {
         let connections: Vec<Connection> = self
             .saved
             .iter()
             .chain(self.detected.iter().map(|d| &d.connection))
+            .filter(|c| !only_new || !self.health.contains_key(&c.name))
             .cloned()
             .collect();
         for connection in connections {

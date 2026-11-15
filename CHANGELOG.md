@@ -13,6 +13,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They
   are looked up in the background after the start, and nothing shows without Docker.
+- The connection manager also lists databases behind ports listening on this machine: a
+  `kubectl port-forward` (with its service and namespace), a k9s port-forward, an `ssh -L`
+  tunnel or a local server. Ports come from `lsof` (`ss` without it), and each is told apart
+  by a short handshake rather than its number, so a forward on 15432 is found too. Nothing
+  logs in; the password is asked when connecting. While the manager is open, containers and
+  ports are looked for again every 5 seconds, so a forward opened in another terminal shows
+  up without restarting dfox, and a closed one goes.
 
 ## [0.5.37] - 2026-11-15
 

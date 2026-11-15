@@ -5,8 +5,10 @@
 //! SSH passwords and key passphrases.
 
 pub mod containers;
+pub mod discover;
 pub mod mycnf;
 pub mod pgpass;
+pub mod ports;
 pub mod secrets;
 pub mod url;
 
