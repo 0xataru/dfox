@@ -11,7 +11,15 @@ use super::centered;
 use crate::component::RenderCtx;
 
 /// The prompt titled `title`, with `typed` characters hidden.
-pub fn render(f: &mut Frame, area: Rect, title: &str, shown: &str, ctx: &RenderCtx) {
+/// `tab`, when set, says what Tab does besides Enter and Esc.
+pub fn render(
+    f: &mut Frame,
+    area: Rect,
+    title: &str,
+    shown: &str,
+    tab: Option<&str>,
+    ctx: &RenderCtx,
+) {
     let theme = ctx.theme;
     let popup = centered(area, 52, 7);
     let block = Block::default()
@@ -34,6 +42,14 @@ pub fn render(f: &mut Frame, area: Rect, title: &str, shown: &str, ctx: &RenderC
             Span::styled(" cancel", theme.dim()),
         ]),
     ];
+    let mut lines = lines;
+    if let Some(tab) = tab {
+        if let Some(last) = lines.last_mut() {
+            last.spans.push(Span::styled("   Tab", theme.key()));
+            last.spans
+                .push(Span::styled(format!(" {tab}"), theme.dim()));
+        }
+    }
     f.render_widget(Clear, popup);
     f.render_widget(Paragraph::new(lines).block(block), popup);
     let typed = shown.chars().count();
@@ -52,6 +68,7 @@ mod tests {
             area,
             "Password for prod",
             "•••••",
+            None,
             ctx
         )));
     }

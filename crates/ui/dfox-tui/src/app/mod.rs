@@ -98,6 +98,12 @@ enum Overlay {
     },
 }
 
+/// A password read from a Kubernetes Secret for the connection named.
+type SecretAnswer = (
+    String,
+    Result<crate::connections::kube_secret::Found, String>,
+);
+
 /// Which secret the password prompt asks for, with what is known already.
 #[derive(Debug, Clone, PartialEq)]
 enum Ask {
@@ -180,6 +186,8 @@ pub struct App {
     pub form: Option<ConnectionForm>,
     pub workspace: Option<Workspace>,
     connecting: Option<Connecting>,
+    /// Where passwords read from Kubernetes Secrets arrive, while running.
+    secrets_tx: Option<mpsc::UnboundedSender<SecretAnswer>>,
     /// A found connection being connected to, saved once its login works.
     remember: Option<String>,
     session: Option<Session>,
@@ -258,6 +266,7 @@ impl App {
             workspace: None,
             connecting: None,
             remember: None,
+            secrets_tx: None,
             session: None,
             toasts: Toasts::default(),
             log: EventLog::default(),
@@ -306,6 +315,8 @@ impl App {
         let discovery = crate::connections::discover::Discovery::new(folders);
         let (found_tx, mut found) = mpsc::unbounded_channel();
         let mut scanning = false;
+        let (secrets_tx, mut secrets) = mpsc::unbounded_channel::<SecretAnswer>();
+        self.secrets_tx = Some(secrets_tx);
         let mut scans = tokio::time::interval(SCAN_EVERY);
         scans.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         self.checking_update = checking.is_some();
@@ -394,6 +405,10 @@ impl App {
                 _ = scans.tick(), if self.screen == Screen::Manager && !scanning => {
                     scanning = true;
                     discovery.spawn(found_tx.clone());
+                }
+                Some((name, answer)) = secrets.recv() => {
+                    self.on_secret(name, answer);
+                    dirty = true;
                 }
                 Some(now) = found.recv() => {
                     scanning = false;
@@ -658,6 +673,18 @@ impl App {
                     }
                 },
                 KeyCode::Esc => {}
+                KeyCode::Tab if connection.kube.is_some() && !matches!(ask, Ask::Ssh { .. }) => {
+                    let user = match &ask {
+                        Ask::User { .. } => typed.trim().to_string(),
+                        _ => connection.user.clone(),
+                    };
+                    self.read_secret(&connection, user);
+                    self.overlay = Some(Overlay::Password {
+                        connection,
+                        typed,
+                        ask,
+                    });
+                }
                 KeyCode::Backspace => {
                     typed.pop();
                     self.overlay = Some(Overlay::Password {
@@ -683,6 +710,65 @@ impl App {
                 }
             },
         }
+    }
+
+    /// Reads the password of `connection`, a Kubernetes one, for `user` from
+    /// its cluster's Secrets in the background.
+    fn read_secret(&mut self, connection: &Connection, user: String) {
+        let (Some(kube), Some(tx)) = (connection.kube.clone(), self.secrets_tx.clone()) else {
+            return;
+        };
+        let name = connection.name.clone();
+        self.toasts.push(
+            Level::Info,
+            format!("Reading {name}'s password from the cluster's Secrets…"),
+            Instant::now(),
+        );
+        tokio::spawn(async move {
+            let answer = crate::connections::kube_secret::find(&kube, &user).await;
+            let _ = tx.send((name, answer));
+        });
+    }
+
+    /// A Secret's password arrived: connects with it if its prompt is still
+    /// open, or says why there is none.
+    fn on_secret(
+        &mut self,
+        name: String,
+        answer: Result<crate::connections::kube_secret::Found, String>,
+    ) {
+        let found = match answer {
+            Ok(found) => found,
+            Err(err) => {
+                self.toasts.push(Level::Warning, err, Instant::now());
+                return;
+            }
+        };
+        let open = matches!(&self.overlay, Some(Overlay::Password { connection, .. }) if connection.name == name);
+        if !open {
+            return;
+        }
+        let Some(Overlay::Password {
+            mut connection,
+            typed,
+            ask,
+        }) = self.overlay.take()
+        else {
+            return;
+        };
+        let asked_user = matches!(ask, Ask::User { .. });
+        let ssh = match ask {
+            Ask::User { ssh, .. } | Ask::Database { ssh } => ssh,
+            Ask::Ssh { .. } => None,
+        };
+        connection.user = match (found.user, asked_user) {
+            (Some(user), _) => user,
+            (None, true) => typed.trim().to_string(),
+            (None, false) => connection.user,
+        };
+        self.log
+            .push(format!("Read {name}'s password from a Kubernetes Secret"));
+        self.connect_with(connection, Some(found.password), ssh);
     }
 
     pub fn dispatch(&mut self, action: Action) {
@@ -868,7 +954,9 @@ impl App {
                         "•".repeat(typed.chars().count()),
                     ),
                 };
-                prompt::render(f, main, &title, &shown, ctx)
+                let tab = (connection.kube.is_some() && !matches!(ask, Ask::Ssh { .. }))
+                    .then_some("from the cluster's Secret");
+                prompt::render(f, main, &title, &shown, tab, ctx)
             }
             None => {}
         }
