@@ -321,6 +321,7 @@ impl Component for Manager {
                 }
             }
             Action::Refresh => self.ping_all(ctx),
+            Action::Clusters => return Some(Command::Clusters),
             Action::Back => return Some(Command::Quit),
             _ => {}
         }

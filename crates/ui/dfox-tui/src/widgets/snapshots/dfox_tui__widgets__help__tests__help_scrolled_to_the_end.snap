@@ -4,11 +4,11 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, &help, 
 ---
                  ╭ Keys ───────────────────────────────────────╮
                  │                                             │
-                 │ n                 New connection            │
                  │ e                 Edit / definition         │
                  │ Delete d          Delete                    │
                  │ Ctrl+S            Save                      │
                  │ F1                Connection list           │
+                 │ K                 Kubernetes clusters       │
                  │ Ctrl+T            Next theme                │
                  │ F12               Event log                 │
                  │ Space             Command menu              │

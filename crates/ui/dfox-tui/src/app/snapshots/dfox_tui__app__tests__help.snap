@@ -19,18 +19,18 @@ expression: "test.snapshot(120, 32)"
 │              │ Ctrl+Z            Undo                     Delete d          Delete                    │              │
 │              │ Ctrl+Y            Redo                     Ctrl+S            Save                      │              │
 │              │ Ctrl+A            Select all               F1                Connection list           │              │
-│              │ Shift+←           Select left              Ctrl+T            Next theme                │              │
-│              │ Shift+→           Select right             F12               Event log                 │              │
-│              │ Shift+↑           Select up                Space             Command menu              │              │
-│              │ Shift+↓           Select down              ? F2              Show keys                 │              │
-│              │ Shift+Home        Select to line start     Esc               Back / close              │              │
-│              │ Shift+End         Select to line end       q Ctrl+Q          Quit                      │              │
-│              │ Alt+Shift+←       Select previous word     Enter             Select / new line         │              │
-│              │ Alt+Shift+→       Select next word         ↑                 Up                        │              │
-│              │ Ctrl+L            Select the line          ↓                 Down                      │              │
-│              │ Alt+B Alt+←       Previous word            ←                 Left / previous column    │              │
-│              │ Alt+F Alt+→       Next word                →                 Right / next column       │              │
-│              │ Backspace         Delete back              PgUp              Page up                   │              │
+│              │ Shift+←           Select left              K                 Kubernetes clusters       │              │
+│              │ Shift+→           Select right             Ctrl+T            Next theme                │              │
+│              │ Shift+↑           Select up                F12               Event log                 │              │
+│              │ Shift+↓           Select down              Space             Command menu              │              │
+│              │ Shift+Home        Select to line start     ? F2              Show keys                 │              │
+│              │ Shift+End         Select to line end       Esc               Back / close              │              │
+│              │ Alt+Shift+←       Select previous word     q Ctrl+Q          Quit                      │              │
+│              │ Alt+Shift+→       Select next word         Enter             Select / new line         │              │
+│              │ Ctrl+L            Select the line          ↑                 Up                        │              │
+│              │ Alt+B Alt+←       Previous word            ↓                 Down                      │              │
+│              │ Alt+F Alt+→       Next word                ←                 Left / previous column    │              │
+│              │ Backspace         Delete back              →                 Right / next column       │              │
 │              │                                                                                        │              │
 ╰──────────────╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯──────────────╯
  dfox 0.0.0                                                                        Enter connect  n new  e edit  ? keys

@@ -102,6 +102,39 @@ impl Config {
     /// them so the defaults apply. The rest of the file, comments included,
     /// stays as it is.
     pub fn save_keys(dir: &Path, action: &str, keys: Option<&[String]>) -> Result<(), String> {
+        Self::edit(dir, |doc, path| {
+            let table = doc
+                .entry("keys")
+                .or_insert(toml_edit::table())
+                .as_table_like_mut()
+                .ok_or_else(|| format!("{}: `keys` isn't a table", path.display()))?;
+            match keys {
+                Some(keys) => {
+                    let keys: toml_edit::Array = keys.iter().map(String::as_str).collect();
+                    table.insert(action, toml_edit::value(keys));
+                }
+                None => {
+                    table.remove(action);
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Writes `kube_contexts` into `config.toml`, the rest left as it is.
+    pub fn save_kube_contexts(dir: &Path, contexts: &[String]) -> Result<(), String> {
+        Self::edit(dir, |doc, _| {
+            let contexts: toml_edit::Array = contexts.iter().map(String::as_str).collect();
+            doc["kube_contexts"] = toml_edit::value(contexts);
+            Ok(())
+        })
+    }
+
+    /// Changes `config.toml` with `change`, keeping its comments and order.
+    fn edit(
+        dir: &Path,
+        change: impl FnOnce(&mut toml_edit::DocumentMut, &Path) -> Result<(), String>,
+    ) -> Result<(), String> {
         let path = dir.join("config.toml");
         let text = match std::fs::read_to_string(&path) {
             Ok(text) => text,
@@ -112,20 +145,7 @@ impl Config {
             text.parse().map_err(|err: toml_edit::TomlError| {
                 format!("{}: {}", path.display(), err.message())
             })?;
-        let table = doc
-            .entry("keys")
-            .or_insert(toml_edit::table())
-            .as_table_like_mut()
-            .ok_or_else(|| format!("{}: `keys` isn't a table", path.display()))?;
-        match keys {
-            Some(keys) => {
-                let keys: toml_edit::Array = keys.iter().map(String::as_str).collect();
-                table.insert(action, toml_edit::value(keys));
-            }
-            None => {
-                table.remove(action);
-            }
-        }
+        change(&mut doc, &path)?;
         // Written aside, then moved over, so a failed write never leaves half a file.
         let written = path.with_extension("toml.new");
         std::fs::create_dir_all(dir)
@@ -138,6 +158,21 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clusters_are_saved_beside_the_rest() {
+        let dir = std::env::temp_dir().join(format!("dfox-clusters-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join("config.toml"), "# mine\ntheme = \"nord\"\n").expect("write");
+        Config::save_kube_contexts(&dir, &["current".into(), "do-stage".into()]).expect("save");
+        let text = std::fs::read_to_string(dir.join("config.toml")).expect("read");
+        assert!(text.starts_with("# mine\ntheme = \"nord\"\n"), "{text}");
+        let (config, problem) = Config::load(Some(&dir));
+        assert_eq!(problem, None);
+        assert_eq!(config.kube_contexts, ["current", "do-stage"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn default_config() {

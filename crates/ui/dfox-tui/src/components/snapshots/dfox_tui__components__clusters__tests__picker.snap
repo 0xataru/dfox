@@ -1,0 +1,16 @@
+---
+source: crates/ui/dfox-tui/src/components/clusters.rs
+assertion_line: 207
+expression: "render(&test, 70, 12, |f, area, ctx| picker.render(f, area, ctx))"
+---
+
+     ╭ Kubernetes clusters ─────────────────────────────────────╮
+     │                                                          │
+     │   [x] the current context  profi-crm-stage-cluster (gke) │
+     │   [ ] stage-crm-1 (do)                                   │
+     │   [ ] profi-crm-stage-cluster (gke)                      │
+     │ ▸ [x] product-crm-prod (gke)  prod                       │
+     │                                                          │
+     │ A prod cluster is asked for its services every minute    │
+     │ Space ticks · Enter saves · Esc cancels                  │
+     ╰──────────────────────────────────────────────────────────╯

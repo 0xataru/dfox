@@ -89,6 +89,8 @@ enum Overlay {
     Palette(Palette),
     Menu,
     Confirm(Confirm),
+    /// Which Kubernetes clusters' databases are listed.
+    Clusters(crate::components::clusters::ClusterPicker),
     /// Typing a password for `connection`: the database's, or the SSH
     /// jump host's.
     Password {
@@ -186,6 +188,10 @@ pub struct App {
     pub form: Option<ConnectionForm>,
     pub workspace: Option<Workspace>,
     connecting: Option<Connecting>,
+    /// The search for databases on the machine, while running.
+    discovery: Option<crate::connections::discover::Discovery>,
+    /// `kubectl` is installed: the manager hints at the cluster picker.
+    pub kubectl: bool,
     /// Where passwords read from Kubernetes Secrets arrive, while running.
     secrets_tx: Option<mpsc::UnboundedSender<SecretAnswer>>,
     /// A found connection being connected to, saved once its login works.
@@ -267,6 +273,8 @@ impl App {
             connecting: None,
             remember: None,
             secrets_tx: None,
+            discovery: None,
+            kubectl: false,
             session: None,
             toasts: Toasts::default(),
             log: EventLog::default(),
@@ -316,6 +324,7 @@ impl App {
             folders,
             self.config.kube_contexts.clone(),
         );
+        self.discovery = Some(discovery.clone());
         let (found_tx, mut found) = mpsc::unbounded_channel();
         let mut scanning = false;
         let (secrets_tx, mut secrets) = mpsc::unbounded_channel::<SecretAnswer>();
@@ -634,6 +643,17 @@ impl App {
                 }
                 self.overlay = Some(Overlay::Help(help));
             }
+            Overlay::Clusters(mut picker) => {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => picker.up(),
+                    KeyCode::Down | KeyCode::Char('j') => picker.down(),
+                    KeyCode::Char(' ') => picker.toggle(),
+                    KeyCode::Enter => return self.save_clusters(picker.chosen()),
+                    KeyCode::Esc => return,
+                    _ => {}
+                }
+                self.overlay = Some(Overlay::Clusters(picker));
+            }
             Overlay::Menu => {
                 if let KeyCode::Char(c) = key.code {
                     if let Some(action) = which_key::action_for(c) {
@@ -712,6 +732,32 @@ impl App {
                     })
                 }
             },
+        }
+    }
+
+    /// Keeps `contexts` as `kube_contexts`, in the config and for the search
+    /// running now.
+    fn save_clusters(&mut self, contexts: Vec<String>) {
+        let now = Instant::now();
+        let saved = match &self.config_dir {
+            Some(dir) => Config::save_kube_contexts(dir, &contexts),
+            None => Err("no config folder to keep it in".to_string()),
+        };
+        match saved {
+            Ok(()) => self.toasts.push(
+                Level::Success,
+                "Saved the clusters to list".to_string(),
+                now,
+            ),
+            Err(err) => self.toasts.push(
+                Level::Warning,
+                format!("Couldn't save the clusters: {err}"),
+                now,
+            ),
+        }
+        self.config.kube_contexts = contexts.clone();
+        if let Some(discovery) = &self.discovery {
+            discovery.set_contexts(contexts);
         }
     }
 
@@ -941,6 +987,7 @@ impl App {
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
             Some(Overlay::Copy(dialog)) => dialog.render(f, main, ctx),
+            Some(Overlay::Clusters(picker)) => picker.render(f, main, ctx),
             Some(Overlay::Password {
                 connection,
                 typed,

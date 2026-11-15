@@ -93,6 +93,12 @@ impl App {
                 }
             }
             Command::Connections => self.show_manager(),
+            Command::Clusters => {
+                match crate::components::clusters::ClusterPicker::open(&self.config.kube_contexts) {
+                    Ok(picker) => self.overlay = Some(Overlay::Clusters(picker)),
+                    Err(err) => self.toasts.push(Level::Warning, err, Instant::now()),
+                }
+            }
             Command::ConfirmRun { sql, reasons } => {
                 let mut message = reasons.join("\n");
                 message.push_str("\n\nRun it anyway?");

@@ -139,8 +139,9 @@ if dfox dies, so there is no forward to keep open by hand. `kubectl` and your
 kubeconfig do the login, cloud plugins (GKE, EKS, AKS) included. It's saved by
 service, never by pod, so a restarted pod still works, and the list checks that
 the service is there. The connection list also finds the databases of the
-current kubeconfig context by itself (or of the contexts `kube_contexts` names:
-`all` leaves out those named like `prod`, which are asked only when named): its services whose port is a database's
+current kubeconfig context by itself, or of the clusters you tick with **K** in
+the connection list (kept as `kube_contexts` in the config; `all` there leaves
+out those named like `prod`, which are asked only when ticked): its services whose port is a database's
 (5432, 3306, 27017, 6379, 9042, or a port named so), in every namespace you may
 list, ready to connect through such a forward; headless services and
 CloudNativePG's read-only ones are left out, and a context named like `prod`

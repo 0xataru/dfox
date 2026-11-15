@@ -34,8 +34,8 @@ pub struct Discovery {
     probed: Arc<ports::Probed>,
     /// Folders searched for SQLite files besides the index.
     folders: Vec<PathBuf>,
-    /// The Kubernetes contexts to ask.
-    contexts: Vec<String>,
+    /// The Kubernetes contexts to ask, changed from the app.
+    contexts: Arc<Mutex<Vec<String>>>,
     /// The last SQLite and cluster searches, kept for [`SLOW_EVERY`].
     sqlite: Searched,
     kube: Searched,
@@ -45,9 +45,15 @@ impl Discovery {
     pub fn new(folders: Vec<PathBuf>, contexts: Vec<String>) -> Self {
         Self {
             folders,
-            contexts,
+            contexts: Arc::new(Mutex::new(contexts)),
             ..Default::default()
         }
+    }
+
+    /// Asks `contexts` from now on, at the next scan.
+    pub fn set_contexts(&self, contexts: Vec<String>) {
+        *self.contexts.lock().unwrap_or_else(|e| e.into_inner()) = contexts;
+        self.kube.lock().unwrap_or_else(|e| e.into_inner()).at = None;
     }
 
     pub fn spawn(&self, found: UnboundedSender<Vec<Detected>>) {
@@ -56,7 +62,15 @@ impl Discovery {
             let cwd = std::env::current_dir().unwrap_or_default();
             // Running containers first: a Compose service that runs is theirs.
             let sqlite = slow(&this.sqlite, sqlite::find(this.folders.clone()));
-            let kube = slow(&this.kube, kubernetes::find(this.contexts.clone()));
+            let kube = slow(
+                &this.kube,
+                kubernetes::find(
+                    this.contexts
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone(),
+                ),
+            );
             let (mut all, ports, compose) = tokio::join!(
                 containers::find(),
                 ports::find(&this.probed),
