@@ -72,6 +72,8 @@ pub struct EditorPanel {
     /// The function call the cursor is in: its name, arguments, and the
     /// argument being typed.
     signature: Option<Signature>,
+    /// The suggestion just picked, for the catalog to count.
+    picked: Option<String>,
     /// The last click and how many came quickly on the same spot.
     clicks: Option<(Instant, Pos, u8)>,
 }
@@ -121,6 +123,7 @@ impl EditorPanel {
             search: None,
             completion: None,
             signature: None,
+            picked: None,
             clicks: None,
         }
     }
@@ -269,6 +272,11 @@ impl EditorPanel {
         syntax.takes_key(arg.index).then_some(arg.prefix)
     }
 
+    /// The suggestion picked since the last call.
+    pub fn take_picked(&mut self) -> Option<String> {
+        self.picked.take()
+    }
+
     pub fn close_completion(&mut self) {
         self.completion = None;
     }
@@ -284,6 +292,7 @@ impl EditorPanel {
             Action::Down => completion.select(true),
             Action::NextFocus | Action::Confirm => {
                 if let Some(item) = completion.chosen() {
+                    self.picked = Some(item.label.clone());
                     let (start, insert) = (completion.start, item.insert.clone());
                     let cursor = self.buffer.cursor();
                     self.buffer.set_cursor(start, false);

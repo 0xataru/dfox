@@ -1624,6 +1624,9 @@ impl Component for Workspace {
                 let command = self.delegate(action, ctx);
                 if self.focus.is(Panel::Editor) {
                     let tab = &mut self.tabs[self.active];
+                    if let Some(label) = tab.editor.take_picked() {
+                        self.catalog.picked(&label);
+                    }
                     tab.editor.complete(&self.catalog, action);
                     self.list_typed_keys(ctx);
                 }

@@ -181,7 +181,7 @@ pub fn suggest(
     if !forced && ctx.prefix.is_empty() && !matches!(ctx.want, Want::Member(_)) {
         return None;
     }
-    offer(ctx.start, candidates, &ctx.prefix, forced)
+    offer(ctx.start, candidates, &ctx.prefix, forced, catalog)
 }
 
 /// Suggestions for mongo shell commands: collections after `db.`, methods
@@ -247,7 +247,7 @@ pub fn suggest_shell(
     if !forced && prefix.is_empty() && !after_dot {
         return None;
     }
-    offer(start, candidates, &prefix, forced)
+    offer(start, candidates, &prefix, forced, catalog)
 }
 
 /// Suggestions for Redis commands: the command name as the first word of a
@@ -281,7 +281,7 @@ pub fn suggest_redis(
             return None;
         }
         let candidates = words(COMMANDS, &prefix, ItemKind::Method, &usage);
-        return offer(start, candidates, &prefix, forced);
+        return offer(start, candidates, &prefix, forced, catalog);
     }
     let arg = argument_at(text, cursor)?;
     let syntax = Syntax::of(&arg.command);
@@ -331,7 +331,7 @@ pub fn suggest_redis(
     if !forced && arg.prefix.is_empty() {
         return None;
     }
-    offer(arg.start, candidates, &arg.prefix, forced)
+    offer(arg.start, candidates, &arg.prefix, forced, catalog)
 }
 
 fn keywords(words: &[&str], prefix: &str) -> Vec<Item> {
@@ -413,8 +413,14 @@ fn mongo_key(name: &str) -> String {
 }
 
 /// The popup for `candidates` matching `prefix`, typed from `start`.
-fn offer(start: Pos, candidates: Vec<Item>, prefix: &str, forced: bool) -> Option<Completion> {
-    let items = rank(candidates, prefix);
+fn offer(
+    start: Pos,
+    candidates: Vec<Item>,
+    prefix: &str,
+    forced: bool,
+    catalog: &Catalog,
+) -> Option<Completion> {
+    let items = rank(candidates, prefix, &|label| catalog.uses(label));
     // Nothing to add when the best suggestion is what was typed.
     let typed_already = items
         .first()
@@ -556,32 +562,39 @@ fn columns(catalog: &Catalog, refs: &[TableRef], dialect: Dialect) -> Vec<Item> 
 
 /// Matches for `prefix`, best first; ties keep the catalog's order. An
 /// empty prefix keeps everything in order.
-fn rank(candidates: Vec<Item>, prefix: &str) -> Vec<Item> {
+fn rank(candidates: Vec<Item>, prefix: &str, uses: &dyn Fn(&str) -> u32) -> Vec<Item> {
     if prefix.is_empty() {
+        // The candidates' order is by kind; what was picked before goes first.
+        let mut candidates = candidates;
+        candidates.sort_by_key(|item| std::cmp::Reverse(uses(&item.label)));
         return candidates.into_iter().take(LIMIT).collect();
     }
     let pattern = Pattern::parse(prefix, CaseMatching::Ignore, Normalization::Smart);
     let mut matcher = Matcher::new(Config::DEFAULT);
     let mut buf = Vec::new();
-    let mut scored: Vec<(u32, bool, usize)> = candidates
+    let typed = prefix.to_lowercase();
+    let mut scored: Vec<(bool, u32, u32, usize)> = candidates
         .iter()
         .enumerate()
         .filter_map(|(i, item)| {
             let score = pattern.score(Utf32Str::new(&item.label, &mut buf), &mut matcher)?;
-            let starts = item
-                .label
-                .to_lowercase()
-                .starts_with(&prefix.to_lowercase());
-            Some((score, starts, i))
+            let starts = item.label.to_lowercase().starts_with(&typed);
+            Some((starts, uses(&item.label), score, i))
         })
         .collect();
-    // Names that start with what was typed come first.
-    scored.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)).then(a.2.cmp(&b.2)));
+    // Names that start with what was typed first, then what was picked
+    // before, then the closest match, then the candidates' order (by kind).
+    scored.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then(b.1.cmp(&a.1))
+            .then(b.2.cmp(&a.2))
+            .then(a.3.cmp(&b.3))
+    });
     let mut candidates: Vec<Option<Item>> = candidates.into_iter().map(Some).collect();
     scored
         .into_iter()
         .take(LIMIT)
-        .filter_map(|(_, _, i)| candidates[i].take())
+        .filter_map(|(.., i)| candidates[i].take())
         .collect()
 }
 
@@ -966,6 +979,75 @@ mod tests {
     }
 
     #[test]
+    fn what_was_picked_before_comes_first() {
+        let item = |label: &str| Item {
+            label: label.into(),
+            insert: label.into(),
+            kind: ItemKind::Column,
+            detail: String::new(),
+        };
+        let labels = |items: Vec<Item>| items.into_iter().map(|i| i.label).collect::<Vec<_>>();
+        let candidates = || {
+            vec![
+                item("created_at"),
+                item("customer_id"),
+                item("account_created"),
+            ]
+        };
+        let never = |_: &str| 0;
+        assert_eq!(
+            labels(rank(candidates(), "c", &never)),
+            ["created_at", "customer_id", "account_created"]
+        );
+        let picked = |label: &str| u32::from(label == "customer_id");
+        assert_eq!(
+            labels(rank(candidates(), "c", &picked)),
+            ["customer_id", "created_at", "account_created"]
+        );
+        // Starting with what was typed still beats a past pick.
+        let picked = |label: &str| u32::from(label == "account_created");
+        assert_eq!(labels(rank(candidates(), "cr", &picked))[0], "created_at");
+        // With nothing typed, past picks lead too.
+        assert_eq!(
+            labels(rank(candidates(), "", &picked))[0],
+            "account_created"
+        );
+    }
+
+    #[test]
+    fn two_thousand_tables_suggest_quickly() {
+        let mut catalog = Catalog::default();
+        catalog.on_schemas(&["public".into()]);
+        let tables: Vec<String> = (0..2_000)
+            .map(|i| format!("table_{i}_{}", i % 37))
+            .collect();
+        catalog.on_tables("public", tables);
+        let mut slowest = std::time::Duration::ZERO;
+        let mut text = String::from("select * from ");
+        for c in "tbl_42".chars() {
+            text.push(c);
+            let cursor = (0, text.chars().count());
+            // The fastest of three: a busy CI machine pauses at random.
+            let took = (0..3)
+                .map(|_| {
+                    let started = std::time::Instant::now();
+                    suggest(&text, cursor, Dialect::Postgres, &catalog, false);
+                    started.elapsed()
+                })
+                .min()
+                .unwrap_or_default();
+            slowest = slowest.max(took);
+        }
+        // The plan's bound is 10 ms a keystroke in release builds; debug
+        // builds only catch a gross slowdown.
+        let bound = if cfg!(debug_assertions) { 300 } else { 10 };
+        assert!(
+            slowest < std::time::Duration::from_millis(bound),
+            "slowest keystroke took {slowest:?}"
+        );
+    }
+
+    #[test]
     fn names_are_quoted_when_needed() {
         let mut catalog = Catalog::default();
         catalog.on_schemas(&["public".into()]);
@@ -986,7 +1068,11 @@ mod tests {
     fn selection_wraps_around() {
         let mut c = Completion {
             start: (0, 0),
-            items: rank(tables(&sample_catalog(), None, Dialect::Postgres), ""),
+            items: rank(
+                tables(&sample_catalog(), None, Dialect::Postgres),
+                "",
+                &|_| 0,
+            ),
             selected: 0,
         };
         c.select(false);

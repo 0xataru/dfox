@@ -242,7 +242,7 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   keys of the type the command takes (listed with `SCAN` under the prefix typed, never
   `KEYS`), and options after the required arguments (`SET k v EX`); the syntax shows above the
   cursor;
-  **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
+  Suggestions picked before rank higher for the session. **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
 
 ## Configuration
 
