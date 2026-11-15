@@ -17,7 +17,7 @@ use ratatui::{
     Frame,
 };
 
-use super::{inner, panel, results::format_duration, scroll_to};
+use super::{inner, panel, scroll_to};
 use crate::{
     action::Action,
     command::Command,
@@ -48,6 +48,19 @@ pub struct Detected {
 
 /// Latencies kept for the sparkline.
 const HISTORY: usize = 30;
+/// The sparkline's top is at least this many microseconds, so local
+/// databases' tenths of a millisecond stay a flat line near the bottom
+/// and only a real slowdown stands out.
+const SCALE_FLOOR: u64 = 50_000;
+
+/// A latency in microseconds as people read it: `0.3 ms` below 10 ms.
+fn millis(micros: u64) -> String {
+    if micros < 10_000 {
+        format!("{:.1} ms", micros as f64 / 1000.0)
+    } else {
+        format!("{} ms", micros / 1000)
+    }
+}
 
 #[derive(Debug, Default)]
 struct Health {
@@ -266,7 +279,7 @@ impl Manager {
         let health = self.health.entry(name).or_default();
         health.pinging = false;
         if let Ok(latency) = &result {
-            health.latencies.push_back(latency.as_millis() as u64);
+            health.latencies.push_back(latency.as_micros() as u64);
             if health.latencies.len() > HISTORY {
                 health.latencies.pop_front();
             }
@@ -477,7 +490,10 @@ impl Manager {
         lines.push(match health.and_then(|h| h.last.as_ref()) {
             Some(Ok(latency)) => Line::from(vec![
                 Span::styled("● ", theme.success()),
-                Span::raw(format!("reachable · {}", format_duration(*latency))),
+                Span::raw(format!(
+                    "reachable · {}",
+                    millis(latency.as_micros() as u64)
+                )),
             ]),
             Some(Err(err)) => Line::from(vec![
                 Span::styled("● ", theme.danger()),
@@ -485,6 +501,22 @@ impl Manager {
             ]),
             None => Line::styled("checking…", theme.dim()),
         });
+        let latencies = health.map(|h| &h.latencies).filter(|l| !l.is_empty());
+        if let Some(latencies) = latencies {
+            let (low, high) = (
+                latencies.iter().min().copied().unwrap_or_default(),
+                latencies.iter().max().copied().unwrap_or_default(),
+            );
+            lines.push(Line::styled(
+                format!(
+                    "latency, last {} checks: {} – {}",
+                    latencies.len(),
+                    millis(low),
+                    millis(high)
+                ),
+                theme.dim(),
+            ));
+        }
 
         let mut title = vec![Span::raw(connection.name.clone())];
         if connection.tag != Tag::None {
@@ -501,11 +533,18 @@ impl Manager {
         let [text_area, spark_area] =
             Layout::vertical([Constraint::Length(text_height), Constraint::Max(4)]).areas(body);
         f.render_widget(Paragraph::new(lines), text_area);
-        if let Some(health) = health.filter(|h| !h.latencies.is_empty()) {
-            let data: Vec<u64> = health.latencies.iter().copied().collect();
+        if let Some(latencies) = latencies {
+            let data: Vec<u64> = latencies.iter().copied().collect();
+            let top = data
+                .iter()
+                .copied()
+                .max()
+                .unwrap_or_default()
+                .max(SCALE_FLOOR);
             f.render_widget(
                 Sparkline::default()
                     .data(&data)
+                    .max(top)
                     .style(Style::default().fg(theme.accent_alt)),
                 spark_area,
             );

@@ -51,7 +51,7 @@ fn every_connection_is_pinged_once_at_a_time() {
     assert!(manager.is_animating());
     manager.on_pong(3, Ok(Duration::from_millis(3)));
     assert!(!manager.is_animating());
-    assert_eq!(manager.health["prod"].latencies, [12]);
+    assert_eq!(manager.health["prod"].latencies, [12_000]);
 }
 
 #[test]
