@@ -27,6 +27,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   `database`, `db`, `data`, `prisma`, `storage`, told by their header), and the services of
   `~/.pg_service.conf`. A database found twice, as by `DATABASE_URL` and `POSTGRES_URL`, is
   listed once.
+- The connection manager also lists the database services of the Docker Compose file in the
+  folder dfox starts in, running or not, read with `docker compose config` (so with its `.env`
+  and overrides), the `DB_CONNECTION`/`DB_HOST`/`DB_DATABASE`/`DB_USERNAME` variables of
+  Laravel and others, and the variables of `.env.local`, `.env.development` and `.env.dev`.
 
 ## [0.5.37] - 2026-11-15
 

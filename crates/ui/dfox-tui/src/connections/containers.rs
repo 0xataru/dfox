@@ -129,13 +129,38 @@ fn detected(container: Container, cli: &str) -> Option<Detected> {
         .into_iter()
         .next()?;
     let env = container.config.env.unwrap_or_default();
+    let var = |name: &str| {
+        env.iter()
+            .find_map(|e| e.strip_prefix(name)?.strip_prefix('='))
+            .map(str::to_string)
+    };
+    let name = container.name.trim_start_matches('/');
+    let source = format!("{cli}: {}", container.config.image);
+    database(
+        name,
+        &container.config.image,
+        &var,
+        &binding.host_ip,
+        &binding.host_port,
+        source,
+    )
+}
+
+/// The database a container of `image` serves on the host's `host_port`,
+/// with the user, password and database its environment sets.
+pub fn database(
+    name: &str,
+    image: &str,
+    env: &dyn Fn(&str) -> Option<String>,
+    host_ip: &str,
+    host_port: &str,
+    source: String,
+) -> Option<Detected> {
+    let driver = engine(image)?;
     let var = |names: &[&str]| {
-        names.iter().find_map(|name| {
-            env.iter()
-                .find_map(|e| e.strip_prefix(name)?.strip_prefix('='))
-                .filter(|v| !v.is_empty())
-                .map(str::to_string)
-        })
+        names
+            .iter()
+            .find_map(|name| env(name).filter(|v| !v.is_empty()))
     };
     let (user, password, database) = match driver {
         DbType::Postgres => {
@@ -162,20 +187,19 @@ fn detected(container: Container, cli: &str) -> Option<Detected> {
         DbType::Redis => (String::new(), var(&["REDIS_PASSWORD"]), None),
         _ => (String::new(), None, None),
     };
-    let host = match binding.host_ip.as_str() {
+    let host = match host_ip {
         "" | "0.0.0.0" | "::" => "127.0.0.1".to_string(),
         ip => ip.to_string(),
     };
-    let name = container.name.trim_start_matches('/');
     let mut connection = Connection::new(name, driver);
     connection.host = host;
-    connection.port = binding.host_port.parse().ok();
+    connection.port = host_port.parse().ok();
     connection.user = user;
     connection.database = database;
     Some(Detected {
         connection,
         password,
-        source: format!("{cli}: {}", container.config.image),
+        source,
     })
 }
 
