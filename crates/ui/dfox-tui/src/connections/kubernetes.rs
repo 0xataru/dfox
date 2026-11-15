@@ -14,21 +14,102 @@ use crate::components::manager::Detected;
 /// Logging in to a cloud cluster can take a few seconds.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
-pub async fn find() -> Vec<Detected> {
-    let Some(context) = kubectl(&["config", "current-context"]).await else {
-        return Vec::new();
-    };
-    let context = context.trim().to_string();
-    let all = kubectl(&["get", "services", "--all-namespaces", "-o", "json"]).await;
-    // Without the right to list every namespace, the context's own.
-    let json = match all {
-        Some(json) => json,
-        None => match kubectl(&["get", "services", "-o", "json"]).await {
-            Some(json) => json,
-            None => return Vec::new(),
-        },
-    };
-    parse(&json, &context)
+/// The databases of the `wanted` contexts (`kube_contexts` in the config):
+/// `current`, `all` but those named like prod, or contexts by name. Each is
+/// asked on its own, so one that doesn't answer holds up none of the others.
+pub async fn find(wanted: Vec<String>) -> Vec<Detected> {
+    let contexts = contexts(&wanted).await;
+    let found = contexts.iter().map(|context| async move {
+        let all = kubectl(&[
+            "--context",
+            context,
+            "get",
+            "services",
+            "--all-namespaces",
+            "-o",
+            "json",
+        ])
+        .await;
+        // Without the right to list every namespace, the context's own.
+        let json = match all {
+            Some(json) => Some(json),
+            None => kubectl(&["--context", context, "get", "services", "-o", "json"]).await,
+        };
+        match json {
+            Some(json) => parse(&json, context),
+            None => {
+                log::info!("kubernetes: {context} didn't answer");
+                Vec::new()
+            }
+        }
+    });
+    futures_util::future::join_all(found).await.concat()
+}
+
+/// The contexts `wanted` names, each once.
+async fn contexts(wanted: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in wanted {
+        let names: Vec<String> = match name.as_str() {
+            "current" => kubectl(&["config", "current-context"])
+                .await
+                .map(|c| vec![c.trim().to_string()])
+                .unwrap_or_default(),
+            // A prod cluster is asked only when named: not behind the back.
+            "all" => kubectl(&["config", "get-contexts", "-o", "name"])
+                .await
+                .unwrap_or_default()
+                .lines()
+                .map(str::trim)
+                .filter(|c| !c.is_empty() && !is_prod(c))
+                .map(str::to_string)
+                .collect(),
+            name => vec![name.to_string()],
+        };
+        for name in names {
+            if !name.is_empty() && !out.contains(&name) {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
+fn is_prod(context: &str) -> bool {
+    context.to_lowercase().contains("prod")
+}
+
+/// A context's name as people say it: `gke_project_zone_crm-stage` →
+/// `crm-stage (gke)`, `do-ams3-k8s-1-29-stage-crm-1-do-0-ams3-1714463690478`
+/// → `stage-crm-1 (do)`, `arn:aws:eks:…:cluster/crm` → `crm (eks)`.
+pub fn short_context(context: &str) -> String {
+    if let Some(rest) = context.strip_prefix("gke_") {
+        if let Some(cluster) = rest.rsplit('_').next().filter(|c| !c.is_empty()) {
+            return format!("{cluster} (gke)");
+        }
+    }
+    if let Some((_, cluster)) = context
+        .split_once(":cluster/")
+        .filter(|_| context.starts_with("arn:aws:eks:"))
+    {
+        return format!("{cluster} (eks)");
+    }
+    if let Some(rest) = context.strip_prefix("do-") {
+        // `do-<region>-<cluster>`, the cluster often DigitalOcean's own
+        // `k8s-<version>-<name>-do-<n>-<region>-<time>`.
+        let cluster = rest.split_once('-').map_or(rest, |(_, c)| c);
+        let named = cluster
+            .strip_prefix("k8s-")
+            .map(|c| c.splitn(3, '-').nth(2).unwrap_or(c))
+            .and_then(|c| c.split("-do-").next())
+            .filter(|c| !c.is_empty())
+            .unwrap_or(cluster);
+        return format!("{named} (do)");
+    }
+    if let Some(cluster) = context.strip_prefix("kind-") {
+        return format!("{cluster} (kind)");
+    }
+    context.to_string()
 }
 
 async fn kubectl(args: &[&str]) -> Option<String> {
@@ -120,7 +201,8 @@ pub fn parse(json: &str, context: &str) -> Vec<Detected> {
     let has = |namespace: &str, name: &str| {
         names.contains_key(&(namespace.to_string(), name.to_string()))
     };
-    let prod = context.to_lowercase().contains("prod");
+    let prod = is_prod(context);
+    let short = short_context(context);
     list.items
         .into_iter()
         .filter(|s| {
@@ -145,8 +227,10 @@ pub fn parse(json: &str, context: &str) -> Vec<Detected> {
             } else {
                 s.metadata.namespace
             };
-            let mut connection =
-                Connection::new(&format!("{} ({namespace})", s.metadata.name), driver);
+            // The namespace said as one, and the cluster: `(stage)` read as
+            // the environment.
+            let name = format!("{} · ns {namespace} · {short}", s.metadata.name);
+            let mut connection = Connection::new(&name, driver);
             connection.port = Some(port);
             connection.kube = Some(KubeParams {
                 context: Some(context.to_string()),
@@ -204,18 +288,18 @@ mod tests {
             shown,
             [
                 (
-                    "stage-postgresql (stage)".into(),
-                    "svc/stage-postgresql:5432 in stage (gke_stage)".into(),
+                    "stage-postgresql · ns stage · stage (gke)".into(),
+                    "svc/stage-postgresql:5432 in ns stage · stage (gke)".into(),
                     DbType::Postgres
                 ),
                 (
-                    "crm-rw (crm)".into(),
-                    "svc/crm-rw:5432 in crm (gke_stage)".into(),
+                    "crm-rw · ns crm · stage (gke)".into(),
+                    "svc/crm-rw:5432 in ns crm · stage (gke)".into(),
                     DbType::Postgres
                 ),
                 (
-                    "cache (stage)".into(),
-                    "svc/cache:6379 in stage (gke_stage)".into(),
+                    "cache · ns stage · stage (gke)".into(),
+                    "svc/cache:6379 in ns stage · stage (gke)".into(),
                     DbType::Redis
                 ),
             ]
@@ -229,5 +313,27 @@ mod tests {
         let found = parse(SERVICES, "gke_product-crm-prod");
         assert!(found.iter().all(|d| d.connection.tag == Tag::Red));
         assert!(parse("not json", "x").is_empty());
+    }
+
+    #[test]
+    fn clusters_are_named_as_people_say_them() {
+        assert_eq!(
+            short_context("gke_emerald-griffin-400808_europe-west1-b_profi-crm-stage-cluster"),
+            "profi-crm-stage-cluster (gke)"
+        );
+        assert_eq!(
+            short_context("do-ams3-k8s-1-29-stage-crm-1-do-0-ams3-1714463690478"),
+            "stage-crm-1 (do)"
+        );
+        assert_eq!(short_context("do-fra1-billing"), "billing (do)");
+        assert_eq!(
+            short_context("arn:aws:eks:eu-west-1:123456789012:cluster/crm"),
+            "crm (eks)"
+        );
+        assert_eq!(short_context("kind-dfox"), "dfox (kind)");
+        assert_eq!(short_context("minikube"), "minikube");
+        assert!(is_prod(
+            "gke_profi-crm-416111_europe-west1-b_product-crm-prod"
+        ));
     }
 }

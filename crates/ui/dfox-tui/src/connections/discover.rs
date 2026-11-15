@@ -34,15 +34,18 @@ pub struct Discovery {
     probed: Arc<ports::Probed>,
     /// Folders searched for SQLite files besides the index.
     folders: Vec<PathBuf>,
+    /// The Kubernetes contexts to ask.
+    contexts: Vec<String>,
     /// The last SQLite and cluster searches, kept for [`SLOW_EVERY`].
     sqlite: Searched,
     kube: Searched,
 }
 
 impl Discovery {
-    pub fn new(folders: Vec<PathBuf>) -> Self {
+    pub fn new(folders: Vec<PathBuf>, contexts: Vec<String>) -> Self {
         Self {
             folders,
+            contexts,
             ..Default::default()
         }
     }
@@ -53,7 +56,7 @@ impl Discovery {
             let cwd = std::env::current_dir().unwrap_or_default();
             // Running containers first: a Compose service that runs is theirs.
             let sqlite = slow(&this.sqlite, sqlite::find(this.folders.clone()));
-            let kube = slow(&this.kube, kubernetes::find());
+            let kube = slow(&this.kube, kubernetes::find(this.contexts.clone()));
             let (mut all, ports, compose) = tokio::join!(
                 containers::find(),
                 ports::find(&this.probed),

@@ -312,7 +312,10 @@ impl App {
                 .iter()
                 .filter_map(|f| crate::connections::sqlite::expand(f)),
         );
-        let discovery = crate::connections::discover::Discovery::new(folders);
+        let discovery = crate::connections::discover::Discovery::new(
+            folders,
+            self.config.kube_contexts.clone(),
+        );
         let (found_tx, mut found) = mpsc::unbounded_channel();
         let mut scanning = false;
         let (secrets_tx, mut secrets) = mpsc::unbounded_channel::<SecretAnswer>();

@@ -28,6 +28,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   user, when named) from the Secret the operator or chart made next to the service:
   CloudNativePG, Zalando, and charts' `*-password` keys. Only when asked; never logged; a
   forbidden Secret leaves the prompt for the password typed.
+- `kube_contexts` in the config lists the databases of other Kubernetes contexts than the
+  current one: `["all"]` (all but those named like prod, asked only when named) or contexts by
+  name, each asked on its own. Found services read `crm-redis · ns stage · stage-crm-1 (do)`:
+  the namespace said as one and the cluster by a short name (GKE, DigitalOcean, EKS, kind),
+  and their check reads `service found · kubectl took 180 ms`, not a database latency.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

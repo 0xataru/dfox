@@ -37,6 +37,9 @@ pub struct Config {
     /// Folders searched for SQLite files besides the file index and the
     /// folders dfox was started in, as `["~/clients"]`.
     pub sqlite_folders: Vec<String>,
+    /// The Kubernetes contexts whose databases are listed: `current`, `all`
+    /// but those named like prod, or contexts by name.
+    pub kube_contexts: Vec<String>,
 }
 
 impl Default for Config {
@@ -52,6 +55,7 @@ impl Default for Config {
             keys: BTreeMap::new(),
             update_check: true,
             sqlite_folders: Vec::new(),
+            kube_contexts: vec!["current".to_string()],
         }
     }
 }

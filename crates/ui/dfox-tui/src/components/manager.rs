@@ -440,12 +440,16 @@ impl Manager {
             let params = connection.target();
             match &connection.kube {
                 Some(kube) => {
-                    let mut service =
-                        format!("svc/{}:{} in {}", kube.service, params.port, kube.namespace);
-                    if let Some(context) = &kube.context {
-                        service.push_str(&format!(" ({context})"));
-                    }
+                    let service = format!(
+                        "svc/{}:{} in ns {}",
+                        kube.service, params.port, kube.namespace
+                    );
                     lines.push(field("Service", service));
+                    let cluster = kube.context.as_deref().map_or_else(
+                        || "the current context".to_string(),
+                        crate::connections::kubernetes::short_context,
+                    );
+                    lines.push(field("Cluster", cluster));
                     lines.push(field("Through", "kubectl port-forward".to_string()));
                 }
                 None => lines.push(field("Host", format!("{}:{}", params.host, params.port))),
@@ -505,6 +509,15 @@ impl Manager {
         let health = self.health.get(&connection.name);
         lines.push(Line::from(""));
         lines.push(match health.and_then(|h| h.last.as_ref()) {
+            // Through Kubernetes the check is kubectl finding the service,
+            // not a trip to the database.
+            Some(Ok(latency)) if connection.kube.is_some() => Line::from(vec![
+                Span::styled("● ", theme.success()),
+                Span::raw(format!(
+                    "service found · kubectl took {}",
+                    millis(latency.as_micros() as u64)
+                )),
+            ]),
             Some(Ok(latency)) => Line::from(vec![
                 Span::styled("● ", theme.success()),
                 Span::raw(format!(
@@ -526,7 +539,12 @@ impl Manager {
             );
             lines.push(Line::styled(
                 format!(
-                    "latency, last {} checks: {} – {}",
+                    "{}, last {} checks: {} – {}",
+                    if connection.kube.is_some() {
+                        "kubectl"
+                    } else {
+                        "latency"
+                    },
                     latencies.len(),
                     millis(low),
                     millis(high)
