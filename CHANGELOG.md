@@ -18,9 +18,15 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   tunnel or a local server. Ports come from `lsof` (`ss` without it), and each is told apart
   by a short handshake rather than its number, so a forward on 15432 is found too. Nothing
   logs in; the user (`postgres` or `root` filled in) and the password are asked when
-  connecting. While the manager is open, containers and
-  ports are looked for again every 5 seconds, so a forward opened in another terminal shows
-  up without restarting dfox, and a closed one goes.
+  connecting. While the manager is open, containers and ports are looked for again every 5
+  seconds, so a forward opened in another terminal shows up without restarting dfox, and a
+  closed one goes.
+- The connection manager also lists the databases named by the engines' environment variables
+  besides `DATABASE_URL` (`POSTGRES_URL`, `REDIS_URL`, `MONGODB_URI`, `MONGO_URL`,
+  `PGHOST`/`PGUSER`/`PGDATABASE`, `MYSQL_HOST`…), SQLite files in the project (its root,
+  `database`, `db`, `data`, `prisma`, `storage`, told by their header), and the services of
+  `~/.pg_service.conf`. A database found twice, as by `DATABASE_URL` and `POSTGRES_URL`, is
+  listed once.
 
 ## [0.5.37] - 2026-11-15
 
