@@ -555,6 +555,66 @@ fn a_found_connection_is_saved_once_its_login_works() {
 }
 
 #[test]
+fn a_password_from_a_kubernetes_secret_connects() {
+    let mut connection = Connection::new("crm (crm)", DbType::Postgres);
+    connection.kube = Some(dfox_core::models::connections::KubeParams {
+        context: Some("gke_stage".into()),
+        namespace: "crm".into(),
+        service: "crm-rw".into(),
+    });
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut app = App::new(
+        EngineHandle::new(tx),
+        Setup {
+            config: Config::default(),
+            config_dir: None,
+            depth: ColorDepth::TrueColor,
+            store: Store::default(),
+            secrets: Box::new(Memory::default()),
+            pgpass: Vec::new(),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
+            detected: vec![Detected {
+                connection,
+                password: None,
+                source: "kubernetes: gke_stage".into(),
+            }],
+            connect: Some(EntryKey::Detected(0)),
+            problems: Vec::new(),
+            update: None,
+            splash: false,
+        },
+    );
+    // The user prompt is open; a Secret that can't be read leaves it so.
+    app.on_secret(
+        "crm (crm)".into(),
+        Err("kubectl: secrets is forbidden".into()),
+    );
+    assert!(matches!(
+        &app.overlay,
+        Some(Overlay::Password {
+            ask: Ask::User { .. },
+            ..
+        })
+    ));
+    // CloudNativePG's Secret names its user: both are taken.
+    app.on_secret(
+        "crm (crm)".into(),
+        Ok(crate::connections::kube_secret::Found {
+            user: Some("app".into()),
+            password: "pw".into(),
+        }),
+    );
+    assert!(app.overlay.is_none());
+    let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(matches!(
+        sent.last(),
+        Some(DbCommand::Connect { params, .. })
+            if params.username == "app" && params.password == "pw" && params.kube.is_some()
+    ));
+}
+
+#[test]
 fn running_a_query_in_the_workspace() {
     let mut test = test_app("query", Some("pw"), "");
     test.open_prod();

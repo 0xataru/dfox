@@ -143,7 +143,14 @@ current kubeconfig context by itself: its services whose port is a database's
 (5432, 3306, 27017, 6379, 9042, or a port named so), in every namespace you may
 list, ready to connect through such a forward; headless services and
 CloudNativePG's read-only ones are left out, and a context named like `prod`
-tags them red. The cluster is asked once a minute, read-only. In `connections.toml`:
+tags them red. The cluster is asked once a minute, read-only. At the user or
+password prompt of a Kubernetes connection, **Tab** reads the password from the
+Secret the operator or chart made next to the service (CloudNativePG's
+`<cluster>-app`, Zalando's `<user>.<cluster>.credentials…`, a chart's
+`postgres-password`, `mysql-root-password`, `redis-password`…) and connects;
+the Secret's user comes along when it names one. Only when asked, never
+logged, and kept in the keychain only if the connection is saved; without the
+right to read Secrets, the prompt stays for the password typed. In `connections.toml`:
 
 ```toml
 [[connection]]

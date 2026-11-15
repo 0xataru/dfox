@@ -1568,6 +1568,7 @@ dependencies = [
  "arboard",
  "arrow-array",
  "arrow-schema",
+ "base64 0.22.1",
  "crossterm",
  "dfox-core",
  "dfox-driver-cassandra",

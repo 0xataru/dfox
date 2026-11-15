@@ -24,6 +24,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   connection says `kubectl isn't installed` with where to get it. A forward that `kubectl`
   can't start (a missing service, an expired login) reports `kubectl`'s error at once
   instead of after 20 s.
+- At the user or password prompt of a Kubernetes connection, Tab reads the password (and the
+  user, when named) from the Secret the operator or chart made next to the service:
+  CloudNativePG, Zalando, and charts' `*-password` keys. Only when asked; never logged; a
+  forbidden Secret leaves the prompt for the password typed.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They
