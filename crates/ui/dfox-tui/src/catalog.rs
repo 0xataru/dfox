@@ -19,6 +19,8 @@ pub struct Catalog {
     columns: HashMap<String, HashMap<String, Vec<TableColumn>>>,
     /// The server's databases (keyspaces in Cassandra).
     databases: Vec<String>,
+    /// How often each suggestion was picked this session.
+    picked: HashMap<String, u32>,
     /// Redis keys seen in the explorer's listings, with their type.
     keys: BTreeMap<String, Option<String>>,
     /// Redis key prefixes (`user:`), where they are listed, and whether
@@ -86,6 +88,16 @@ impl Catalog {
             .max_by_key(|(p, _)| p.len())?;
         *asked = true;
         Some(path.clone())
+    }
+
+    /// Counts a pick of the suggestion `label`, to rank it higher.
+    pub fn picked(&mut self, label: &str) {
+        *self.picked.entry(label.to_string()).or_default() += 1;
+    }
+
+    /// How often `label` was picked this session.
+    pub fn uses(&self, label: &str) -> u32 {
+        self.picked.get(label).copied().unwrap_or(0)
     }
 
     pub fn on_databases(&mut self, databases: Vec<String>) {

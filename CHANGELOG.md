@@ -36,6 +36,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   hashes), options after the required arguments (`SET k v EX`, `ZRANGE … WITHSCORES`), and
   the command's syntax above the cursor. Keys under a prefix being typed (`user:`) are listed
   with the explorer's `SCAN`, once per prefix; `KEYS` is never sent.
+- Suggestions picked before rank higher for the rest of the session: names starting with
+  what was typed still come first, then the ones picked most, then the closest match.
 
 ### Changed
 

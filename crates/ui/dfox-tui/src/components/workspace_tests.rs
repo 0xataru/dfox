@@ -1657,3 +1657,23 @@ fn redis_keys_complete_by_type_and_load_under_a_typed_prefix() {
     );
     assert_eq!(w.editor().completion_labels(), ["user:12", "user:13"]);
 }
+
+#[test]
+fn a_picked_suggestion_ranks_higher_afterwards() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    answer_catalog(&mut w, &mut harness);
+    w.set_focus(Panel::Editor);
+    for c in "select * from cus".chars() {
+        w.handle(Action::Input(c), &mut harness.ctx());
+    }
+    let first = w
+        .editor()
+        .completion_labels()
+        .first()
+        .cloned()
+        .expect("a suggestion");
+    w.handle(Action::NextFocus, &mut harness.ctx());
+    w.handle(Action::Input(' '), &mut harness.ctx());
+    assert_eq!(w.catalog.uses(&first), 1);
+}
