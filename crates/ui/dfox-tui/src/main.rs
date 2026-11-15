@@ -284,6 +284,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
     // The engines' own variables, SQLite files here, .pg_service.conf.
     if let Ok(cwd) = env::current_dir() {
+        if let Some(state) = History::dir() {
+            connections::sqlite::remember(&state, &cwd);
+        }
         let var = |name: &str| env::var(name).ok();
         detected.extend(connections::local::find(&cwd, &var));
         detected.extend(connections::frameworks::find(&cwd, &var));

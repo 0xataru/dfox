@@ -12,11 +12,11 @@ expression: "render(&test, 120, 20, |f, area, ctx| manager.render(f, area, ctx))
 │                                              ││ Access    read-only                                                  │
 │                                              ││                                                                      │
 │                                              ││ ● reachable · 11 ms                                                  │
-│                                              ││    █                                                                 │
-│                                              ││    █                                                                 │
-│                                              ││ ▄█▁█▃                                                                │
-│                                              ││ █████                                                                │
+│                                              ││ latency, last 5 checks: 9.0 ms – 30 ms                               │
 │                                              ││                                                                      │
+│                                              ││    ▃                                                                 │
+│                                              ││  ▁ █                                                                 │
+│                                              ││ ▇█▅█▇                                                                │
 │                                              ││                                                                      │
 │                                              ││                                                                      │
 │                                              ││                                                                      │

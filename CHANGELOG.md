@@ -42,6 +42,19 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   defaults), Spring's `spring.datasource` in `application.properties` or `application.yml`
   (JDBC URLs, `${NAME:default}` values), a Prisma datasource whose URL is written out, and
   `alembic.ini`'s `sqlalchemy.url`.
+- The connection manager lists SQLite files of projects anywhere in the home folder, not only
+  in the folder dfox starts in: from Spotlight (`plocate` or `locate` on Linux), the folders
+  dfox was started in before, the new `sqlite_folders` setting, and without an index the usual
+  project folders. The system's, apps', dependencies' and caches' own are left out, and files
+  from the index are never opened. The index is asked once a minute while the manager is open.
+
+### Fixed
+
+- The connection list's latency sparkline drew a lone full-height bar for a 1 ms ping among
+  0 ms ones, and nothing at all for local databases. Latencies are now measured in
+  microseconds (`reachable · 0.3 ms`), the scale tops at 50 ms or more so tenths of a
+  millisecond stay a flat line, and a caption says what it is: `latency, last 30 checks:
+  0.2 ms – 1.1 ms`.
 
 ## [0.5.37] - 2026-11-15
 
