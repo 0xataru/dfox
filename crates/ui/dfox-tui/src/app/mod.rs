@@ -276,6 +276,8 @@ impl App {
         mut events: mpsc::Receiver<EngineEvent>,
         // The update check started with this run, whose answer shows at once.
         mut checking: Option<tokio::sync::oneshot::Receiver<Option<String>>>,
+        // Connections found in the background after the start, as containers.
+        mut found: mpsc::UnboundedReceiver<Vec<Detected>>,
     ) -> io::Result<()> {
         self.checking_update = checking.is_some();
         let mut input = EventStream::new();
@@ -358,6 +360,13 @@ impl App {
                     if let Ok(notice) = answer {
                         self.update = notice;
                     }
+                    dirty = true;
+                }
+                Some(more) = found.recv() => {
+                    self.with_ctx(|app, ctx| {
+                        app.manager.found(more);
+                        app.manager.ping_all(ctx);
+                    });
                     dirty = true;
                 }
                 _ = pings.tick(), if self.screen == Screen::Manager => {

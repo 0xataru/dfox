@@ -99,6 +99,30 @@ impl Manager {
         self.entry(self.selected).map(|(key, _)| key)
     }
 
+    /// Adds connections found after the start, leaving out those already
+    /// listed: the same engine at the same host and port.
+    pub fn found(&mut self, more: Vec<Detected>) {
+        fn place(c: &Connection) -> (DbType, String, u16) {
+            let params = c.target();
+            let host = match params.host.as_str() {
+                "localhost" | "::1" => "127.0.0.1".to_string(),
+                host => host.to_string(),
+            };
+            (c.driver, host, params.port)
+        }
+        for found in more {
+            let at = place(&found.connection);
+            let listed = self
+                .saved
+                .iter()
+                .chain(self.detected.iter().map(|d| &d.connection))
+                .any(|c| place(c) == at);
+            if !listed {
+                self.detected.push(found);
+            }
+        }
+    }
+
     pub fn select_name(&mut self, name: &str) {
         if let Some(i) = self.saved.iter().position(|c| c.name == name) {
             self.select(i);

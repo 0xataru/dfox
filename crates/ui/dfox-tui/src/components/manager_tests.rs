@@ -111,3 +111,30 @@ fn manager_when_empty() {
     let manager = Manager::default();
     insta::assert_snapshot!(render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx)));
 }
+
+#[test]
+fn found_connections_join_unless_listed_already() {
+    let at = |name: &str, host: &str, port: u16| {
+        let mut connection = Connection::new(name, DbType::Postgres);
+        connection.host = host.into();
+        connection.port = Some(port);
+        connection
+    };
+    let detected = |connection| Detected {
+        connection,
+        password: None,
+        source: "docker: postgres:16".into(),
+    };
+    let mut manager = Manager::new(vec![at("saved", "localhost", 5432)], Vec::new());
+    manager.found(vec![
+        detected(at("same", "127.0.0.1", 5432)),
+        detected(at("other", "127.0.0.1", 15432)),
+        detected(at("again", "127.0.0.1", 15432)),
+    ]);
+    let names: Vec<&str> = manager
+        .detected
+        .iter()
+        .map(|d| d.connection.name.as_str())
+        .collect();
+    assert_eq!(names, ["other"]);
+}

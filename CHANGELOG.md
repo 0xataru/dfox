@@ -7,6 +7,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- The connection manager lists databases running in local Docker or Podman containers:
+  Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
+  their port, with the user, password and database from the container's environment. They
+  are looked up in the background after the start, and nothing shows without Docker.
+
 ## [0.5.37] - 2026-11-15
 
 ### Added
