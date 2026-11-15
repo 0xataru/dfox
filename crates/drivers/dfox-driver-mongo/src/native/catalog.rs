@@ -374,14 +374,13 @@ impl Catalog for MongoCatalog {
                     .try_collect()
                     .await
                     .map_err(db_error)?;
-                let mut shape = Shape::default();
-                for doc in &docs {
-                    shape.learn(doc);
-                }
-                out.extend(shape.columns().iter().map(|(field, kind)| TableColumn {
+                let docs: Vec<&Document> = docs.iter().collect();
+                let mut fields = Vec::new();
+                learn_fields(&docs, "", &mut fields);
+                out.extend(fields.into_iter().map(|(field, kind)| TableColumn {
                     table: name.clone(),
-                    name: field.clone(),
-                    data_type: kind.name().to_string(),
+                    name: field,
+                    data_type: kind.to_string(),
                     values: Vec::new(),
                     key: None,
                 }));
@@ -419,6 +418,33 @@ impl Catalog for MongoCatalog {
                 ))),
             }
         })
+    }
+}
+
+/// How deep embedded documents' fields are listed: `a.b.c`.
+const FIELD_DEPTH: usize = 3;
+
+/// The fields of `docs`, each embedded document's after its own as
+/// `parent.child`, with their kinds.
+fn learn_fields(docs: &[&Document], prefix: &str, out: &mut Vec<(String, &'static str)>) {
+    let mut shape = Shape::default();
+    for doc in docs {
+        shape.learn(doc);
+    }
+    for (field, kind) in shape.columns() {
+        let name = if prefix.is_empty() {
+            field.clone()
+        } else {
+            format!("{prefix}.{field}")
+        };
+        out.push((name.clone(), kind.name()));
+        let inner: Vec<&Document> = docs
+            .iter()
+            .filter_map(|d| d.get_document(field).ok())
+            .collect();
+        if !inner.is_empty() && name.matches('.').count() + 1 < FIELD_DEPTH {
+            learn_fields(&inner, &name, out);
+        }
     }
 }
 

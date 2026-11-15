@@ -345,3 +345,14 @@ fn the_signature_shows_while_typing_the_arguments() {
     e.complete(&Catalog::default(), Action::Input(' '));
     assert_eq!(e.signature, None);
 }
+
+#[test]
+fn mongo_methods_show_their_arguments() {
+    let mut e = editor("db.users.updateOne({ a: 1 }, ");
+    e.language = QueryLanguage::MongoShell;
+    e.complete(&Catalog::default(), Action::Input(' '));
+    assert_eq!(
+        e.signature,
+        Some(("updateOne".to_string(), "filter, update, options", 1))
+    );
+}

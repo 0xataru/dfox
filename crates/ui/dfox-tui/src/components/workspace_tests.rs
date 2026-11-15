@@ -1019,7 +1019,7 @@ fn mongo_commands_run_under_the_cursor_and_ask_before_deleting() {
         labels
     };
     assert_eq!(complete(&mut w, "db.us"), ["users"]);
-    assert_eq!(complete(&mut w, "db.users.findO"), ["findOne"]);
+    assert_eq!(complete(&mut w, "db.users.findO")[0], "findOne");
     assert_eq!(complete(&mut w, "db.users.find({ a"), ["age"]);
 }
 

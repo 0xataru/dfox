@@ -76,26 +76,118 @@ const WRITES: &[&str] = &[
     "bulkWrite",
 ];
 
-/// Methods of a collection, for completion.
-pub const METHODS: &[&str] = &[
-    "aggregate",
-    "countDocuments",
-    "createIndex",
-    "deleteMany",
-    "deleteOne",
-    "distinct",
-    "drop",
-    "dropIndex",
-    "estimatedDocumentCount",
-    "find",
-    "findOne",
-    "getIndexes",
-    "insertMany",
-    "insertOne",
-    "replaceOne",
-    "stats",
-    "updateMany",
-    "updateOne",
+/// Methods of a collection, for completion, with their arguments.
+pub const METHODS: &[(&str, &str)] = &[
+    ("aggregate", "pipeline, options"),
+    ("countDocuments", "filter, options"),
+    ("createIndex", "keys, options"),
+    ("deleteMany", "filter, options"),
+    ("deleteOne", "filter, options"),
+    ("distinct", "field, filter"),
+    ("drop", ""),
+    ("dropIndex", "index"),
+    ("estimatedDocumentCount", "options"),
+    ("find", "filter, projection"),
+    ("findOne", "filter, projection"),
+    ("findOneAndDelete", "filter, options"),
+    ("findOneAndReplace", "filter, replacement, options"),
+    ("findOneAndUpdate", "filter, update, options"),
+    ("getIndexes", ""),
+    ("insertMany", "documents, options"),
+    ("insertOne", "document, options"),
+    ("replaceOne", "filter, replacement, options"),
+    ("stats", ""),
+    ("updateMany", "filter, update, options"),
+    ("updateOne", "filter, update, options"),
+];
+
+/// An operator or key, with what goes with it.
+pub type Operator = (&'static str, &'static str);
+
+/// Keys a filter starts with besides fields.
+pub const LOGICAL: &[Operator] = &[
+    ("$and", "[filter, …]"),
+    ("$or", "[filter, …]"),
+    ("$nor", "[filter, …]"),
+    ("$expr", "expression"),
+];
+
+/// Operators on a field's value in a filter.
+pub const QUERY: &[Operator] = &[
+    ("$eq", "value"),
+    ("$ne", "value"),
+    ("$gt", "value"),
+    ("$gte", "value"),
+    ("$lt", "value"),
+    ("$lte", "value"),
+    ("$in", "[value, …]"),
+    ("$nin", "[value, …]"),
+    ("$exists", "bool"),
+    ("$type", "type"),
+    ("$regex", "/pattern/"),
+    ("$elemMatch", "{ filter }"),
+    ("$size", "n"),
+    ("$all", "[value, …]"),
+    ("$not", "{ operator }"),
+];
+
+/// Update operators.
+pub const UPDATE: &[Operator] = &[
+    ("$set", "{ field: value }"),
+    ("$unset", "{ field: \"\" }"),
+    ("$inc", "{ field: n }"),
+    ("$push", "{ field: value }"),
+    ("$pull", "{ field: filter }"),
+    ("$addToSet", "{ field: value }"),
+    ("$rename", "{ field: name }"),
+    ("$setOnInsert", "{ field: value }"),
+    ("$min", "{ field: value }"),
+    ("$max", "{ field: value }"),
+    ("$mul", "{ field: n }"),
+    ("$currentDate", "{ field: true }"),
+];
+
+/// Aggregation stages, with their shapes.
+pub const STAGES: &[Operator] = &[
+    ("$match", "{ filter }"),
+    ("$group", "{ _id: expr, field: { $sum: expr } }"),
+    ("$project", "{ field: 1 }"),
+    ("$sort", "{ field: 1 | -1 }"),
+    ("$limit", "n"),
+    ("$skip", "n"),
+    ("$lookup", "{ from, localField, foreignField, as }"),
+    ("$unwind", "\"$field\""),
+    ("$addFields", "{ field: expr }"),
+    ("$set", "{ field: expr }"),
+    ("$unset", "\"field\""),
+    ("$count", "\"name\""),
+    ("$facet", "{ name: [stage, …] }"),
+    ("$replaceRoot", "{ newRoot: expr }"),
+    ("$sample", "{ size: n }"),
+];
+
+/// Keys of a `$group` stage besides the outputs.
+pub const GROUP: &[Operator] = &[("_id", "group key")];
+
+/// Accumulators of a `$group` output.
+pub const ACCUMULATORS: &[Operator] = &[
+    ("$sum", "expr"),
+    ("$avg", "expr"),
+    ("$min", "expr"),
+    ("$max", "expr"),
+    ("$first", "expr"),
+    ("$last", "expr"),
+    ("$push", "expr"),
+    ("$addToSet", "expr"),
+    ("$count", "{}"),
+];
+
+/// Keys of a `$lookup` stage.
+pub const LOOKUP: &[Operator] = &[
+    ("from", "collection"),
+    ("localField", "field"),
+    ("foreignField", "field"),
+    ("as", "name"),
 ];
 
 fn tokens(text: &str) -> Vec<Token> {
@@ -390,8 +482,12 @@ pub enum Want {
     Collections,
     /// A method of this collection, after `db.name.`.
     Methods(String),
-    /// A field of this collection, as a key inside `{ … }`.
-    Fields(String),
+    /// A key inside `{ … }`: fields of `fields`' collection, and the
+    /// operators that fit there.
+    Keys {
+        fields: Option<String>,
+        operators: &'static [Operator],
+    },
 }
 
 /// What to complete at the cursor, from where the typed word starts.
@@ -417,56 +513,187 @@ pub fn context(text: &str, cursor: Pos) -> (Want, Pos, String) {
         }
         _ => (String::new(), cursor, &all[..]),
     };
-    let words: Vec<&str> = before
-        .iter()
-        .filter(|t| !matches!(t.kind, Tok::Comment | Tok::Newline))
-        .map(|t| t.text.as_str())
-        .collect();
+    let words = words(before);
     let want = match words.as_slice() {
         [.., "db", "."] => Want::Collections,
         rest => match collection_before(rest) {
             Some(collection) => Want::Methods(collection),
-            None => field_context(&words).map_or(Want::Nothing, Want::Fields),
+            None => keys(&words),
         },
     };
     (want, start, prefix)
 }
 
-/// The collection whose document is being written, when the cursor is
-/// where a key goes: right after `{` or `,` in a document passed straight
-/// to `db.name.method(`.
-fn field_context(words: &[&str]) -> Option<String> {
-    if !matches!(words.last(), Some(&"{" | &",")) {
-        return None;
-    }
-    // The bracket a position is directly inside: the last one not closed
-    // before it.
-    let enclosing = |end: usize| {
-        let mut depth = 0usize;
-        for i in (0..end).rev() {
-            match words[i] {
-                "}" | ")" | "]" => depth += 1,
-                "{" | "(" | "[" if depth == 0 => return Some(i),
-                "{" | "(" | "[" => depth -= 1,
-                _ => {}
+/// The method call the cursor is in, and which argument, from 0.
+pub fn call(text: &str, cursor: Pos) -> Option<(String, usize)> {
+    let all: Vec<Token> = tokens(text)
+        .into_iter()
+        .filter(|t| t.end <= cursor)
+        .collect();
+    let words = words(&all);
+    frames(&words)
+        .iter()
+        .rev()
+        .find_map(|f| Some((f.method.clone()?.1, f.args)))
+}
+
+fn words(tokens: &[Token]) -> Vec<&str> {
+    tokens
+        .iter()
+        .filter(|t| !matches!(t.kind, Tok::Comment | Tok::Newline))
+        .map(|t| t.text.as_str())
+        .collect()
+}
+
+/// A bracket open before the cursor.
+#[derive(Debug)]
+struct Frame {
+    open: char,
+    /// The key whose value it is: `age` in `{ age: {`.
+    key: Option<String>,
+    /// For `db.name.method(`: the collection and the method.
+    method: Option<(String, String)>,
+    /// Commas seen at this level.
+    args: usize,
+}
+
+fn unquote(word: &str) -> String {
+    word.trim_matches(|c| c == '"' || c == '\'').to_string()
+}
+
+/// The brackets still open at the end of `words`, outermost first.
+fn frames(words: &[&str]) -> Vec<Frame> {
+    let mut open: Vec<Frame> = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        match *word {
+            "{" | "[" | "(" => {
+                let key = (i >= 2 && words[i - 1] == ":").then(|| unquote(words[i - 2]));
+                let method = (*word == "(" && i >= 1)
+                    .then(|| {
+                        collection_before(&words[..i - 1]).map(|c| (c, words[i - 1].to_string()))
+                    })
+                    .flatten();
+                open.push(Frame {
+                    open: word.chars().next().unwrap_or('{'),
+                    key,
+                    method,
+                    args: 0,
+                });
             }
+            "}" | "]" | ")" => {
+                open.pop();
+            }
+            "," => {
+                if let Some(frame) = open.last_mut() {
+                    frame.args += 1;
+                }
+            }
+            _ => {}
         }
-        None
-    };
-    let brace = if words.last() == Some(&"{") {
-        words.len() - 1
-    } else {
-        enclosing(words.len() - 1)?
-    };
-    if words[brace] != "{" {
-        return None;
     }
-    let paren = enclosing(brace)?;
-    if words[paren] != "(" || paren == 0 {
-        return None;
+    open
+}
+
+/// What a `{ … }` holds, from where it sits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Filter,
+    Update,
+    Document,
+    Fields,
+    Stage,
+    Group,
+    Accumulator,
+    Lookup,
+    Query,
+    Other,
+}
+
+fn role(frames: &[Frame], i: usize) -> Role {
+    let frame = &frames[i];
+    if frame.open != '{' {
+        return Role::Other;
     }
-    // `db . name . method (`
-    collection_before(&words[..paren - 1])
+    let parent = i.checked_sub(1).map(|p| &frames[p]);
+    match frame.key.as_deref() {
+        Some("$match" | "$elemMatch") => Role::Filter,
+        Some("$group") => Role::Group,
+        Some("$lookup") => Role::Lookup,
+        Some(
+            "$project" | "$sort" | "$set" | "$unset" | "$addFields" | "$inc" | "$push" | "$pull"
+            | "$addToSet" | "$min" | "$max" | "$mul" | "$rename" | "$setOnInsert" | "$currentDate",
+        ) => Role::Fields,
+        Some(key) if key.starts_with('$') => Role::Other,
+        // A field's value: operators in a filter, an accumulator in a group.
+        Some(_) => match i.checked_sub(1).map(|p| role(frames, p)) {
+            Some(Role::Filter) => Role::Query,
+            Some(Role::Group) => Role::Accumulator,
+            _ => Role::Other,
+        },
+        None => match parent {
+            Some(Frame {
+                open: '(',
+                method: Some((_, method)),
+                args,
+                ..
+            }) => match (method.as_str(), args) {
+                ("insertOne", 0) | ("replaceOne" | "findOneAndReplace", 1) => Role::Document,
+                ("updateOne" | "updateMany" | "findOneAndUpdate", 1) => Role::Update,
+                ("find" | "findOne", 1) | ("createIndex", 0) => Role::Fields,
+                ("distinct", 1) | (_, 0) if method != "aggregate" => Role::Filter,
+                _ => Role::Other,
+            },
+            Some(Frame { open: '[', key, .. }) => match key.as_deref() {
+                Some("$and" | "$or" | "$nor") => Role::Filter,
+                _ => match i.checked_sub(2).map(|g| &frames[g]) {
+                    Some(Frame {
+                        method: Some((_, method)),
+                        args: 0,
+                        ..
+                    }) if method == "aggregate" => Role::Stage,
+                    Some(Frame {
+                        method: Some((_, method)),
+                        args: 0,
+                        ..
+                    }) if method == "insertMany" => Role::Document,
+                    _ => Role::Other,
+                },
+            },
+            _ => Role::Other,
+        },
+    }
+}
+
+/// The keys that fit at the end of `words`: right after `{` or `,` inside
+/// an object.
+fn keys(words: &[&str]) -> Want {
+    if !matches!(words.last(), Some(&"{" | &",")) {
+        return Want::Nothing;
+    }
+    let frames = frames(words);
+    let Some(last) = frames.len().checked_sub(1) else {
+        return Want::Nothing;
+    };
+    let collection = frames
+        .iter()
+        .rev()
+        .find_map(|f| f.method.as_ref())
+        .map(|(c, _)| c.clone());
+    let (fields, operators): (bool, &'static [Operator]) = match role(&frames, last) {
+        Role::Filter => (true, LOGICAL),
+        Role::Update => (false, UPDATE),
+        Role::Document | Role::Fields => (true, &[]),
+        Role::Stage => (false, STAGES),
+        Role::Group => (false, GROUP),
+        Role::Accumulator => (false, ACCUMULATORS),
+        Role::Lookup => (false, LOOKUP),
+        Role::Query => (false, QUERY),
+        Role::Other => return Want::Nothing,
+    };
+    Want::Keys {
+        fields: collection.filter(|_| fields),
+        operators,
+    }
 }
 
 #[cfg(test)]
@@ -563,13 +790,17 @@ mod tests {
             at("db.users.fi"),
             (Want::Methods("users".into()), (0, 9), "fi".into())
         );
+        let filter = Want::Keys {
+            fields: Some("users".into()),
+            operators: LOGICAL,
+        };
         assert_eq!(
             at("db.users.find({ ag"),
-            (Want::Fields("users".into()), (0, 16), "ag".into())
+            (filter.clone(), (0, 16), "ag".into())
         );
         assert_eq!(
             at("db.users.find({ age: 1, na"),
-            (Want::Fields("users".into()), (0, 24), "na".into())
+            (filter, (0, 24), "na".into())
         );
         assert_eq!(
             at("db.users.find({ age: 'a"),
@@ -579,5 +810,56 @@ mod tests {
             at("db.users.find({ age: { $in: [ x"),
             (Want::Nothing, (0, 30), "x".into())
         );
+    }
+
+    #[test]
+    fn operators_stages_and_keys_by_where_the_object_sits() {
+        let want = |text: &str| context(text, (0, text.chars().count())).0;
+        let keys = |fields: Option<&str>, operators| Want::Keys {
+            fields: fields.map(str::to_string),
+            operators,
+        };
+        assert_eq!(want("db.users.find({ age: { $g"), keys(None, QUERY));
+        assert_eq!(
+            want("db.users.find({ $or: [{ "),
+            keys(Some("users"), LOGICAL)
+        );
+        assert_eq!(want("db.users.updateOne({ a: 1 }, { $"), keys(None, UPDATE));
+        assert_eq!(
+            want("db.users.updateOne({ a: 1 }, { $set: { "),
+            keys(Some("users"), &[])
+        );
+        assert_eq!(want("db.users.insertOne({ "), keys(Some("users"), &[]));
+        assert_eq!(want("db.users.find({}, { "), keys(Some("users"), &[]));
+        assert_eq!(want("db.users.aggregate([{ $m"), keys(None, STAGES));
+        assert_eq!(
+            want("db.users.aggregate([{ $match: { a: 1 } }, { $"),
+            keys(None, STAGES)
+        );
+        assert_eq!(
+            want("db.users.aggregate([{ $match: { "),
+            keys(Some("users"), LOGICAL)
+        );
+        assert_eq!(want("db.users.aggregate([{ $group: { "), keys(None, GROUP));
+        assert_eq!(
+            want("db.users.aggregate([{ $group: { _id: 1, n: { $s"),
+            keys(None, ACCUMULATORS)
+        );
+        assert_eq!(
+            want("db.users.aggregate([{ $lookup: { "),
+            keys(None, LOOKUP)
+        );
+        assert_eq!(want("db.users.aggregate({ "), Want::Nothing);
+    }
+
+    #[test]
+    fn the_method_and_argument_at_the_cursor() {
+        let at = |text: &str| call(text, (0, text.chars().count()));
+        assert_eq!(at("db.users.find("), Some(("find".into(), 0)));
+        assert_eq!(
+            at("db.users.updateOne({ a: [1, 2] }, "),
+            Some(("updateOne".into(), 1))
+        );
+        assert_eq!(at("db.users.find({}).limit(1)"), None);
     }
 }

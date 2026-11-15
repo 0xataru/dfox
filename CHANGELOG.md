@@ -26,6 +26,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   `CONTAINS KEY`, `USING TTL`, `IF NOT EXISTS`…, no joins), functions (`writetime`, `token`,
   `toTimestamp`…) and types, keyspaces after `USE` (databases in MySQL), and columns marked
   as partition or clustering key, the partition key first.
+- MongoDB completion knows where an object sits: query operators (`$gt`, `$in`…) on a field's
+  value, `$and`/`$or` in a filter, update operators in an update, aggregation stages with
+  their shapes in `aggregate([...])`, `_id` and accumulators in `$group`, `$lookup`'s keys.
+  Embedded documents' fields complete as `address.city`, and a method's arguments show above
+  the cursor while typing them.
 
 ### Changed
 
