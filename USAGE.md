@@ -131,6 +131,27 @@ login = "key"               # agent, key or password
 key = "~/.ssh/id_ed25519"
 ```
 
+A connection can also go through a **Kubernetes service**: set **Kubernetes**
+to on in the form and name the service, its namespace and, if not the current
+one, the kubeconfig context. dfox runs `kubectl port-forward` to the service
+on a free local port when connecting and stops it when the session ends, also
+if dfox dies, so there is no forward to keep open by hand. `kubectl` and your
+kubeconfig do the login, cloud plugins (GKE, EKS, AKS) included. It's saved by
+service, never by pod, so a restarted pod still works, and the list checks that
+the service is there. In `connections.toml`:
+
+```toml
+[[connection]]
+name = "crm stage"
+driver = "postgres"
+user = "app"
+
+[connection.kube]
+context = "gke_stage"       # the current context when left out
+namespace = "crm"
+service = "crm-db"
+```
+
 ## Keyboard Shortcuts
 
 Press **?** (or **F2**) in the app for the full list, generated from your keymap.

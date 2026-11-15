@@ -79,6 +79,8 @@ pub enum Screen {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+// One overlay shows at a time, so its size doesn't add up.
+#[allow(clippy::large_enum_variant)]
 enum Overlay {
     /// The key list, where keys are changed.
     Help(help::Help),

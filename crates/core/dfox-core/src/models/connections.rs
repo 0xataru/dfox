@@ -31,6 +31,10 @@ pub struct ConnectionParams {
     /// then as seen from the jump host.
     #[serde(default)]
     pub ssh: Option<SshParams>,
+    /// Reach the server through `kubectl port-forward` to a service; `port`
+    /// is then the service's.
+    #[serde(default)]
+    pub kube: Option<KubeParams>,
     /// Where to connect instead of `host:port`, set while an SSH tunnel
     /// runs. `host` still names the server, for TLS checks. Never saved.
     #[serde(skip)]
@@ -39,6 +43,18 @@ pub struct ConnectionParams {
     /// session read-only, and SQLite opens the file read-only.
     #[serde(default)]
     pub read_only: bool,
+}
+
+/// A Kubernetes service to forward a local port to with `kubectl`, in the
+/// user's kubeconfig. Saved by name, never by pod, so a restarted pod still
+/// works.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+pub struct KubeParams {
+    /// The kubeconfig context; the current one when not set.
+    #[serde(default)]
+    pub context: Option<String>,
+    pub namespace: String,
+    pub service: String,
 }
 
 /// An SSH jump host to tunnel a connection through.

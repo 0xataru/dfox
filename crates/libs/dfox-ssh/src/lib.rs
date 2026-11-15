@@ -9,6 +9,8 @@
 //! refused with the command that adds it, and a changed key is always
 //! refused.
 
+pub mod kube;
+
 use std::{
     net::{Ipv4Addr, SocketAddr},
     path::PathBuf,
@@ -345,13 +347,21 @@ pub async fn open(
     driver: &dyn Driver,
     params: &ConnectionParams,
 ) -> Result<Box<dyn Session>, DbError> {
-    let Some(ssh) = &params.ssh else {
-        return driver.open(params).await;
+    let (local, tunnel) = match (&params.kube, &params.ssh) {
+        (Some(kube), _) => {
+            let forward = kube::Forward::open(kube, params.port).await?;
+            (forward.local(), Through::Kube(forward))
+        }
+        (None, Some(ssh)) => {
+            let tunnel = Tunnel::open(ssh, &params.host, params.port).await?;
+            (tunnel.local(), Through::Ssh(tunnel))
+        }
+        (None, None) => return driver.open(params).await,
     };
-    let tunnel = Tunnel::open(ssh, &params.host, params.port).await?;
     let through = ConnectionParams {
-        tunnel: Some(tunnel.local()),
+        tunnel: Some(local),
         ssh: None,
+        kube: None,
         ..params.clone()
     };
     let session = driver.open(&through).await?;
@@ -361,10 +371,17 @@ pub async fn open(
     }))
 }
 
+/// What a session runs through, kept open as long as it.
+#[derive(Debug)]
+enum Through {
+    Ssh(#[allow(dead_code)] Tunnel),
+    Kube(#[allow(dead_code)] kube::Forward),
+}
+
 /// A session and the tunnel it runs through.
 struct Tunneled {
     session: Box<dyn Session>,
-    _tunnel: Tunnel,
+    _tunnel: Through,
 }
 
 impl Session for Tunneled {
