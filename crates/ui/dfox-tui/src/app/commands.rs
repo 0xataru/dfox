@@ -281,11 +281,9 @@ impl App {
         match self.secrets.get(name) {
             Ok(secret) => secret,
             Err(err) => {
-                self.toasts.push(
-                    Level::Warning,
-                    format!("Couldn't read the keychain: {err}"),
-                    Instant::now(),
-                );
+                let message = format!("Couldn't read the keychain for {name}: {err}");
+                self.log.push(format!("Warning: {message}"));
+                self.toasts.push(Level::Warning, message, Instant::now());
                 None
             }
         }
