@@ -428,6 +428,60 @@ fn a_url_on_the_command_line_connects_right_away() {
 }
 
 #[test]
+fn a_found_connection_without_a_user_asks_for_one() {
+    let mut connection = Connection::new("localhost:25432", DbType::Postgres);
+    connection.host = "127.0.0.1".into();
+    connection.port = Some(25432);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut app = App::new(
+        EngineHandle::new(tx),
+        Setup {
+            config: Config::default(),
+            config_dir: None,
+            depth: ColorDepth::TrueColor,
+            store: Store::default(),
+            secrets: Box::new(Memory::default()),
+            pgpass: Vec::new(),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
+            detected: vec![Detected {
+                connection,
+                password: None,
+                source: "port-forward from k9s".into(),
+            }],
+            connect: Some(EntryKey::Detected(0)),
+            problems: Vec::new(),
+            update: None,
+            splash: false,
+        },
+    );
+    // The user comes first, `postgres` already typed; the password next.
+    assert!(matches!(
+        &app.overlay,
+        Some(Overlay::Password { typed, ask: Ask::User { .. }, .. }) if typed == "postgres"
+    ));
+    app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    for c in "app".chars() {
+        app.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(
+        &app.overlay,
+        Some(Overlay::Password { ask: Ask::Database { .. }, connection, .. })
+            if connection.user == "postgreapp"
+    ));
+    for c in "pw".chars() {
+        app.handle_key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(matches!(
+        sent.last(),
+        Some(DbCommand::Connect { params, .. }) if params.username == "postgreapp" && params.password == "pw"
+    ));
+}
+
+#[test]
 fn running_a_query_in_the_workspace() {
     let mut test = test_app("query", Some("pw"), "");
     test.open_prod();

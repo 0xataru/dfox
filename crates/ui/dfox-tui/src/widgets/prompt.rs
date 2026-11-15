@@ -11,7 +11,7 @@ use super::centered;
 use crate::component::RenderCtx;
 
 /// The prompt titled `title`, with `typed` characters hidden.
-pub fn render(f: &mut Frame, area: Rect, title: &str, typed: usize, ctx: &RenderCtx) {
+pub fn render(f: &mut Frame, area: Rect, title: &str, shown: &str, ctx: &RenderCtx) {
     let theme = ctx.theme;
     let popup = centered(area, 52, 7);
     let block = Block::default()
@@ -24,7 +24,7 @@ pub fn render(f: &mut Frame, area: Rect, title: &str, typed: usize, ctx: &Render
         Line::from(""),
         Line::from(vec![
             Span::styled(format!("{} ", ctx.icons.selected), theme.key()),
-            Span::raw("•".repeat(typed)),
+            Span::raw(shown.to_string()),
         ]),
         Line::from(""),
         Line::from(vec![
@@ -36,6 +36,7 @@ pub fn render(f: &mut Frame, area: Rect, title: &str, typed: usize, ctx: &Render
     ];
     f.render_widget(Clear, popup);
     f.render_widget(Paragraph::new(lines).block(block), popup);
+    let typed = shown.chars().count();
     f.set_cursor_position((popup.x + 4 + typed.min(44) as u16, popup.y + 2));
 }
 
@@ -50,7 +51,7 @@ mod tests {
             f,
             area,
             "Password for prod",
-            5,
+            "•••••",
             ctx
         )));
     }

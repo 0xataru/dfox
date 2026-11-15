@@ -299,6 +299,21 @@ impl App {
         password: Option<String>,
         ssh: Option<String>,
     ) {
+        // A found connection may not know its user (a port forward); Postgres
+        // and MySQL won't do without one.
+        let default_user = match connection.driver {
+            DbType::Postgres => Some("postgres"),
+            DbType::MySql => Some("root"),
+            _ => None,
+        };
+        if let (true, Some(user)) = (connection.user.is_empty(), default_user) {
+            self.overlay = Some(Overlay::Password {
+                connection,
+                typed: user.to_string(),
+                ask: Ask::User { password, ssh },
+            });
+            return;
+        }
         let password = match password {
             Some(password) => password,
             None if connection.driver == DbType::Sqlite => String::new(),

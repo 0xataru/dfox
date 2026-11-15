@@ -99,8 +99,17 @@ enum Overlay {
 /// Which secret the password prompt asks for, with what is known already.
 #[derive(Debug, Clone, PartialEq)]
 enum Ask {
-    Database { ssh: Option<String> },
-    Ssh { password: String },
+    /// The user, for a found connection that doesn't name one.
+    User {
+        password: Option<String>,
+        ssh: Option<String>,
+    },
+    Database {
+        ssh: Option<String>,
+    },
+    Ssh {
+        password: String,
+    },
 }
 
 /// The secrets a connection was made with, kept in memory to switch
@@ -617,6 +626,18 @@ impl App {
                 ask,
             } => match key.code {
                 KeyCode::Enter => match ask {
+                    Ask::User { password, ssh } if !typed.trim().is_empty() => {
+                        let mut connection = connection;
+                        connection.user = typed.trim().to_string();
+                        self.connect_with(connection, password, ssh);
+                    }
+                    ask @ Ask::User { .. } => {
+                        self.overlay = Some(Overlay::Password {
+                            connection,
+                            typed,
+                            ask,
+                        })
+                    }
                     Ask::Database { ssh } => self.connect_with(connection, Some(typed), ssh),
                     Ask::Ssh { password } => {
                         self.connect_with(connection, Some(password), Some(typed))
@@ -822,11 +843,18 @@ impl App {
                 typed,
                 ask,
             }) => {
-                let title = match ask {
-                    Ask::Database { .. } => format!("Password for {}", connection.name),
-                    Ask::Ssh { .. } => format!("SSH password for {}", connection.name),
+                let (title, shown) = match ask {
+                    Ask::User { .. } => (format!("User for {}", connection.name), typed.clone()),
+                    Ask::Database { .. } => (
+                        format!("Password for {}", connection.name),
+                        "•".repeat(typed.chars().count()),
+                    ),
+                    Ask::Ssh { .. } => (
+                        format!("SSH password for {}", connection.name),
+                        "•".repeat(typed.chars().count()),
+                    ),
                 };
-                prompt::render(f, main, &title, typed.chars().count(), ctx)
+                prompt::render(f, main, &title, &shown, ctx)
             }
             None => {}
         }
