@@ -5,7 +5,11 @@
 //! handshake, not its number, since a forward is often on 15432. Nothing
 //! logs in: a probe only reads how the server greets.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Mutex,
+    time::Duration,
+};
 
 use dfox_core::models::connections::DbType;
 use tokio::{
@@ -31,25 +35,47 @@ pub struct Listener {
     pub process: String,
 }
 
-/// The databases behind the loopback's listening ports.
-pub async fn find() -> Vec<Detected> {
-    let listeners = match listeners().await {
-        Some(listeners) => listeners,
+/// What each port held by a process was found to be, so a port is probed
+/// once while the same process holds it.
+pub type Probed = Mutex<HashMap<(u16, u32), Option<Detected>>>;
+
+/// The databases behind the loopback's listening ports, probing only the
+/// ports `probed` doesn't know yet.
+pub async fn find(probed: &Probed) -> Vec<Detected> {
+    let listeners: Vec<Listener> = match listeners().await {
+        Some(listeners) => listeners.into_iter().take(MAX_PORTS).collect(),
         None => return Vec::new(),
     };
-    let probes = listeners.into_iter().take(MAX_PORTS).map(|l| async move {
-        let driver = identify(l.port).await?;
-        let args = if l.process == "kubectl" {
-            run("ps", &["-o", "args=", "-p", &l.pid.to_string()]).await
-        } else {
-            None
+    let new: Vec<Listener> = {
+        let known = probed.lock().unwrap_or_else(|e| e.into_inner());
+        listeners
+            .iter()
+            .filter(|l| !known.contains_key(&(l.port, l.pid)))
+            .cloned()
+            .collect()
+    };
+    let probes = new.into_iter().map(|l| async move {
+        let found = match identify(l.port).await {
+            Some(driver) => {
+                let args = if l.process == "kubectl" {
+                    run("ps", &["-o", "args=", "-p", &l.pid.to_string()]).await
+                } else {
+                    None
+                };
+                Some(detected(&l, driver, args.as_deref()))
+            }
+            None => None,
         };
-        Some(detected(&l, driver, args.as_deref()))
+        ((l.port, l.pid), found)
     });
-    futures_util::future::join_all(probes)
-        .await
-        .into_iter()
-        .flatten()
+    let results = futures_util::future::join_all(probes).await;
+    let mut known = probed.lock().unwrap_or_else(|e| e.into_inner());
+    known.extend(results);
+    // A port given up is forgotten, so a forward opened on it again counts.
+    known.retain(|key, _| listeners.iter().any(|l| (l.port, l.pid) == *key));
+    listeners
+        .iter()
+        .filter_map(|l| known.get(&(l.port, l.pid)).cloned().flatten())
         .collect()
 }
 

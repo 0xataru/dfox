@@ -66,6 +66,8 @@ const SMOOTH_FRAME: Duration = Duration::from_millis(33);
 const SLOW_DRAW: Duration = Duration::from_millis(12);
 /// How often the connection manager re-checks every connection.
 const PING_EVERY: Duration = Duration::from_secs(15);
+/// How often the open manager looks for databases on the machine again.
+const SCAN_EVERY: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -276,9 +278,13 @@ impl App {
         mut events: mpsc::Receiver<EngineEvent>,
         // The update check started with this run, whose answer shows at once.
         mut checking: Option<tokio::sync::oneshot::Receiver<Option<String>>>,
-        // Connections found in the background after the start, as containers.
-        mut found: mpsc::UnboundedReceiver<Vec<Detected>>,
     ) -> io::Result<()> {
+        // Databases on the machine, looked for while the manager is open.
+        let discovery = crate::connections::discover::Discovery::default();
+        let (found_tx, mut found) = mpsc::unbounded_channel();
+        let mut scanning = false;
+        let mut scans = tokio::time::interval(SCAN_EVERY);
+        scans.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         self.checking_update = checking.is_some();
         let mut input = EventStream::new();
         let period = if self.config.animations {
@@ -362,10 +368,15 @@ impl App {
                     }
                     dirty = true;
                 }
-                Some(more) = found.recv() => {
+                _ = scans.tick(), if self.screen == Screen::Manager && !scanning => {
+                    scanning = true;
+                    discovery.spawn(found_tx.clone());
+                }
+                Some(now) = found.recv() => {
+                    scanning = false;
                     self.with_ctx(|app, ctx| {
-                        app.manager.found(more);
-                        app.manager.ping_all(ctx);
+                        app.manager.rescanned(now);
+                        app.manager.ping_new(ctx);
                     });
                     dirty = true;
                 }
