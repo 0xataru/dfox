@@ -27,7 +27,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - At the user or password prompt of a Kubernetes connection, Tab reads the password (and the
   user, when named) from the Secret the operator or chart made next to the service:
   CloudNativePG, Zalando, and charts' `*-password` keys. Only when asked; never logged; a
-  forbidden Secret leaves the prompt for the password typed.
+  forbidden Secret leaves the prompt for the password typed. At the user prompt a Secret that names its
+  own user gives that user; pgbouncer's `userlist.txt` gives a password kept in plain text and
+  says when it holds only a hash; and when no password fits, the warning names the Secrets
+  read and their keys (never the values).
 - **K** in the connection list picks which Kubernetes clusters' databases it lists, from the
   kubeconfig's contexts: the current one, others by name, a prod one only when ticked (with a
   warning). The choice is kept as `kube_contexts` in the config (`["all"]` there means all but
@@ -37,6 +40,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - The forward dfox opens to a Kubernetes service while connected no longer shows in the list
   as a found `localhost:58683` database: the port search leaves out the `kubectl` processes dfox
   started itself.
+- Every warning and error the app shows also goes to the event log (F12) and the debug log,
+  so a toast cut short can be read whole.
 - Found connections are listed in sections by how they were found: environment and config
   files, Docker, Kubernetes (a section per cluster), local ports, SQLite files. The cursor stays
   on its connection when a scan adds or removes some.

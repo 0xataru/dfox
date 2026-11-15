@@ -19,28 +19,41 @@ pub struct Found {
     pub password: String,
 }
 
-/// The password for `user` (empty when not known yet) of the database
-/// behind `kube`'s service, or why it can't be had.
-pub async fn find(kube: &KubeParams, user: &str) -> Result<Found, String> {
+/// The password for `user` of the database behind `kube`'s service, or why
+/// it can't be had. With `any_user`, as at the user prompt, a Secret that
+/// names its own user gives that user instead.
+pub async fn find(kube: &KubeParams, user: &str, any_user: bool) -> Result<Found, String> {
     let names = kubectl(kube, &["get", "secrets", "-o", "name"]).await?;
     let names: Vec<&str> = names
         .lines()
         .filter_map(|line| line.trim().strip_prefix("secret/"))
         .collect();
+    // What each Secret read held, by key names only, for the error.
     let mut tried = Vec::new();
     for name in candidates(&kube.service, user, &names) {
         let json = kubectl(kube, &["get", "secret", &name, "-o", "json"]).await?;
-        if let Some(found) = pick(&decode(&json), user) {
+        let data = decode(&json);
+        if let Some(found) = pick(&data, user, any_user) {
             return Ok(found);
         }
-        tried.push(name);
+        if hashed(&data, user) {
+            return Err(format!(
+                "Secret {name} keeps only a hash of {user}'s password (userlist.txt): type it"
+            ));
+        }
+        let keys: Vec<&str> = data.keys().map(String::as_str).collect();
+        tried.push(format!("{name} (keys {})", keys.join(", ")));
     }
     Err(match tried.is_empty() {
         true => format!(
             "no Secret next to svc/{} in {} looks like its database's",
             kube.service, kube.namespace
         ),
-        false => format!("no password for this user in Secret {}", tried.join(", ")),
+        false => format!(
+            "no password for {} in Secret {}",
+            if user.is_empty() { "any user" } else { user },
+            tried.join("; ")
+        ),
     })
 }
 
@@ -150,16 +163,53 @@ fn decode(json: &str) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// pgbouncer's `userlist.txt`: `"user" "password"` a line.
+fn userlist(data: &BTreeMap<String, String>) -> Vec<(String, String)> {
+    let Some(text) = data.get("userlist.txt") else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.split('"').skip(1).step_by(2);
+            Some((parts.next()?.to_string(), parts.next()?.to_string()))
+        })
+        .collect()
+}
+
+/// A password pgbouncer keeps as a hash: of no use to log in with.
+fn is_hash(password: &str) -> bool {
+    password.starts_with("SCRAM-SHA-256$")
+        || (password.len() == 35
+            && password.starts_with("md5")
+            && password[3..].bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Whether the Secret's `userlist.txt` has `user`, but only hashed.
+fn hashed(data: &BTreeMap<String, String>, user: &str) -> bool {
+    userlist(data).iter().any(|(u, p)| u == user && is_hash(p))
+}
+
 /// The password for `user` among a Secret's keys: with the user it names,
-/// or by the key charts give that user's password.
-fn pick(data: &BTreeMap<String, String>, user: &str) -> Option<Found> {
+/// pgbouncer's `userlist.txt`, or by the key charts give that user's
+/// password. With `any_user`, a user the Secret names comes along.
+fn pick(data: &BTreeMap<String, String>, user: &str, any_user: bool) -> Option<Found> {
     let get = |key: &str| data.get(key).filter(|v| !v.is_empty()).cloned();
     if let (Some(named), Some(password)) =
         (get("username").or_else(|| get("user")), get("password"))
     {
-        return (user.is_empty() || user == named).then_some(Found {
+        return (any_user || user.is_empty() || user == named).then_some(Found {
             user: Some(named),
             password,
+        });
+    }
+    let listed = userlist(data);
+    let plain = listed
+        .iter()
+        .find(|(u, p)| (u == user || (any_user && listed.len() == 1)) && !is_hash(p));
+    if let Some((named, password)) = plain {
+        return Some(Found {
+            user: Some(named.clone()),
+            password: password.clone(),
         });
     }
     let admin = [
@@ -240,33 +290,63 @@ mod tests {
             ("uri", "postgresql://…"),
         ]);
         assert_eq!(
-            pick(&cnpg, ""),
+            pick(&cnpg, "", false),
             Some(Found {
                 user: Some("app".into()),
                 password: "pw".into()
             })
         );
-        assert_eq!(pick(&cnpg, "other"), None);
+        assert_eq!(pick(&cnpg, "other", false), None);
         // A Bitnami chart: the admin's and the app user's.
         let chart = data(&[("postgres-password", "admin"), ("password", "user")]);
         assert_eq!(
-            pick(&chart, "postgres"),
+            pick(&chart, "postgres", false),
             Some(Found {
                 user: Some("postgres".into()),
                 password: "admin".into()
             })
         );
-        assert_eq!(pick(&chart, "app").map(|f| f.password), Some("user".into()));
         assert_eq!(
-            pick(&data(&[("redis-password", "r")]), "").map(|f| f.password),
+            pick(&chart, "app", false).map(|f| f.password),
+            Some("user".into())
+        );
+        assert_eq!(
+            pick(&data(&[("redis-password", "r")]), "", false).map(|f| f.password),
             Some("r".into())
         );
-        assert_eq!(pick(&data(&[("ca.crt", "x")]), ""), None);
+        assert_eq!(pick(&data(&[("ca.crt", "x")]), "", false), None);
     }
 
     #[test]
     fn secret_data_is_decoded() {
         let json = r#"{ "data": { "password": "cHc=", "bad": "%%%" } }"#;
         assert_eq!(decode(json), data(&[("password", "pw")]));
+    }
+
+    #[test]
+    fn the_user_prompt_takes_the_secrets_own_user() {
+        let named = data(&[("username", "productcrm"), ("password", "pw")]);
+        assert_eq!(pick(&named, "postgres", false), None);
+        assert_eq!(
+            pick(&named, "postgres", true),
+            Some(Found {
+                user: Some("productcrm".into()),
+                password: "pw".into()
+            })
+        );
+    }
+
+    #[test]
+    fn pgbouncer_userlists_give_plain_passwords_not_hashes() {
+        let list = data(&[(
+            "userlist.txt",
+            "\"app\" \"plain-pw\"\n\"admin\" \"md5c4ca4238a0b923820dcc509a6f75849b\"\n\"scram\" \"SCRAM-SHA-256$4096:abc\"\n",
+        )]);
+        assert_eq!(
+            pick(&list, "app", false).map(|f| f.password),
+            Some("plain-pw".into())
+        );
+        assert_eq!(pick(&list, "admin", false), None);
+        assert!(hashed(&list, "admin") && hashed(&list, "scram") && !hashed(&list, "app"));
     }
 }

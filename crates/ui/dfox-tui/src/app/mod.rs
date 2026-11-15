@@ -618,7 +618,7 @@ impl App {
                         help.confirm = Some(help::Change::Bind(pressed));
                     } else {
                         help.capturing = true;
-                        self.toasts.push(
+                        self.notify(
                             Level::Warning,
                             format!("{} can't be bound", pressed.label()),
                             Instant::now(),
@@ -701,7 +701,8 @@ impl App {
                         Ask::User { .. } => typed.trim().to_string(),
                         _ => connection.user.clone(),
                     };
-                    self.read_secret(&connection, user);
+                    let any_user = matches!(ask, Ask::User { .. });
+                    self.read_secret(&connection, user, any_user);
                     self.overlay = Some(Overlay::Password {
                         connection,
                         typed,
@@ -735,6 +736,19 @@ impl App {
         }
     }
 
+    /// Shows a warning or an error, and keeps it in the event log (F12) and
+    /// the debug log, where a toast cut short can be read whole.
+    pub(super) fn notify(&mut self, level: Level, text: impl Into<String>, now: Instant) {
+        let text = text.into();
+        let kind = if level == Level::Error {
+            "Error"
+        } else {
+            "Warning"
+        };
+        self.log.push(format!("{kind}: {text}"));
+        self.toasts.push(level, text, now);
+    }
+
     /// Keeps `contexts` as `kube_contexts`, in the config and for the search
     /// running now.
     fn save_clusters(&mut self, contexts: Vec<String>) {
@@ -749,7 +763,7 @@ impl App {
                 "Saved the clusters to list".to_string(),
                 now,
             ),
-            Err(err) => self.toasts.push(
+            Err(err) => self.notify(
                 Level::Warning,
                 format!("Couldn't save the clusters: {err}"),
                 now,
@@ -763,7 +777,7 @@ impl App {
 
     /// Reads the password of `connection`, a Kubernetes one, for `user` from
     /// its cluster's Secrets in the background.
-    fn read_secret(&mut self, connection: &Connection, user: String) {
+    fn read_secret(&mut self, connection: &Connection, user: String, any_user: bool) {
         let (Some(kube), Some(tx)) = (connection.kube.clone(), self.secrets_tx.clone()) else {
             return;
         };
@@ -774,7 +788,7 @@ impl App {
             Instant::now(),
         );
         tokio::spawn(async move {
-            let answer = crate::connections::kube_secret::find(&kube, &user).await;
+            let answer = crate::connections::kube_secret::find(&kube, &user, any_user).await;
             let _ = tx.send((name, answer));
         });
     }
@@ -789,7 +803,7 @@ impl App {
         let found = match answer {
             Ok(found) => found,
             Err(err) => {
-                self.toasts.push(Level::Warning, err, Instant::now());
+                self.notify(Level::Warning, err, Instant::now());
                 return;
             }
         };
