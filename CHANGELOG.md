@@ -20,6 +20,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   are left out, a `prod` context tags them red, and the cluster is asked once a minute,
   read-only. Slow searches (the cluster, the file index) no longer hold up containers and
   ports: they refresh in the background.
+- Without `kubectl`, the Kubernetes search finds nothing and says nothing, and a Kubernetes
+  connection says `kubectl isn't installed` with where to get it. A forward that `kubectl`
+  can't start (a missing service, an expired login) reports `kubectl`'s error at once
+  instead of after 20 s.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

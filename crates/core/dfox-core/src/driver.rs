@@ -196,7 +196,14 @@ pub async fn ping(db_type: DbType, params: &ConnectionParams) -> Result<Duration
             let out = tokio::time::timeout(TIMEOUT * 3, run)
                 .await
                 .map_err(|_| DbError::Connection("kubectl: timed out".to_string()))?
-                .map_err(|err| DbError::Connection(format!("kubectl: {err}")))?;
+                .map_err(|err| {
+                    DbError::Connection(match err.kind() {
+                        std::io::ErrorKind::NotFound => {
+                            crate::models::connections::KUBECTL_MISSING.to_string()
+                        }
+                        _ => format!("kubectl: {err}"),
+                    })
+                })?;
             if !out.status.success() {
                 let error = String::from_utf8_lossy(&out.stderr);
                 let line = error.lines().last().unwrap_or("kubectl failed").trim();
