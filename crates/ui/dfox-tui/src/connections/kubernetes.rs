@@ -35,13 +35,25 @@ pub async fn find(wanted: Vec<String>) -> Vec<Detected> {
             Some(json) => Some(json),
             None => kubectl(&["--context", context, "get", "services", "-o", "json"]).await,
         };
-        match json {
-            Some(json) => parse(&json, context),
-            None => {
-                log::info!("kubernetes: {context} didn't answer");
-                Vec::new()
-            }
-        }
+        let Some(json) = json else {
+            log::info!("kubernetes: {context} didn't answer");
+            return Vec::new();
+        };
+        // Which pods each service leads to, to show a database once under
+        // two services. Without the right to list them, every service shows.
+        let endpoints = kubectl(&[
+            "--context",
+            context,
+            "get",
+            "endpoints",
+            "--all-namespaces",
+            "-o",
+            "json",
+        ])
+        .await
+        .map(|json| parse_endpoints(&json))
+        .unwrap_or_default();
+        collapse(parse(&json, context), &endpoints)
     });
     futures_util::future::join_all(found).await.concat()
 }
@@ -249,6 +261,103 @@ pub fn parse(json: &str, context: &str) -> Vec<Detected> {
         .collect()
 }
 
+#[derive(Deserialize)]
+struct Endpoints {
+    metadata: Metadata,
+    #[serde(default)]
+    subsets: Vec<Subset>,
+}
+
+#[derive(Deserialize)]
+struct Subset {
+    #[serde(default)]
+    addresses: Vec<Address>,
+    #[serde(default)]
+    ports: Vec<EndpointPort>,
+}
+
+#[derive(Deserialize)]
+struct Address {
+    ip: String,
+}
+
+#[derive(Deserialize)]
+struct EndpointPort {
+    port: u16,
+}
+
+/// Per namespace and service, the pods' addresses it leads to, sorted:
+/// two services with the same ones reach the same database.
+fn parse_endpoints(json: &str) -> BTreeMap<(String, String), Vec<String>> {
+    #[derive(Deserialize)]
+    struct List {
+        #[serde(default)]
+        items: Vec<Endpoints>,
+    }
+    let Ok(list) = serde_json::from_str::<List>(json) else {
+        return BTreeMap::new();
+    };
+    list.items
+        .into_iter()
+        .filter_map(|e| {
+            let mut at: Vec<String> = e
+                .subsets
+                .iter()
+                .flat_map(|s| {
+                    s.addresses
+                        .iter()
+                        .flat_map(|a| s.ports.iter().map(move |p| format!("{}:{}", a.ip, p.port)))
+                })
+                .collect();
+            at.sort();
+            (!at.is_empty()).then_some(((e.metadata.namespace, e.metadata.name), at))
+        })
+        .collect()
+}
+
+/// One entry per database: services of a namespace that lead to the same
+/// pods show once, under the most specific name (`stage-postgresql` rather
+/// than `postgresql`), the others named in its source.
+fn collapse(
+    found: Vec<Detected>,
+    endpoints: &BTreeMap<(String, String), Vec<String>>,
+) -> Vec<Detected> {
+    let pods = |d: &Detected| {
+        let kube = d.connection.kube.as_ref()?;
+        let key = (kube.namespace.clone(), kube.service.clone());
+        Some((kube.namespace.clone(), endpoints.get(&key)?.clone()))
+    };
+    let specific = |d: &Detected| {
+        let service = d
+            .connection
+            .kube
+            .as_ref()
+            .map_or("", |k| k.service.as_str());
+        (service.split('-').count(), service.len())
+    };
+    let mut kept: Vec<Detected> = Vec::new();
+    for entry in found {
+        let same =
+            pods(&entry).and_then(|at| kept.iter().position(|k| pods(k).as_ref() == Some(&at)));
+        let Some(i) = same else {
+            kept.push(entry);
+            continue;
+        };
+        let (keep, other) = if specific(&entry) > specific(&kept[i]) {
+            (entry, kept[i].clone())
+        } else {
+            (kept[i].clone(), entry)
+        };
+        let mut keep = keep;
+        if let Some(kube) = &other.connection.kube {
+            // After ` · `, so the section is still told by the first part.
+            keep.source = format!("{} · also svc/{}", keep.source, kube.service);
+        }
+        kept[i] = keep;
+    }
+    kept
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,5 +444,53 @@ mod tests {
         assert!(is_prod(
             "gke_profi-crm-416111_europe-west1-b_product-crm-prod"
         ));
+    }
+
+    #[test]
+    fn services_leading_to_the_same_pods_show_once() {
+        let services = r#"{ "items": [
+          { "metadata": { "name": "postgresql", "namespace": "stage" },
+            "spec": { "clusterIP": "10.0.0.1", "ports": [{ "port": 5432 }] } },
+          { "metadata": { "name": "stage-postgresql", "namespace": "stage" },
+            "spec": { "clusterIP": "10.0.0.2", "ports": [{ "port": 5432 }] } },
+          { "metadata": { "name": "other-postgresql", "namespace": "stage" },
+            "spec": { "clusterIP": "10.0.0.3", "ports": [{ "port": 5432 }] } }
+        ] }"#;
+        let endpoints = r#"{ "items": [
+          { "metadata": { "name": "postgresql", "namespace": "stage" },
+            "subsets": [{ "addresses": [{ "ip": "10.1.0.7" }], "ports": [{ "port": 5432 }] }] },
+          { "metadata": { "name": "stage-postgresql", "namespace": "stage" },
+            "subsets": [{ "addresses": [{ "ip": "10.1.0.7" }], "ports": [{ "port": 5432 }] }] },
+          { "metadata": { "name": "other-postgresql", "namespace": "stage" },
+            "subsets": [{ "addresses": [{ "ip": "10.1.0.9" }], "ports": [{ "port": 5432 }] }] }
+        ] }"#;
+        let found = collapse(
+            parse(services, "do-ams3-stage"),
+            &parse_endpoints(endpoints),
+        );
+        let shown: Vec<(String, String)> = found
+            .iter()
+            .map(|d| {
+                (
+                    d.connection.kube.as_ref().expect("kube").service.clone(),
+                    d.source.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (
+                    "stage-postgresql".into(),
+                    "kubernetes: do-ams3-stage · also svc/postgresql".into()
+                ),
+                (
+                    "other-postgresql".into(),
+                    "kubernetes: do-ams3-stage".into()
+                ),
+            ]
+        );
+        // Without endpoints, every service shows.
+        assert_eq!(collapse(parse(services, "x"), &BTreeMap::new()).len(), 3);
     }
 }

@@ -114,22 +114,19 @@ async fn listeners() -> Option<Vec<Listener>> {
     Some(kept)
 }
 
-/// Whether `pid` runs under this dfox: its parent, or its parent's parent
-/// (kubectl runs under the shell that stops it).
+/// Whether `pid` is a `kubectl` dfox runs to forward to a Kubernetes
+/// service: its parent is the shell with dfox's watcher, whichever dfox
+/// started it, this one or one that just quit and is stopping it.
 async fn started_by_dfox(pid: u32) -> bool {
-    let ours = std::process::id();
-    let mut pid = pid;
-    for _ in 0..2 {
-        let parent = run("ps", &["-o", "ppid=", "-p", &pid.to_string()])
-            .await
-            .and_then(|out| out.trim().parse::<u32>().ok());
-        match parent {
-            Some(parent) if parent == ours => return true,
-            Some(parent) if parent > 1 => pid = parent,
-            _ => return false,
-        }
-    }
-    false
+    let Some(parent) = run("ps", &["-o", "ppid=", "-p", &pid.to_string()])
+        .await
+        .and_then(|out| out.trim().parse::<u32>().ok())
+    else {
+        return false;
+    };
+    run("ps", &["-ww", "-o", "args=", "-p", &parent.to_string()])
+        .await
+        .is_some_and(|args| args.contains("read -r _ <&3"))
 }
 
 fn is_container_engine(process: &str) -> bool {
@@ -444,24 +441,29 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn dfoxs_own_children_are_told_apart() {
-        // A shell started here, and the sleep it runs: both are ours.
-        let mut shell = tokio::process::Command::new("sh")
-            .args(["-c", "sleep 5 & wait"])
-            .kill_on_drop(true)
-            .spawn()
-            .expect("sh");
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let shell_pid = shell.id().expect("pid");
-        assert!(started_by_dfox(shell_pid).await);
-        let child = run("pgrep", &["-P", &shell_pid.to_string()])
-            .await
-            .unwrap_or_default();
-        if let Ok(sleep_pid) = child.trim().parse::<u32>() {
-            assert!(started_by_dfox(sleep_pid).await, "a grandchild is ours too");
+    async fn dfoxs_forwards_are_told_by_their_watcher() {
+        // A shell with the watcher's line, and one without: only the first
+        // one's child is a dfox forward.
+        let start = |script: &'static str| {
+            tokio::process::Command::new("sh")
+                .args(["-c", script])
+                .kill_on_drop(true)
+                .spawn()
+                .expect("sh")
+        };
+        let watched = start("exec 3</dev/null; sleep 5 & pid=$!; (read -r _ <&3; kill \"$pid\") >/dev/null 2>&1 & wait \"$pid\"");
+        let plain = start("sleep 5 & wait");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let child = |shell: u32| async move {
+            run("pgrep", &["-P", &shell.to_string(), "sleep"])
+                .await
+                .and_then(|out| out.lines().next()?.trim().parse::<u32>().ok())
+        };
+        let (watched_pid, plain_pid) = (watched.id().expect("pid"), plain.id().expect("pid"));
+        if let (Some(a), Some(b)) = (child(watched_pid).await, child(plain_pid).await) {
+            assert!(started_by_dfox(a).await, "a forward under the watcher");
+            assert!(!started_by_dfox(b).await, "anything else");
         }
-        // The first process isn't.
         assert!(!started_by_dfox(1).await);
-        let _ = shell.kill().await;
     }
 }

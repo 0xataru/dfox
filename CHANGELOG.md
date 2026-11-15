@@ -41,7 +41,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   and their check reads `service found · kubectl took 180 ms`, not a database latency.
 - The forward dfox opens to a Kubernetes service while connected no longer shows in the list
   as a found `localhost:58683` database: the port search leaves out the `kubectl` processes dfox
-  started itself.
+  started itself, nor any other dfox's: a forward is told by the shell that stops it, so one
+  still stopping after dfox quits doesn't flash under "Local ports" at the next start.
+- Kubernetes services of a namespace that lead to the same pods (as `postgresql` and
+  `stage-postgresql`) show once, under the more specific name, with "also svc/…" in its
+  source.
 - Every warning and error the app shows also goes to the event log (F12) and the debug log,
   so a toast cut short can be read whole.
 - Found connections are listed in sections by how they were found: environment and config
