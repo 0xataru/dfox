@@ -292,7 +292,16 @@ impl App {
         mut checking: Option<tokio::sync::oneshot::Receiver<Option<String>>>,
     ) -> io::Result<()> {
         // Databases on the machine, looked for while the manager is open.
-        let discovery = crate::connections::discover::Discovery::default();
+        let mut folders: Vec<std::path::PathBuf> = crate::history::History::dir()
+            .map(|dir| crate::connections::sqlite::remembered(&dir))
+            .unwrap_or_default();
+        folders.extend(
+            self.config
+                .sqlite_folders
+                .iter()
+                .filter_map(|f| crate::connections::sqlite::expand(f)),
+        );
+        let discovery = crate::connections::discover::Discovery::new(folders);
         let (found_tx, mut found) = mpsc::unbounded_channel();
         let mut scanning = false;
         let mut scans = tokio::time::interval(SCAN_EVERY);

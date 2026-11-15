@@ -34,6 +34,9 @@ pub struct Config {
     pub keys: BTreeMap<String, Vec<String>>,
     /// Ask GitHub at each start whether a newer dfox is out.
     pub update_check: bool,
+    /// Folders searched for SQLite files besides the file index and the
+    /// folders dfox was started in, as `["~/clients"]`.
+    pub sqlite_folders: Vec<String>,
 }
 
 impl Default for Config {
@@ -48,6 +51,7 @@ impl Default for Config {
             confirm_destructive: true,
             keys: BTreeMap::new(),
             update_check: true,
+            sqlite_folders: Vec::new(),
         }
     }
 }

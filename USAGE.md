@@ -77,7 +77,12 @@ The manager also lists connections found on the machine: `DATABASE_URL`
 folder's Docker Compose file, running or not, the development database of Rails'
 `config/database.yml`, Spring's `spring.datasource` (JDBC URLs), a Prisma
 datasource with its URL written out and `alembic.ini`, SQLite files in the folder dfox starts in and its `database`,
-`db`, `data`, `prisma` and `storage` folders, the entries of `~/.pgpass`, the
+`db`, `data`, `prisma` and `storage` folders, and SQLite files of projects
+anywhere in the home folder: from Spotlight (`locate` on Linux), the folders
+dfox was started in before, `sqlite_folders` in the config, or without an index
+the usual project folders (`~/dev`, `~/code`, `~/projects`…). Files of the
+system, of apps, of dependencies and caches are left out, and files from the
+index are never opened, so macOS asks for no access to Documents or Desktop; the entries of `~/.pgpass`, the
 services of `~/.pg_service.conf`, `~/.my.cnf` when it names a host, and databases running in Docker or Podman
 containers that publish their port (Postgres, MySQL, MariaDB, MongoDB, Redis,
 Valkey, Cassandra, ScyllaDB), with the user, password and database from the
@@ -279,6 +284,7 @@ mouse = true          # false leaves the mouse to the terminal
 confirm_destructive = true  # false runs DELETE without WHERE, DROP, … without asking
 row_limit = 100000    # rows kept from a query; the rest are read and dropped
 update_check = true   # false: never ask GitHub whether a newer dfox is out
+sqlite_folders = []   # more folders to search for SQLite files, as ["~/clients"]
 
 [keys]                # replaces all keys of an action
 execute = ["f5", "ctrl+r"]
