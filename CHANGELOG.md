@@ -26,7 +26,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   `PGHOST`/`PGUSER`/`PGDATABASE`, `MYSQL_HOST`…), SQLite files in the project (its root,
   `database`, `db`, `data`, `prisma`, `storage`, told by their header), and the services of
   `~/.pg_service.conf`. A database found twice, as by `DATABASE_URL` and `POSTGRES_URL`, is
-  listed once.
+  listed once, with every way it was found under "Found in" (`docker: postgres:16 ·
+  DATABASE_URL`), and what one source lacks taken from another: a password comes only with
+  its own user.
 - The connection manager also lists the database services of the Docker Compose file in the
   folder dfox starts in, running or not, read with `docker compose config` (so with its `.env`
   and overrides), the `DB_CONNECTION`/`DB_HOST`/`DB_DATABASE`/`DB_USERNAME` variables of

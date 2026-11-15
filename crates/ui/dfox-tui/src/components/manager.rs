@@ -72,6 +72,26 @@ pub struct Manager {
     scanned: Vec<String>,
 }
 
+/// One database found by another way too: its source joins the listed
+/// one's, and what the listed one lacks comes from it. A password comes
+/// only with its own user, never onto another one's.
+fn merge(listed: &mut Detected, other: Detected) {
+    if !listed.source.split(" · ").any(|s| s == other.source) {
+        listed.source = format!("{} · {}", listed.source, other.source);
+    }
+    let (into, from) = (&mut listed.connection, other.connection);
+    let same_user = into.user.is_empty() || into.user == from.user;
+    if listed.password.is_none() && other.password.is_some() && same_user {
+        into.user = from.user;
+        listed.password = other.password;
+    } else if into.user.is_empty() {
+        into.user = from.user;
+    }
+    if into.database.is_none() {
+        into.database = from.database;
+    }
+}
+
 /// Where a connection leads: two at the same place are one database.
 fn place(c: &Connection) -> (DbType, String, u16) {
     // A SQLite database is its file.
@@ -93,11 +113,10 @@ impl Manager {
     pub fn new(saved: Vec<Connection>, detected: Vec<Detected>) -> Self {
         let mut once: Vec<Detected> = Vec::new();
         for found in detected {
-            if !once
-                .iter()
-                .any(|d| place(&d.connection) == place(&found.connection))
-            {
-                once.push(found);
+            let at = place(&found.connection);
+            match once.iter_mut().find(|d| place(&d.connection) == at) {
+                Some(listed) => merge(listed, found),
+                None => once.push(found),
             }
         }
         Self {
@@ -170,13 +189,16 @@ impl Manager {
     fn found(&mut self, more: Vec<Detected>) {
         for found in more {
             let at = place(&found.connection);
-            let listed = self
-                .saved
-                .iter()
-                .chain(self.detected.iter().map(|d| &d.connection))
-                .any(|c| place(c) == at);
-            if !listed {
-                self.detected.push(found);
+            if self.saved.iter().any(|c| place(c) == at) {
+                continue;
+            }
+            match self
+                .detected
+                .iter_mut()
+                .find(|d| place(&d.connection) == at)
+            {
+                Some(listed) => merge(listed, found),
+                None => self.detected.push(found),
             }
         }
     }
