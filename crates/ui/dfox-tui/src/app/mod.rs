@@ -327,6 +327,8 @@ impl App {
         self.discovery = Some(discovery.clone());
         let (found_tx, mut found) = mpsc::unbounded_channel();
         let mut scanning = false;
+        // Until the first look has answered, the list may still grow.
+        self.manager.searching = true;
         let (secrets_tx, mut secrets) = mpsc::unbounded_channel::<SecretAnswer>();
         self.secrets_tx = Some(secrets_tx);
         let mut scans = tokio::time::interval(SCAN_EVERY);
@@ -424,6 +426,7 @@ impl App {
                 }
                 Some(now) = found.recv() => {
                     scanning = false;
+                    self.manager.searching = discovery.first_pending();
                     self.with_ctx(|app, ctx| {
                         app.manager.rescanned(now);
                         app.manager.ping_new(ctx);

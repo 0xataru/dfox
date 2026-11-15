@@ -50,6 +50,12 @@ impl Discovery {
         }
     }
 
+    /// A slow search hasn't answered once yet: the list may still grow.
+    pub fn first_pending(&self) -> bool {
+        let waiting = |slow: &Searched| slow.lock().unwrap_or_else(|e| e.into_inner()).at.is_none();
+        waiting(&self.sqlite) || waiting(&self.kube)
+    }
+
     /// Asks `contexts` from now on, at the next scan.
     pub fn set_contexts(&self, contexts: Vec<String>) {
         *self.contexts.lock().unwrap_or_else(|e| e.into_inner()) = contexts;
@@ -61,8 +67,9 @@ impl Discovery {
         tokio::spawn(async move {
             let cwd = std::env::current_dir().unwrap_or_default();
             // Running containers first: a Compose service that runs is theirs.
-            let sqlite = slow(&this.sqlite, sqlite::find(this.folders.clone()));
-            let kube = slow(
+            // Started first, read last: what they find meanwhile comes along.
+            slow(&this.sqlite, sqlite::find(this.folders.clone()));
+            slow(
                 &this.kube,
                 kubernetes::find(
                     this.contexts
@@ -78,8 +85,9 @@ impl Discovery {
             );
             all.extend(ports);
             all.extend(compose);
-            all.extend(sqlite);
-            all.extend(kube);
+            for slow in [&this.sqlite, &this.kube] {
+                all.extend(slow.lock().unwrap_or_else(|e| e.into_inner()).found.clone());
+            }
             let _ = found.send(all);
         });
     }

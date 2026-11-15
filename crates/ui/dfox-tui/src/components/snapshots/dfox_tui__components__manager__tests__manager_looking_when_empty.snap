@@ -1,0 +1,17 @@
+---
+source: crates/ui/dfox-tui/src/components/manager_tests.rs
+assertion_line: 122
+expression: "render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))"
+---
+
+
+
+
+
+          ╭ Connections ─────────────────────────────────────────────╮
+          │         ⠷ Looking for databases on this machine…         │
+          │                                                          │
+          │     Docker, ports, Kubernetes, files, the environment    │
+          │                                                          │
+          │                                                          │
+          ╰──────────────────────────────────────────────────────────╯

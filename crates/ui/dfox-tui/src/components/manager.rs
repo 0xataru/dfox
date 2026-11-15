@@ -83,6 +83,8 @@ pub struct Manager {
     next_ping: u64,
     /// The found connections that came from scanning the machine, by name.
     scanned: Vec<String>,
+    /// The first look for databases on the machine is still out.
+    pub searching: bool,
 }
 
 /// One database found by another way too: its source joins the listed
@@ -393,6 +395,23 @@ impl Component for Manager {
     }
 
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
+        if self.len() == 0 && self.searching {
+            let message = Paragraph::new(vec![
+                Line::from(vec![
+                    spinner(ctx, ctx.theme.dim()),
+                    Span::raw(" Looking for databases on this machine…"),
+                ]),
+                Line::from(""),
+                Line::styled(
+                    "Docker, ports, Kubernetes, files, the environment",
+                    ctx.theme.dim(),
+                ),
+            ])
+            .centered()
+            .block(panel(vec![Span::raw("Connections")], true, ctx));
+            f.render_widget(message, centered(area, 60, 7));
+            return;
+        }
         if self.len() == 0 {
             let message = Paragraph::new(vec![
                 Line::from("No saved connections yet."),
@@ -417,7 +436,7 @@ impl Component for Manager {
     }
 
     fn is_animating(&self) -> bool {
-        self.health.values().any(|h| h.pinging)
+        self.searching || self.health.values().any(|h| h.pinging)
     }
 }
 
@@ -491,10 +510,15 @@ impl Manager {
                 line
             }));
         }
-        let title = vec![
+        let mut title = vec![
             Span::raw("Connections"),
             Span::styled(format!(" {}", self.len()), theme.dim()),
         ];
+        if self.searching {
+            title.push(Span::styled(" · ", theme.dim()));
+            title.push(spinner(ctx, theme.dim()));
+            title.push(Span::styled(" searching", theme.dim()));
+        }
         f.render_widget(List::new(items).block(panel(title, true, ctx)), area);
     }
 

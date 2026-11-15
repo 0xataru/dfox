@@ -53,6 +53,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - Found connections are listed in sections by how they were found: environment and config
   files, Docker, Kubernetes (a section per cluster), local ports, SQLite files. The cursor stays
   on its connection when a scan adds or removes some, and each cluster has one section.
+- While dfox first looks for databases, the connection list says so: "Looking for databases
+  on this machine…" when it is still empty, a `· searching` spinner in its title otherwise,
+  until the slow searches (clusters, the file index) have answered. What they find in time
+  comes with the first answer instead of five seconds later.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

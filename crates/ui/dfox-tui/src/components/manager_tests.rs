@@ -113,6 +113,27 @@ fn manager_when_empty() {
 }
 
 #[test]
+fn manager_while_looking_for_databases() {
+    let test = TestCtx::new();
+    let mut manager = Manager {
+        searching: true,
+        ..Manager::default()
+    };
+    insta::assert_snapshot!(
+        "manager_looking_when_empty",
+        render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))
+    );
+    manager
+        .saved
+        .push(Connection::new("local", DbType::Postgres));
+    insta::assert_snapshot!(
+        "manager_looking_with_one",
+        render(&test, 80, 8, |f, area, ctx| manager.render(f, area, ctx))
+    );
+    assert!(manager.is_animating());
+}
+
+#[test]
 fn scans_add_new_databases_and_drop_gone_ones() {
     let at = |name: &str, host: &str, port: u16| {
         let mut connection = Connection::new(name, DbType::Postgres);
