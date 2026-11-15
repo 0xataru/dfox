@@ -72,7 +72,9 @@ MySQL, and otherwise asks.
 The manager also lists connections found on the machine: `DATABASE_URL`
 (from the environment or a `.env` file) and the engines' other variables
 (`POSTGRES_URL`, `REDIS_URL`, `MONGODB_URI`, `PGHOST`/`PGUSER`/`PGDATABASE`,
-`MYSQL_HOST`…), SQLite files in the folder dfox starts in and its `database`,
+`MYSQL_HOST`, Laravel's `DB_CONNECTION`/`DB_HOST`/`DB_DATABASE`…), also from
+`.env.local`, `.env.development` and `.env.dev`, the database services of the
+folder's Docker Compose file, running or not, SQLite files in the folder dfox starts in and its `database`,
 `db`, `data`, `prisma` and `storage` folders, the entries of `~/.pgpass`, the
 services of `~/.pg_service.conf`, `~/.my.cnf` when it names a host, and databases running in Docker or Podman
 containers that publish their port (Postgres, MySQL, MariaDB, MongoDB, Redis,
@@ -84,7 +86,10 @@ handshake, not its number, and nothing logs in; connecting to one asks for the
 user (`postgres` or `root` filled in) and the password. While the manager is open, dfox
 looks again every 5 seconds in the background: a forward opened in another
 terminal shows up, and one closed goes. Press
-**e** on one to save it. Every connection is checked in the background, so a
+**e** on one to save it. A found server is also saved by itself the first time
+its login works, with the password in the keychain, so the next time (a port
+forward opened again, say) Enter logs straight in; **e** renames it, **d**
+deletes it. A URL given on the command line and SQLite files aren't saved. Every connection is checked in the background, so a
 dot shows whether it is reachable and a sparkline shows its latency.
 
 A connection can be **read-only**: the server refuses writes (Postgres and

@@ -482,6 +482,79 @@ fn a_found_connection_without_a_user_asks_for_one() {
 }
 
 #[test]
+fn a_found_connection_is_saved_once_its_login_works() {
+    let mut connection = Connection::new("localhost:25432", DbType::Postgres);
+    connection.host = "127.0.0.1".into();
+    connection.port = Some(25432);
+    let dir = std::env::temp_dir().join(format!("dfox-app-remember-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (store, _) = Store::load(Some(&dir));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut app = App::new(
+        EngineHandle::new(tx),
+        Setup {
+            config: Config::default(),
+            config_dir: None,
+            depth: ColorDepth::TrueColor,
+            store,
+            secrets: Box::new(Memory::default()),
+            pgpass: Vec::new(),
+            history: Default::default(),
+            clipboard: Box::new(crate::clipboard::Memory::default()),
+            detected: vec![Detected {
+                connection,
+                password: None,
+                source: "port-forward from k9s".into(),
+            }],
+            connect: Some(EntryKey::Detected(0)),
+            problems: Vec::new(),
+            update: None,
+            splash: false,
+        },
+    );
+    let key = |app: &mut App, code| app.handle_key(KeyEvent::new(code, KeyModifiers::NONE));
+    let log_in = |app: &mut App| {
+        // The user as offered, then the password.
+        key(app, KeyCode::Enter);
+        for c in "pw".chars() {
+            key(app, KeyCode::Char(c));
+        }
+        key(app, KeyCode::Enter);
+    };
+    log_in(&mut app);
+    // A failed login saves nothing.
+    app.apply(EngineEvent::Connected(Err(DbError::Connection(
+        "nope".into(),
+    ))));
+    assert!(app.store.get("localhost:25432").is_none());
+
+    // Again from the list, and this time it works: saved, password kept.
+    key(&mut app, KeyCode::Enter);
+    log_in(&mut app);
+    app.apply(EngineEvent::Connected(Ok(session_info())));
+    let saved = app.store.get("localhost:25432").expect("saved");
+    assert_eq!(saved.user, "postgres");
+    assert_eq!(
+        app.secrets.get("localhost:25432"),
+        Ok(Some("pw".to_string()))
+    );
+    assert_eq!(app.screen, Screen::Workspace);
+
+    // Next time it logs in without asking.
+    std::iter::from_fn(|| rx.try_recv().ok()).count();
+    app.show_manager();
+    app.manager.select_name("localhost:25432");
+    key(&mut app, KeyCode::Enter);
+    assert!(app.overlay.is_none());
+    let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(matches!(
+        sent.last(),
+        Some(DbCommand::Connect { params, .. }) if params.username == "postgres" && params.password == "pw"
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn running_a_query_in_the_workspace() {
     let mut test = test_app("query", Some("pw"), "");
     test.open_prod();

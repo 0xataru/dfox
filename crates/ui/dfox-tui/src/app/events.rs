@@ -90,7 +90,11 @@ impl App {
     }
 
     fn connected(&mut self, connecting: super::Connecting, info: SessionInfo) {
-        let connection = connecting.connection;
+        let mut connection = connecting.connection;
+        let remember = self.remember.take();
+        if remember.as_ref() == Some(&connection.name) && connecting.switch_to.is_none() {
+            connection.name = self.remember(connection.clone(), &connecting.credentials.password);
+        }
         let (name, driver, read_only) = (
             connection.name.clone(),
             connection.driver,

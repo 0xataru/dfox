@@ -24,6 +24,33 @@ const URL_VARS: &[&str] = &[
     "CASSANDRA_URL",
 ];
 
+/// The `.env` files of frameworks' environments besides `.env` itself.
+const ENV_FILES: &[&str] = &[
+    ".env.local",
+    ".env.development",
+    ".env.development.local",
+    ".env.dev",
+];
+
+/// `KEY=value` lines, with `export`, quotes and comments as shells and
+/// dotenv write them.
+fn env_file(text: &str) -> std::collections::HashMap<String, String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| {
+            let line = line.strip_prefix("export ").unwrap_or(line);
+            let (key, value) = line.split_once('=')?;
+            let value = value.trim();
+            let value = match value.chars().next() {
+                Some(q @ ('"' | '\'')) => value[1..].split(q).next().unwrap_or_default(),
+                _ => value.split(" #").next().unwrap_or_default().trim(),
+            };
+            Some((key.trim().to_string(), value.to_string()))
+        })
+        .collect()
+}
+
 /// Folders a project keeps its SQLite files in, besides its root:
 /// Laravel's `database`, Rails' `db`, Prisma's `prisma`.
 const SQLITE_DIRS: &[&str] = &["", "database", "db", "data", "prisma", "storage"];
@@ -31,6 +58,21 @@ const SQLITE_DIRS: &[&str] = &["", "database", "db", "data", "prisma", "storage"
 /// Everything this module finds, for the project in `cwd`.
 pub fn find(cwd: &Path, var: &dyn Fn(&str) -> Option<String>) -> Vec<Detected> {
     let mut found = environment(var);
+    // `.env` itself is in the environment already; its siblings aren't.
+    for file in ENV_FILES {
+        let Ok(text) = std::fs::read_to_string(cwd.join(file)) else {
+            continue;
+        };
+        let vars = env_file(&text);
+        found.extend(
+            environment(&|name| vars.get(name).cloned())
+                .into_iter()
+                .map(|mut d| {
+                    d.source = format!("{} in {file}", d.source);
+                    d
+                }),
+        );
+    }
     found.extend(sqlite_files(cwd));
     let services = var("PGSERVICEFILE").map(PathBuf::from).or_else(|| {
         Some(
@@ -76,6 +118,35 @@ fn environment(var: &dyn Fn(&str) -> Option<String>) -> Vec<Detected> {
             password: var("PGPASSWORD"),
             source: "PGHOST, PGUSER… variables".into(),
         });
+    }
+    // Laravel's, and many frameworks' since: DB_CONNECTION, DB_HOST… An
+    // unnamed engine is told by the port.
+    if let Some(host) = var("DB_HOST") {
+        let port: Option<u16> = var("DB_PORT").and_then(|p| p.parse().ok());
+        let named = var("DB_CONNECTION").or_else(|| var("DB_DRIVER"));
+        let driver = match named.as_deref().map(str::to_lowercase).as_deref() {
+            Some("pgsql" | "postgres" | "postgresql") => Some(DbType::Postgres),
+            Some("mysql" | "mariadb") => Some(DbType::MySql),
+            Some("mongodb") => Some(DbType::Mongo),
+            Some(_) => None,
+            None => [DbType::Postgres, DbType::MySql, DbType::Mongo]
+                .into_iter()
+                .find(|d| port == Some(Connection::default_port(*d))),
+        };
+        if let Some(driver) = driver {
+            let mut connection = Connection::new("DB_HOST", driver);
+            connection.host = host;
+            connection.port = port;
+            connection.user = var("DB_USERNAME")
+                .or_else(|| var("DB_USER"))
+                .unwrap_or_default();
+            connection.database = var("DB_DATABASE").or_else(|| var("DB_NAME"));
+            found.push(Detected {
+                connection,
+                password: var("DB_PASSWORD"),
+                source: "DB_HOST, DB_DATABASE… variables".into(),
+            });
+        }
     }
     if let Some(host) = var("MYSQL_HOST") {
         let mut connection = Connection::new("MYSQL_HOST", DbType::MySql);
@@ -215,6 +286,36 @@ mod tests {
         let socket = environment(&|name| (name == "PGHOST").then(|| "/tmp".to_string()));
         assert!(socket.is_empty());
         assert!(environment(&|_| None).is_empty());
+    }
+
+    #[test]
+    fn laravel_style_variables_and_env_files() {
+        let text = "# local\nexport DB_CONNECTION=pgsql\nDB_HOST=127.0.0.1\nDB_PORT=5433\nDB_DATABASE=\"shop\"\nDB_USERNAME=app # me\nDB_PASSWORD='p#w'\n";
+        let vars = env_file(text);
+        assert_eq!(vars.get("DB_PASSWORD").map(String::as_str), Some("p#w"));
+        assert_eq!(vars.get("DB_USERNAME").map(String::as_str), Some("app"));
+        let found = environment(&|name| vars.get(name).cloned());
+        assert_eq!(
+            addresses(&found),
+            [(
+                "DB_HOST".to_string(),
+                "app@127.0.0.1:5433/shop".to_string(),
+                Some("p#w".to_string())
+            )]
+        );
+        // No engine named: the port tells it; an unknown one is left out.
+        let by_port = environment(&|name| match name {
+            "DB_HOST" => Some("db".into()),
+            "DB_PORT" => Some("3306".into()),
+            _ => None,
+        });
+        assert_eq!(by_port[0].connection.driver, DbType::MySql);
+        let unknown = environment(&|name| match name {
+            "DB_HOST" => Some("db".into()),
+            "DB_CONNECTION" => Some("sqlsrv".into()),
+            _ => None,
+        });
+        assert!(unknown.is_empty());
     }
 
     #[test]

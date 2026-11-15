@@ -182,3 +182,57 @@ fn the_same_database_found_twice_is_listed_once() {
         .collect();
     assert_eq!(names, ["DATABASE_URL", "a.db", "b.db"]);
 }
+
+#[test]
+fn one_database_found_several_ways_merges_what_each_knows() {
+    let found = |source: &str, url: &str, password: Option<&str>| {
+        let (connection, _) = crate::connections::url::parse(source, url).expect("url");
+        Detected {
+            connection,
+            password: password.map(str::to_string),
+            source: source.into(),
+        }
+    };
+    let mut manager = Manager::new(
+        Vec::new(),
+        vec![
+            found("PG variables", "postgres://127.0.0.1:15432", None),
+            found("DATABASE_URL", "postgres://app@localhost:15432/shop", None),
+        ],
+    );
+    let container = || {
+        found(
+            "docker: postgres:16",
+            "postgres://postgres@127.0.0.1:15432/postgres",
+            Some("dfox"),
+        )
+    };
+    manager.rescanned(vec![container()]);
+    // Again on the next scan: the source isn't added twice.
+    manager.rescanned(vec![container()]);
+    assert_eq!(manager.detected.len(), 1);
+    let one = &manager.detected[0];
+    assert_eq!(
+        one.source,
+        "PG variables · DATABASE_URL · docker: postgres:16"
+    );
+    assert_eq!(one.connection.database.as_deref(), Some("shop"));
+    // The container's password is postgres's, not app's: it stays out.
+    assert_eq!(
+        (one.connection.user.as_str(), one.password.as_deref()),
+        ("app", None)
+    );
+
+    // Without a user of its own, the entry takes the container's with its
+    // password.
+    let mut manager = Manager::new(
+        Vec::new(),
+        vec![found("PG variables", "postgres://127.0.0.1:15432", None)],
+    );
+    manager.rescanned(vec![container()]);
+    let one = &manager.detected[0];
+    assert_eq!(
+        (one.connection.user.as_str(), one.password.as_deref()),
+        ("postgres", Some("dfox"))
+    );
+}
