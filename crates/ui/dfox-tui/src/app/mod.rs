@@ -332,6 +332,7 @@ impl App {
         let mut scanning = false;
         // Until the first look has answered, the list may still grow.
         self.manager.searching = true;
+        self.manager.clusters = self.clusters_searched();
         let (secrets_tx, mut secrets) = mpsc::unbounded_channel::<SecretAnswer>();
         self.secrets_tx = Some(secrets_tx);
         let mut scans = tokio::time::interval(SCAN_EVERY);
@@ -757,6 +758,22 @@ impl App {
         self.toasts.push(level, text, now);
     }
 
+    /// The Kubernetes clusters searched, as the empty list says them, or
+    /// `None` without kubectl or with none picked.
+    fn clusters_searched(&self) -> Option<String> {
+        let names: Vec<String> = self
+            .config
+            .kube_contexts
+            .iter()
+            .map(|c| match c.as_str() {
+                "current" => "the current context".to_string(),
+                "all" => "every cluster but prod".to_string(),
+                name => crate::connections::kubernetes::short_context(name),
+            })
+            .collect();
+        (self.kubectl && !names.is_empty()).then(|| names.join(", "))
+    }
+
     /// Keeps `contexts` as `kube_contexts`, in the config and for the search
     /// running now.
     fn save_clusters(&mut self, contexts: Vec<String>) {
@@ -778,6 +795,7 @@ impl App {
             ),
         }
         self.config.kube_contexts = contexts.clone();
+        self.manager.clusters = self.clusters_searched();
         if let Some(discovery) = &self.discovery {
             discovery.set_contexts(contexts);
         }

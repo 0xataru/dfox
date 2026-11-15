@@ -60,6 +60,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - The splash stays while that first look is out, up to 2.5 s, its bar reading "looking for
   databases", so the logo shows instead of an empty list; the search starts with the splash.
   A key still skips it.
+- With nothing saved or found, the connection list says where dfox looked (Docker, local ports,
+  the Kubernetes clusters picked, SQLite files, the environment), that it keeps looking, and
+  what to do: `n` to add a connection, `K` to pick clusters, or a URL on the command line.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

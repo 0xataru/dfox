@@ -85,6 +85,9 @@ pub struct Manager {
     scanned: Vec<String>,
     /// The first look for databases on the machine is still out.
     pub searching: bool,
+    /// The Kubernetes clusters searched, as the empty list names them;
+    /// `None` without kubectl.
+    pub clusters: Option<String>,
 }
 
 /// One database found by another way too: its source joins the listed
@@ -413,19 +416,46 @@ impl Component for Manager {
             return;
         }
         if self.len() == 0 {
+            let theme = ctx.theme;
+            // Where dfox looked, and that it goes on looking.
+            let mut places = vec!["Docker".to_string(), "local ports".to_string()];
+            if let Some(clusters) = &self.clusters {
+                places.push(format!("Kubernetes ({clusters})"));
+            }
+            places.extend(["SQLite files".to_string(), "the environment".to_string()]);
+            let last = places.pop().unwrap_or_default();
+            let looked = format!(
+                "dfox looked in {} and {last}, and keeps looking while this list is open.",
+                places.join(", ")
+            );
+            let key = |action: Action, what: &str| {
+                vec![
+                    Span::styled(format!("{:>6}", ctx.keymap.hint(action)), theme.key()),
+                    Span::raw(format!("  {what}")),
+                ]
+            };
+            let mut keys = key(Action::New, "add a connection");
+            if self.clusters.is_some() {
+                keys.push(Span::raw("    "));
+                keys.extend(key(Action::Clusters, "pick Kubernetes clusters"));
+            }
             let message = Paragraph::new(vec![
-                Line::from("No saved connections yet."),
+                Line::from(""),
+                Line::from("No databases found yet."),
+                Line::from(""),
+                Line::styled(looked, theme.dim()),
+                Line::from(""),
+                Line::from(keys),
                 Line::from(""),
                 Line::from(vec![
-                    Span::raw("Press "),
-                    Span::styled(ctx.keymap.hint(Action::New), ctx.theme.key()),
-                    Span::raw(" to add one, or start dfox with a URL:"),
+                    Span::styled("or start dfox with a URL: ", theme.dim()),
+                    Span::raw("dfox postgres://user@localhost/db"),
                 ]),
-                Line::styled("dfox postgres://user@localhost/db", ctx.theme.dim()),
             ])
             .centered()
+            .wrap(ratatui::widgets::Wrap { trim: true })
             .block(panel(vec![Span::raw("Connections")], true, ctx));
-            f.render_widget(message, centered(area, 60, 8));
+            f.render_widget(message, centered(area, 72, 12));
             return;
         }
         let [list, detail] =

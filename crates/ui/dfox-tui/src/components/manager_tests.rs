@@ -108,8 +108,13 @@ fn manager_with_a_found_connection_selected() {
 #[test]
 fn manager_when_empty() {
     let test = TestCtx::new();
-    let manager = Manager::default();
+    let mut manager = Manager::default();
     insta::assert_snapshot!(render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx)));
+    manager.clusters = Some("the current context, stage-crm-1 (do)".into());
+    insta::assert_snapshot!(
+        "manager_when_empty_with_clusters",
+        render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))
+    );
 }
 
 #[test]
