@@ -10,4 +10,7 @@ pub struct TableColumn {
     /// The values an enum column takes, in order; empty for other types.
     #[serde(default)]
     pub values: Vec<String>,
+    /// The key the column is part of, such as Cassandra's `partition key`.
+    #[serde(default)]
+    pub key: Option<String>,
 }

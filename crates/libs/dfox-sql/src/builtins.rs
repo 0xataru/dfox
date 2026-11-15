@@ -91,14 +91,32 @@ const SQLITE: &[Function] = &[
     ("typeof", "x"),
 ];
 
+const CQL: &[Function] = &[
+    ("avg", "column"),
+    ("count", "column"),
+    ("max", "column"),
+    ("maxTimeuuid", "timestamp"),
+    ("min", "column"),
+    ("minTimeuuid", "timestamp"),
+    ("now", ""),
+    ("sum", "column"),
+    ("toDate", "timeuuid"),
+    ("toJson", "value"),
+    ("toTimestamp", "timeuuid"),
+    ("toUnixTimestamp", "timeuuid"),
+    ("token", "partition key"),
+    ("ttl", "column"),
+    ("uuid", ""),
+    ("writetime", "column"),
+];
+
 /// The dialect's functions: the common ones and its own.
 pub fn functions(dialect: Dialect) -> impl Iterator<Item = Function> {
     let own: &[Function] = match dialect {
         Dialect::Postgres => POSTGRES,
         Dialect::MySql => MYSQL,
         Dialect::Sqlite => SQLITE,
-        // CQL's are A1.4.
-        Dialect::Cql => &[],
+        Dialect::Cql => CQL,
     };
     let common: &[Function] = if dialect == Dialect::Cql { &[] } else { COMMON };
     common.iter().chain(own).copied()
@@ -160,6 +178,33 @@ pub fn types(dialect: Dialect) -> &'static [&'static str] {
             "VARCHAR",
         ],
         Dialect::Sqlite => &["BLOB", "INTEGER", "NUMERIC", "REAL", "TEXT"],
-        Dialect::Cql => &[],
+        Dialect::Cql => &[
+            "ascii",
+            "bigint",
+            "blob",
+            "boolean",
+            "counter",
+            "date",
+            "decimal",
+            "double",
+            "duration",
+            "float",
+            "frozen",
+            "inet",
+            "int",
+            "list",
+            "map",
+            "set",
+            "smallint",
+            "text",
+            "time",
+            "timestamp",
+            "timeuuid",
+            "tinyint",
+            "tuple",
+            "uuid",
+            "varchar",
+            "varint",
+        ],
     }
 }

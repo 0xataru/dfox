@@ -112,6 +112,21 @@ pub fn suggest(
             "type",
         ),
         Want::Tables => tables(catalog, None, dialect),
+        Want::Databases => catalog
+            .databases()
+            .iter()
+            .map(|name| Item {
+                label: name.clone(),
+                insert: sql::quote_ident(name, dialect),
+                kind: ItemKind::Schema,
+                detail: if dialect == Dialect::Cql {
+                    "keyspace"
+                } else {
+                    "database"
+                }
+                .to_string(),
+            })
+            .collect(),
         Want::Member(qualifier) => members(catalog, qualifier, &ctx.tables, dialect),
         Want::Columns => {
             let mut columns = columns(catalog, &ctx.tables, dialect);
@@ -460,7 +475,10 @@ fn columns(catalog: &Catalog, refs: &[TableRef], dialect: Dialect) -> Vec<Item> 
                 label: column.name.clone(),
                 insert: sql::quote_ident(&column.name, dialect),
                 kind: ItemKind::Column,
-                detail: format!("{} · {}", column.table, column.data_type),
+                detail: match &column.key {
+                    Some(key) => format!("{} · {} · {key}", column.table, column.data_type),
+                    None => format!("{} · {}", column.table, column.data_type),
+                },
             });
         }
     }
@@ -751,6 +769,7 @@ mod tests {
                 name: "status".into(),
                 data_type: "order_status".into(),
                 values: vec!["new".into(), "paid".into(), "it's".into()],
+                key: None,
             }]),
         );
         let labels = |text: &str| {
@@ -771,6 +790,48 @@ mod tests {
             labels("select * from orders where status = pa")[0],
             "'paid'"
         );
+    }
+
+    #[test]
+    fn cql_keyspaces_keys_keywords_and_types() {
+        let mut catalog = Catalog::default();
+        catalog.on_databases(vec!["shop".into(), "system".into()]);
+        catalog.on_schemas(&["shop".into()]);
+        catalog.on_tables("shop", vec!["events".into()]);
+        let column = |name: &str, key: Option<&str>| dfox_core::models::schema::TableColumn {
+            table: "events".into(),
+            name: name.into(),
+            data_type: "text".into(),
+            values: Vec::new(),
+            key: key.map(str::to_string),
+        };
+        catalog.on_columns(
+            "shop",
+            Ok(vec![
+                column("day", Some("partition key")),
+                column("at", Some("clustering key")),
+                column("body", None),
+            ]),
+        );
+        let items = |text: &str| {
+            let cursor = (0, text.chars().count());
+            suggest(text, cursor, Dialect::Cql, &catalog, true)
+                .map(|c| c.items)
+                .unwrap_or_default()
+        };
+        let labels = |text: &str| items(text).into_iter().map(|i| i.label).collect::<Vec<_>>();
+        assert_eq!(labels("use "), ["shop", "system"]);
+        let columns = items("select * from events where ");
+        assert_eq!(
+            (columns[0].label.as_str(), columns[0].detail.as_str()),
+            ("day", "events · text · partition key")
+        );
+        assert_eq!(columns[1].detail, "events · text · clustering key");
+        assert!(labels("select * from events where day = 'x' ")
+            .contains(&"ALLOW FILTERING".to_string()));
+        assert!(!labels("select * from events ").contains(&"LEFT JOIN".to_string()));
+        assert!(labels("select ").contains(&"writetime".to_string()));
+        assert_eq!(labels("create table t (id timeu"), ["timeuuid"]);
     }
 
     #[test]

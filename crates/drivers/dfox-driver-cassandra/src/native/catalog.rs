@@ -69,6 +69,15 @@ impl Column {
     fn key(&self) -> bool {
         self.rank() < 2
     }
+
+    /// Which key the column is part of, as completion shows it.
+    fn key_name(&self) -> Option<String> {
+        match self.kind.as_str() {
+            "partition_key" => Some("partition key".to_string()),
+            "clustering" => Some("clustering key".to_string()),
+            _ => None,
+        }
+    }
 }
 
 /// Columns in the order `SELECT *` gives them: the partition key, the
@@ -549,6 +558,7 @@ impl Catalog for CqlCatalog {
                 .flat_map(|(table, columns)| {
                     ordered(columns).into_iter().map(move |c| TableColumn {
                         table: table.clone(),
+                        key: c.key_name(),
                         name: c.name,
                         data_type: c.type_name,
                         values: Vec::new(),

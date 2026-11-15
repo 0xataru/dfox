@@ -151,6 +151,7 @@ pub fn sample_catalog() -> crate::catalog::Catalog {
         name: name.into(),
         data_type: "int".into(),
         values: Vec::new(),
+        key: None,
     };
     catalog.on_columns(
         "public",

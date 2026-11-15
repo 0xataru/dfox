@@ -22,6 +22,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - SQL completion offers an enum column's values after `=`, `<>` and `IN (` (Postgres and
   MySQL), SQLite's pragmas after `PRAGMA`, and completes a name begun with a quote (`` ` `` in
   MySQL, `"` elsewhere), keeping the quotes. Before, an open quote completed nothing.
+- CQL completion: its own keywords per clause (`PER PARTITION LIMIT`, `ALLOW FILTERING`,
+  `CONTAINS KEY`, `USING TTL`, `IF NOT EXISTS`…, no joins), functions (`writetime`, `token`,
+  `toTimestamp`…) and types, keyspaces after `USE` (databases in MySQL), and columns marked
+  as partition or clustering key, the partition key first.
 
 ### Changed
 
