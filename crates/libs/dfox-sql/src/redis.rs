@@ -592,3 +592,385 @@ mod tests {
         assert_eq!(command_at("# GE", (0, 4)), None);
     }
 }
+
+/// How a command is written: its arguments, which of them are keys and of
+/// what type, and the options that can follow the required arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Syntax {
+    pub command: &'static str,
+    /// As the Redis docs write it: `key value [NX | XX]`.
+    pub usage: &'static str,
+    /// The type of key the command takes as `TYPE` names it, `""` for any
+    /// key, or `None` when it takes no key.
+    pub key: Option<&'static str>,
+    /// Every argument is a key (`DEL a b c`), not only the first.
+    pub all_keys: bool,
+    pub options: &'static [&'static str],
+}
+
+const fn syntax(
+    command: &'static str,
+    usage: &'static str,
+    key: Option<&'static str>,
+    options: &'static [&'static str],
+) -> Syntax {
+    Syntax {
+        command,
+        usage,
+        key,
+        all_keys: false,
+        options,
+    }
+}
+
+const fn keys(command: &'static str, key: &'static str) -> Syntax {
+    Syntax {
+        command,
+        usage: "key [key …]",
+        key: Some(key),
+        all_keys: true,
+        options: &[],
+    }
+}
+
+const ANY: Option<&str> = Some("");
+const STRING: Option<&str> = Some("string");
+const HASH: Option<&str> = Some("hash");
+const LIST: Option<&str> = Some("list");
+const SET: Option<&str> = Some("set");
+const ZSET: Option<&str> = Some("zset");
+const STREAM: Option<&str> = Some("stream");
+const EXPIRY: &[&str] = &["NX", "XX", "GT", "LT"];
+const SCANNING: &[&str] = &["MATCH", "COUNT"];
+
+/// The commands people type most, with their syntax.
+pub const SYNTAX: &[Syntax] = &[
+    keys("DEL", ""),
+    keys("UNLINK", ""),
+    keys("EXISTS", ""),
+    keys("TOUCH", ""),
+    keys("MGET", "string"),
+    syntax("TYPE", "key", ANY, &[]),
+    syntax("TTL", "key", ANY, &[]),
+    syntax("PTTL", "key", ANY, &[]),
+    syntax("PERSIST", "key", ANY, &[]),
+    syntax("EXPIRE", "key seconds [NX | XX | GT | LT]", ANY, EXPIRY),
+    syntax(
+        "PEXPIRE",
+        "key milliseconds [NX | XX | GT | LT]",
+        ANY,
+        EXPIRY,
+    ),
+    syntax("EXPIREAT", "key unix-time [NX | XX | GT | LT]", ANY, EXPIRY),
+    syntax("RENAME", "key newkey", ANY, &[]),
+    syntax(
+        "COPY",
+        "source destination [DB db] [REPLACE]",
+        ANY,
+        &["DB", "REPLACE"],
+    ),
+    syntax("DUMP", "key", ANY, &[]),
+    syntax(
+        "SCAN",
+        "cursor [MATCH pattern] [COUNT count] [TYPE type]",
+        None,
+        &["MATCH", "COUNT", "TYPE"],
+    ),
+    syntax("GET", "key", STRING, &[]),
+    syntax(
+        "SET",
+        "key value [NX | XX] [GET] [EX seconds | PX ms | EXAT time | PXAT time | KEEPTTL]",
+        STRING,
+        &["NX", "XX", "GET", "EX", "PX", "EXAT", "PXAT", "KEEPTTL"],
+    ),
+    syntax(
+        "GETEX",
+        "key [EX seconds | PX ms | EXAT time | PXAT time | PERSIST]",
+        STRING,
+        &["EX", "PX", "EXAT", "PXAT", "PERSIST"],
+    ),
+    syntax("GETDEL", "key", STRING, &[]),
+    syntax("SETNX", "key value", STRING, &[]),
+    syntax("SETEX", "key seconds value", STRING, &[]),
+    syntax("APPEND", "key value", STRING, &[]),
+    syntax("STRLEN", "key", STRING, &[]),
+    syntax("INCR", "key", STRING, &[]),
+    syntax("INCRBY", "key increment", STRING, &[]),
+    syntax("INCRBYFLOAT", "key increment", STRING, &[]),
+    syntax("DECR", "key", STRING, &[]),
+    syntax("DECRBY", "key decrement", STRING, &[]),
+    syntax("GETRANGE", "key start end", STRING, &[]),
+    syntax("HGET", "key field", HASH, &[]),
+    syntax("HSET", "key field value [field value …]", HASH, &[]),
+    syntax("HSETNX", "key field value", HASH, &[]),
+    syntax("HMGET", "key field [field …]", HASH, &[]),
+    syntax("HGETALL", "key", HASH, &[]),
+    syntax("HDEL", "key field [field …]", HASH, &[]),
+    syntax("HEXISTS", "key field", HASH, &[]),
+    syntax("HINCRBY", "key field increment", HASH, &[]),
+    syntax("HKEYS", "key", HASH, &[]),
+    syntax("HVALS", "key", HASH, &[]),
+    syntax("HLEN", "key", HASH, &[]),
+    syntax(
+        "HSCAN",
+        "key cursor [MATCH pattern] [COUNT count]",
+        HASH,
+        SCANNING,
+    ),
+    syntax("LPUSH", "key element [element …]", LIST, &[]),
+    syntax("RPUSH", "key element [element …]", LIST, &[]),
+    syntax("LPOP", "key [count]", LIST, &[]),
+    syntax("RPOP", "key [count]", LIST, &[]),
+    syntax("LRANGE", "key start stop", LIST, &[]),
+    syntax("LLEN", "key", LIST, &[]),
+    syntax("LINDEX", "key index", LIST, &[]),
+    syntax("LSET", "key index element", LIST, &[]),
+    syntax("LREM", "key count element", LIST, &[]),
+    syntax("LTRIM", "key start stop", LIST, &[]),
+    syntax(
+        "LPOS",
+        "key element [RANK rank] [COUNT n] [MAXLEN len]",
+        LIST,
+        &["RANK", "COUNT", "MAXLEN"],
+    ),
+    syntax("SADD", "key member [member …]", SET, &[]),
+    syntax("SREM", "key member [member …]", SET, &[]),
+    syntax("SMEMBERS", "key", SET, &[]),
+    syntax("SISMEMBER", "key member", SET, &[]),
+    syntax("SCARD", "key", SET, &[]),
+    syntax("SPOP", "key [count]", SET, &[]),
+    syntax("SRANDMEMBER", "key [count]", SET, &[]),
+    syntax(
+        "SSCAN",
+        "key cursor [MATCH pattern] [COUNT count]",
+        SET,
+        SCANNING,
+    ),
+    keys("SINTER", "set"),
+    keys("SUNION", "set"),
+    keys("SDIFF", "set"),
+    syntax(
+        "ZADD",
+        "key [NX | XX] [GT | LT] [CH] [INCR] score member [score member …]",
+        ZSET,
+        &["NX", "XX", "GT", "LT", "CH", "INCR"],
+    ),
+    syntax(
+        "ZRANGE",
+        "key start stop [BYSCORE | BYLEX] [REV] [LIMIT offset count] [WITHSCORES]",
+        ZSET,
+        &["BYSCORE", "BYLEX", "REV", "LIMIT", "WITHSCORES"],
+    ),
+    syntax(
+        "ZRANGEBYSCORE",
+        "key min max [WITHSCORES] [LIMIT offset count]",
+        ZSET,
+        &["WITHSCORES", "LIMIT"],
+    ),
+    syntax("ZREM", "key member [member …]", ZSET, &[]),
+    syntax("ZSCORE", "key member", ZSET, &[]),
+    syntax("ZRANK", "key member", ZSET, &[]),
+    syntax("ZINCRBY", "key increment member", ZSET, &[]),
+    syntax("ZCARD", "key", ZSET, &[]),
+    syntax("ZCOUNT", "key min max", ZSET, &[]),
+    syntax(
+        "ZSCAN",
+        "key cursor [MATCH pattern] [COUNT count]",
+        ZSET,
+        SCANNING,
+    ),
+    syntax(
+        "XADD",
+        "key [NOMKSTREAM] [MAXLEN | MINID [= | ~] threshold] * | id field value [field value …]",
+        STREAM,
+        &["NOMKSTREAM", "MAXLEN", "MINID", "*"],
+    ),
+    syntax("XRANGE", "key start end [COUNT count]", STREAM, &["COUNT"]),
+    syntax(
+        "XREVRANGE",
+        "key end start [COUNT count]",
+        STREAM,
+        &["COUNT"],
+    ),
+    syntax("XLEN", "key", STREAM, &[]),
+    syntax("XDEL", "key id [id …]", STREAM, &[]),
+    syntax(
+        "XTRIM",
+        "key MAXLEN | MINID [= | ~] threshold",
+        STREAM,
+        &["MAXLEN", "MINID"],
+    ),
+    syntax(
+        "XREAD",
+        "[COUNT count] [BLOCK ms] STREAMS key [key …] id [id …]",
+        None,
+        &["COUNT", "BLOCK", "STREAMS"],
+    ),
+    syntax("PUBLISH", "channel message", None, &[]),
+    syntax("SELECT", "index", None, &[]),
+    syntax("INFO", "[section …]", None, &[]),
+];
+
+/// The subcommands of a container command.
+pub fn subcommands(command: &str) -> &'static [&'static str] {
+    match command {
+        "ACL" => &[
+            "CAT", "DELUSER", "GETUSER", "LIST", "SETUSER", "USERS", "WHOAMI",
+        ],
+        "CLIENT" => &[
+            "GETNAME", "ID", "INFO", "KILL", "LIST", "NO-EVICT", "PAUSE", "SETNAME", "UNPAUSE",
+        ],
+        "COMMAND" => &["COUNT", "DOCS", "INFO", "LIST"],
+        "CONFIG" => &["GET", "RESETSTAT", "REWRITE", "SET"],
+        "FUNCTION" => &[
+            "DELETE", "DUMP", "FLUSH", "LIST", "LOAD", "RESTORE", "STATS",
+        ],
+        "LATENCY" => &["DOCTOR", "HISTORY", "LATEST", "RESET"],
+        "MEMORY" => &["DOCTOR", "STATS", "USAGE"],
+        "MODULE" => &["LIST", "LOAD", "UNLOAD"],
+        "OBJECT" => &["ENCODING", "FREQ", "IDLETIME", "REFCOUNT"],
+        "PUBSUB" => &["CHANNELS", "NUMPAT", "NUMSUB"],
+        "SCRIPT" => &["EXISTS", "FLUSH", "KILL", "LOAD"],
+        "SLOWLOG" => &["GET", "LEN", "RESET"],
+        "XGROUP" => &[
+            "CREATE",
+            "CREATECONSUMER",
+            "DELCONSUMER",
+            "DESTROY",
+            "SETID",
+        ],
+        "XINFO" => &["CONSUMERS", "GROUPS", "STREAM"],
+        _ => &[],
+    }
+}
+
+/// The argument the cursor is typing: the command, the argument's index
+/// from 0 after the command, where it starts and what of it is typed. None
+/// on the command itself, in a comment, or inside quotes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Argument {
+    pub command: String,
+    pub index: usize,
+    pub start: Pos,
+    pub prefix: String,
+}
+
+pub fn argument_at(text: &str, cursor: Pos) -> Option<Argument> {
+    let line = text.split('\n').nth(cursor.0)?;
+    if is_comment(line) {
+        return None;
+    }
+    let before: String = line.chars().take(cursor.1).collect();
+    let words = scan(&before).ok()?;
+    let typing = words.last().filter(|w| w.end == cursor.1);
+    if typing.is_some_and(|w| w.quoted) {
+        return None;
+    }
+    let done = words.len() - usize::from(typing.is_some());
+    let command = words.first().filter(|_| done >= 1)?.text.to_uppercase();
+    Some(Argument {
+        command,
+        index: done - 1,
+        start: (cursor.0, typing.map_or(cursor.1, |w| w.start)),
+        prefix: typing.map(|w| w.text.clone()).unwrap_or_default(),
+    })
+}
+
+impl Syntax {
+    pub fn of(command: &str) -> Option<&'static Syntax> {
+        SYNTAX
+            .iter()
+            .find(|s| s.command.eq_ignore_ascii_case(command))
+    }
+
+    /// Whether argument `index` is a key.
+    pub fn takes_key(&self, index: usize) -> bool {
+        self.key.is_some() && (index == 0 || self.all_keys)
+    }
+
+    /// The usage's parts, a bracketed group as one: `key`, `value`,
+    /// `[NX | XX]`.
+    pub fn parts(&self) -> Vec<&'static str> {
+        let mut parts = Vec::new();
+        let (mut depth, mut from) = (0, None);
+        for (i, c) in self.usage.char_indices() {
+            match c {
+                '[' => {
+                    if depth == 0 && from.is_none() {
+                        from = Some(i);
+                    }
+                    depth += 1;
+                }
+                ']' => depth -= 1,
+                ' ' if depth == 0 => {
+                    if let Some(f) = from.take() {
+                        parts.push(&self.usage[f..i]);
+                    }
+                }
+                _ if from.is_none() => from = Some(i),
+                _ => {}
+            }
+        }
+        if let Some(f) = from {
+            parts.push(&self.usage[f..]);
+        }
+        parts
+    }
+
+    /// How many arguments come before the options.
+    pub fn required(&self) -> usize {
+        self.parts()
+            .iter()
+            .take_while(|p| !p.starts_with('['))
+            .count()
+    }
+}
+
+#[cfg(test)]
+mod syntax_tests {
+    use super::*;
+
+    #[test]
+    fn the_argument_under_the_cursor() {
+        let at = |text: &str| argument_at(text, (0, text.chars().count()));
+        assert_eq!(
+            at("get us"),
+            Some(Argument {
+                command: "GET".into(),
+                index: 0,
+                start: (0, 4),
+                prefix: "us".into()
+            })
+        );
+        assert_eq!(
+            at("SET k v ").map(|a| (a.index, a.prefix)),
+            Some((2, String::new()))
+        );
+        assert_eq!(at("GET"), None);
+        assert_eq!(at("GET \"us"), None);
+        assert_eq!(at("# GET x"), None);
+    }
+
+    #[test]
+    fn usage_parts_keep_brackets_whole() {
+        let set = Syntax::of("set").expect("SET");
+        assert_eq!(
+            set.parts(),
+            [
+                "key",
+                "value",
+                "[NX | XX]",
+                "[GET]",
+                "[EX seconds | PX ms | EXAT time | PXAT time | KEEPTTL]"
+            ]
+        );
+        assert_eq!(set.required(), 2);
+        assert!(set.takes_key(0) && !set.takes_key(1));
+        let del = Syntax::of("DEL").expect("DEL");
+        assert!(del.takes_key(3));
+        assert!(
+            SYNTAX.iter().all(|s| COMMANDS.contains(&s.command)),
+            "every syntax is a command"
+        );
+    }
+}

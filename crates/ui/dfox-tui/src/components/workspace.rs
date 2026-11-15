@@ -238,6 +238,16 @@ impl Workspace {
         result: Result<Vec<Node>, DbError>,
         ctx: &mut Ctx,
     ) {
+        if let (Ok(nodes), QueryLanguage::RedisCmd) = (&result, self.language) {
+            if !path.parts().is_empty() {
+                self.catalog.on_keys(path, nodes);
+                // Keys asked for while typing one: show them.
+                let tab = &mut self.tabs[self.active];
+                if self.focus.is(Panel::Editor) && tab.editor.typed_key().is_some() {
+                    tab.editor.complete(&self.catalog, Action::Complete);
+                }
+            }
+        }
         if let (Ok(nodes), true) = (&result, path.parts().is_empty()) {
             let databases = nodes
                 .iter()
@@ -279,6 +289,20 @@ impl Workspace {
             }
         }
         self.explorer.on_children(path, result, ctx);
+    }
+
+    /// Lists the keys under the Redis prefix being typed, with the
+    /// explorer's `SCAN`, when they haven't been listed yet.
+    fn list_typed_keys(&mut self, ctx: &mut Ctx) {
+        if self.language != QueryLanguage::RedisCmd {
+            return;
+        }
+        let Some(typed) = self.editor().typed_key() else {
+            return;
+        };
+        if let Some(path) = self.catalog.ask_prefix(&typed) {
+            ctx.engine.send(DbCommand::Children { path });
+        }
     }
 
     pub fn focused(&self) -> Panel {
@@ -1557,6 +1581,7 @@ impl Component for Workspace {
             Action::Complete if self.focus.is(Panel::Editor) => {
                 let tab = &mut self.tabs[self.active];
                 tab.editor.complete(&self.catalog, action);
+                self.list_typed_keys(ctx);
             }
             Action::Export if self.focus.is(Panel::Results) && !self.results().is_modal() => {
                 self.export_results(ctx);
@@ -1600,6 +1625,7 @@ impl Component for Workspace {
                 if self.focus.is(Panel::Editor) {
                     let tab = &mut self.tabs[self.active];
                     tab.editor.complete(&self.catalog, action);
+                    self.list_typed_keys(ctx);
                 }
                 return command;
             }

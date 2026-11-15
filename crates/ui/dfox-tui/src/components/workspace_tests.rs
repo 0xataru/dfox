@@ -1603,3 +1603,57 @@ fn a_transaction_stays_open_until_it_is_committed() {
     run(&mut w, "BEGIN; UPDATE nope SET a = 1 WHERE id = 1", false);
     assert!(w.in_transaction);
 }
+
+#[test]
+fn redis_keys_complete_by_type_and_load_under_a_typed_prefix() {
+    use dfox_core::session::QueryLanguage;
+
+    let mut harness = Harness::new();
+    let mut w = Workspace::new("local", DbType::Redis, "0").with_language(QueryLanguage::RedisCmd);
+    w.on_children(
+        &NodePath::root(),
+        Ok(vec![Node::new(NodeKind::Database, "0", true)]),
+        &mut harness.ctx(),
+    );
+    w.on_children(
+        &["0"].into_iter().collect(),
+        Ok(vec![
+            Node::new(NodeKind::KeyPrefix, "user:", true),
+            Node::new(NodeKind::Key, "settings", false).with_detail("string"),
+            Node::new(NodeKind::Key, "sessions", false).with_detail("hash"),
+        ]),
+        &mut harness.ctx(),
+    );
+    harness.sent();
+    w.set_focus(Panel::Editor);
+    let typed = |w: &mut Workspace, harness: &mut Harness, text: &str| {
+        for c in text.chars() {
+            w.handle(Action::Input(c), &mut harness.ctx());
+        }
+        w.editor().completion_labels()
+    };
+    // GET takes a string: the hash isn't offered, the prefix is.
+    assert_eq!(typed(&mut w, &mut harness, "GET se"), ["settings"]);
+    w.handle(Action::Back, &mut harness.ctx());
+    w.editor_mut().set_text("");
+    typed(&mut w, &mut harness, "GET user:");
+    // The prefix's keys are listed with the explorer's SCAN, once.
+    let prefix: NodePath = ["0", "user:"].into_iter().collect();
+    assert_eq!(
+        harness.sent(),
+        [DbCommand::Children {
+            path: prefix.clone()
+        }]
+    );
+    typed(&mut w, &mut harness, "1");
+    assert!(harness.sent().is_empty());
+    w.on_children(
+        &prefix,
+        Ok(vec![
+            Node::new(NodeKind::Key, "12", false).with_detail("string"),
+            Node::new(NodeKind::Key, "13", false).with_detail("string"),
+        ]),
+        &mut harness.ctx(),
+    );
+    assert_eq!(w.editor().completion_labels(), ["user:12", "user:13"]);
+}

@@ -31,6 +31,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   their shapes in `aggregate([...])`, `_id` and accumulators in `$group`, `$lookup`'s keys.
   Embedded documents' fields complete as `address.city`, and a method's arguments show above
   the cursor while typing them.
+- Redis completion goes past the command name: subcommands (`CLIENT LIST`, `CONFIG GET`),
+  key names where a key goes, only of the type the command takes (`GET` strings, `HGET`
+  hashes), options after the required arguments (`SET k v EX`, `ZRANGE … WITHSCORES`), and
+  the command's syntax above the cursor. Keys under a prefix being typed (`user:`) are listed
+  with the explorer's `SCAN`, once per prefix; `KEYS` is never sent.
 
 ### Changed
 

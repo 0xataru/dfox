@@ -238,7 +238,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   `USE`, and columns marked as partition or clustering key, the partition key first. In
   MongoDB come collections after `db.`, methods with their arguments, fields (`address.city`
   too), and the operators that fit the object: `$gt` on a field, `$set` in an update, stages
-  in `aggregate([...])`;
+  in `aggregate([...])`. In Redis come commands with their syntax, subcommands (`CLIENT LIST`),
+  keys of the type the command takes (listed with `SCAN` under the prefix typed, never
+  `KEYS`), and options after the required arguments (`SET k v EX`); the syntax shows above the
+  cursor;
   **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
 
 ## Configuration
