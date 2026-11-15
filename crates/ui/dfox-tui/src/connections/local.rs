@@ -109,11 +109,12 @@ fn sqlite_files(cwd: &Path) -> Vec<Detected> {
             .collect();
         files.sort();
         for path in files {
-            let shown = path
-                .strip_prefix(cwd)
-                .unwrap_or(&path)
-                .display()
-                .to_string();
+            // The same on every system: `database/database.sqlite`.
+            let file = path.file_name().unwrap_or_default().to_string_lossy();
+            let shown = match *dir {
+                "" => file.to_string(),
+                dir => format!("{dir}/{file}"),
+            };
             let mut connection = Connection::new(&shown, DbType::Sqlite);
             connection.database = Some(path.display().to_string());
             found.push(Detected {
