@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.37] - 2026-11-15
+
 ### Added
 
 - SQL completion suggests keywords that fit where the cursor is: statements at the start,
