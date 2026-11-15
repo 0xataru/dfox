@@ -112,6 +112,12 @@ fn place(c: &Connection) -> (DbType, String, u16) {
         return (c.driver, c.database.clone().unwrap_or_default(), 0);
     }
     let params = c.target();
+    // Through Kubernetes, the service is the place, not this machine.
+    if let Some(kube) = &c.kube {
+        let context = kube.context.as_deref().unwrap_or_default();
+        let at = format!("k8s:{context}/{}/{}", kube.namespace, kube.service);
+        return (c.driver, at, params.port);
+    }
     let host = match params.host.as_str() {
         "localhost" | "::1" => "127.0.0.1".to_string(),
         host => host.to_string(),

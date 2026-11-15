@@ -138,7 +138,12 @@ on a free local port when connecting and stops it when the session ends, also
 if dfox dies, so there is no forward to keep open by hand. `kubectl` and your
 kubeconfig do the login, cloud plugins (GKE, EKS, AKS) included. It's saved by
 service, never by pod, so a restarted pod still works, and the list checks that
-the service is there. In `connections.toml`:
+the service is there. The connection list also finds the databases of the
+current kubeconfig context by itself: its services whose port is a database's
+(5432, 3306, 27017, 6379, 9042, or a port named so), in every namespace you may
+list, ready to connect through such a forward; headless services and
+CloudNativePG's read-only ones are left out, and a context named like `prod`
+tags them red. The cluster is asked once a minute, read-only. In `connections.toml`:
 
 ```toml
 [[connection]]

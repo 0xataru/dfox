@@ -14,6 +14,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   The form takes the service, namespace and context; `kubectl` and the kubeconfig do the
   login, cloud plugins included. It's saved by service, not pod, and the connection list
   checks the service is there.
+- The connection list finds the databases of the current kubeconfig context: services whose
+  port is a database's, in every namespace the user may list (else the context's own), ready
+  to connect through `kubectl port-forward`. Headless and CloudNativePG read-only services
+  are left out, a `prod` context tags them red, and the cluster is asked once a minute,
+  read-only. Slow searches (the cluster, the file index) no longer hold up containers and
+  ports: they refresh in the background.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They
