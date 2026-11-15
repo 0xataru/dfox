@@ -71,9 +71,36 @@ pub struct EditorPanel {
     completion: Option<Completion>,
     /// The function call the cursor is in: its name, arguments, and the
     /// argument being typed.
-    signature: Option<(String, &'static str, usize)>,
+    signature: Option<Signature>,
     /// The last click and how many came quickly on the same spot.
     clicks: Option<(Instant, Pos, u8)>,
+}
+
+/// A call's arguments, shown while typing them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    pub name: String,
+    pub parts: Vec<&'static str>,
+    /// The part being typed.
+    pub current: usize,
+    /// `name(a, b)` as a call, or `NAME a b` as a Redis command.
+    pub call: bool,
+}
+
+impl Signature {
+    fn call(name: String, args: &'static str, current: usize) -> Self {
+        let parts = if args.is_empty() {
+            Vec::new()
+        } else {
+            args.split(", ").collect()
+        };
+        Self {
+            name,
+            parts,
+            current,
+            call: true,
+        }
+    }
 }
 
 /// Clicks closer than this count as a double or triple click.
@@ -173,7 +200,7 @@ impl EditorPanel {
     pub fn complete(&mut self, catalog: &Catalog, action: Action) {
         let refresh = match action {
             Action::Complete => true,
-            Action::Input(c) => c.is_alphanumeric() || c == '_' || c == '.',
+            Action::Input(c) => c.is_alphanumeric() || c == '_' || c == '.' || c == ':',
             Action::Backspace => self.completion.is_some(),
             _ => false,
         };
@@ -184,16 +211,27 @@ impl EditorPanel {
                     sql::complete::context(&self.buffer.text(), self.buffer.cursor(), self.dialect);
                 ctx.call.and_then(|(name, arg)| {
                     let args = sql::builtins::arguments(&name, self.dialect)?;
-                    Some((name, args, arg))
+                    Some(Signature::call(name, args, arg))
                 })
             }
             QueryLanguage::MongoShell => {
                 sql::mongo::call(&self.buffer.text(), self.buffer.cursor()).and_then(
                     |(method, arg)| {
                         let (_, args) = sql::mongo::METHODS.iter().find(|(m, _)| *m == method)?;
-                        Some((method, *args, arg))
+                        Some(Signature::call(method, args, arg))
                     },
                 )
+            }
+            QueryLanguage::RedisCmd => {
+                sql::redis::argument_at(&self.buffer.text(), self.buffer.cursor()).and_then(|arg| {
+                    let syntax = sql::redis::Syntax::of(&arg.command)?;
+                    Some(Signature {
+                        name: syntax.command.to_string(),
+                        parts: syntax.parts(),
+                        current: arg.index,
+                        call: false,
+                    })
+                })
             }
             _ => None,
         };
@@ -201,6 +239,7 @@ impl EditorPanel {
             complete::suggest_redis(
                 &self.buffer.text(),
                 self.buffer.cursor(),
+                catalog,
                 action == Action::Complete,
             )
         } else if refresh && self.language == QueryLanguage::MongoShell {
@@ -221,6 +260,13 @@ impl EditorPanel {
         } else {
             None
         };
+    }
+
+    /// The Redis key being typed, when the cursor is on a command's key.
+    pub fn typed_key(&self) -> Option<String> {
+        let arg = sql::redis::argument_at(&self.buffer.text(), self.buffer.cursor())?;
+        let syntax = sql::redis::Syntax::of(&arg.command)?;
+        syntax.takes_key(arg.index).then_some(arg.prefix)
     }
 
     pub fn close_completion(&mut self) {

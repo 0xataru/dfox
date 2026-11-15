@@ -353,6 +353,11 @@ fn mongo_methods_show_their_arguments() {
     e.complete(&Catalog::default(), Action::Input(' '));
     assert_eq!(
         e.signature,
-        Some(("updateOne".to_string(), "filter, update, options", 1))
+        Some(Signature {
+            name: "updateOne".to_string(),
+            parts: vec!["filter", "update", "options"],
+            current: 1,
+            call: true,
+        })
     );
 }

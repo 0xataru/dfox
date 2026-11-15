@@ -4,7 +4,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use dfox_core::{errors::DbError, models::schema::TableColumn};
+use dfox_core::{
+    catalog::{Node, NodeKind, NodePath},
+    errors::DbError,
+    models::schema::TableColumn,
+};
 
 #[derive(Debug, Default)]
 pub struct Catalog {
@@ -15,6 +19,11 @@ pub struct Catalog {
     columns: HashMap<String, HashMap<String, Vec<TableColumn>>>,
     /// The server's databases (keyspaces in Cassandra).
     databases: Vec<String>,
+    /// Redis keys seen in the explorer's listings, with their type.
+    keys: BTreeMap<String, Option<String>>,
+    /// Redis key prefixes (`user:`), where they are listed, and whether
+    /// their keys have been asked for.
+    prefixes: BTreeMap<String, (NodePath, bool)>,
     /// Per schema, the database's own functions: name, and arguments when
     /// the server told them.
     functions: BTreeMap<String, Vec<(String, Option<String>)>>,
@@ -28,6 +37,55 @@ impl Catalog {
     /// Records the tables and views of `schema`.
     pub fn on_tables(&mut self, schema: &str, tables: Vec<String>) {
         self.tables.insert(schema.to_string(), tables);
+    }
+
+    /// Records the Redis keys and prefixes listed under `path`, a database
+    /// or a prefix in it.
+    pub fn on_keys(&mut self, path: &NodePath, nodes: &[Node]) {
+        let Some((_, prefix)) = path.parts().split_first() else {
+            return;
+        };
+        let prefix = prefix.concat();
+        if let Some((_, asked)) = self.prefixes.get_mut(&prefix) {
+            *asked = true;
+        }
+        for node in nodes {
+            let name = format!("{prefix}{}", node.name);
+            match node.kind {
+                NodeKind::Key => {
+                    self.keys.insert(name, node.detail.clone());
+                }
+                NodeKind::KeyPrefix => {
+                    self.prefixes
+                        .entry(name)
+                        .or_insert_with(|| (path.child(node.name.clone()), false));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Known keys and prefixes: `(name, type)`, a prefix's type `None` and
+    /// its name ending in its separator.
+    pub fn keys(&self) -> impl Iterator<Item = (&str, Option<&str>, bool)> {
+        let prefixes = self.prefixes.keys().map(|p| (p.as_str(), None, true));
+        let keys = self
+            .keys
+            .iter()
+            .map(|(k, t)| (k.as_str(), t.as_deref(), false));
+        prefixes.chain(keys)
+    }
+
+    /// The longest known prefix of `typed` whose keys haven't been asked
+    /// for yet: where to list them. It counts as asked from now on.
+    pub fn ask_prefix(&mut self, typed: &str) -> Option<NodePath> {
+        let (_, (path, asked)) = self
+            .prefixes
+            .iter_mut()
+            .filter(|(p, (_, asked))| !asked && typed.starts_with(p.as_str()))
+            .max_by_key(|(p, _)| p.len())?;
+        *asked = true;
+        Some(path.clone())
     }
 
     pub fn on_databases(&mut self, databases: Vec<String>) {

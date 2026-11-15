@@ -250,31 +250,88 @@ pub fn suggest_shell(
     offer(start, candidates, &prefix, forced)
 }
 
-/// Suggestions for Redis commands: the command name, as the first word of
-/// a line, in the case it is typed in.
-pub fn suggest_redis(text: &str, cursor: Pos, forced: bool) -> Option<Completion> {
-    let (start, prefix) = sql::redis::command_at(text, cursor)?;
-    if !forced && prefix.is_empty() {
+/// Suggestions for Redis commands: the command name as the first word of a
+/// line, then a container's subcommands, keys of the type the command takes
+/// where a key goes, and the command's options after its required
+/// arguments, in the case typed.
+pub fn suggest_redis(
+    text: &str,
+    cursor: Pos,
+    catalog: &Catalog,
+    forced: bool,
+) -> Option<Completion> {
+    use sql::redis::{argument_at, command_at, subcommands, Syntax, COMMANDS};
+    let words = |words: &[&str], prefix: &str, kind, detail: &dyn Fn(&str) -> String| {
+        let typed = prefix.to_lowercase();
+        let mut items = cased(words, prefix, kind, "");
+        items.retain(|i| i.label.to_lowercase().starts_with(&typed));
+        for item in &mut items {
+            item.detail = detail(&item.label.to_uppercase());
+        }
+        items
+    };
+    let usage = |command: &str| {
+        Syntax::of(command).map_or_else(
+            || "command".to_string(),
+            |s| format!("{command} {}", s.usage),
+        )
+    };
+    if let Some((start, prefix)) = command_at(text, cursor) {
+        if !forced && prefix.is_empty() {
+            return None;
+        }
+        let candidates = words(COMMANDS, &prefix, ItemKind::Method, &usage);
+        return offer(start, candidates, &prefix, forced);
+    }
+    let arg = argument_at(text, cursor)?;
+    let syntax = Syntax::of(&arg.command);
+    let candidates = if arg.index == 0 && !subcommands(&arg.command).is_empty() {
+        words(
+            subcommands(&arg.command),
+            &arg.prefix,
+            ItemKind::Method,
+            &|_| "subcommand".to_string(),
+        )
+    } else if let Some(syntax) = syntax.filter(|s| s.takes_key(arg.index)) {
+        let wanted = syntax.key.unwrap_or_default();
+        catalog
+            .keys()
+            // Keys match from their start, as typed: fuzzy, `se` finds `user:`.
+            .filter(|(name, ..)| name.starts_with(&arg.prefix))
+            .filter(|(_, kind, prefix)| {
+                *prefix || wanted.is_empty() || kind.is_none_or(|k| k == wanted)
+            })
+            .map(|(name, kind, prefix)| Item {
+                label: name.to_string(),
+                insert: if prefix {
+                    name.to_string()
+                } else {
+                    sql::redis::quote(name)
+                },
+                kind: if prefix {
+                    ItemKind::Schema
+                } else {
+                    ItemKind::Table
+                },
+                detail: if prefix {
+                    "prefix"
+                } else {
+                    kind.unwrap_or("key")
+                }
+                .to_string(),
+            })
+            .collect()
+    } else if let Some(syntax) = syntax.filter(|s| arg.index >= s.required()) {
+        words(syntax.options, &arg.prefix, ItemKind::Keyword, &|_| {
+            "option".to_string()
+        })
+    } else {
+        Vec::new()
+    };
+    if !forced && arg.prefix.is_empty() {
         return None;
     }
-    let lower = !prefix.is_empty() && prefix.chars().all(|c| !c.is_ascii_uppercase());
-    let candidates = sql::redis::COMMANDS
-        .iter()
-        .map(|command| {
-            let insert = if lower {
-                command.to_lowercase()
-            } else {
-                (*command).to_string()
-            };
-            Item {
-                label: insert.clone(),
-                insert,
-                kind: ItemKind::Method,
-                detail: "command".to_string(),
-            }
-        })
-        .collect();
-    offer(start, candidates, &prefix, forced)
+    offer(arg.start, candidates, &arg.prefix, forced)
 }
 
 fn keywords(words: &[&str], prefix: &str) -> Vec<Item> {
@@ -884,6 +941,28 @@ mod tests {
             items("db.users.upd")[0].detail,
             "updateMany(filter, update, options)"
         );
+    }
+
+    #[test]
+    fn redis_subcommands_options_and_syntax() {
+        let catalog = Catalog::default();
+        let items = |text: &str| {
+            suggest_redis(text, (0, text.chars().count()), &catalog, false)
+                .map(|c| c.items)
+                .unwrap_or_default()
+        };
+        let set = &items("se")[0];
+        assert_eq!(set.label, "set");
+        assert!(
+            set.detail.starts_with("SET key value [NX | XX]"),
+            "{}",
+            set.detail
+        );
+        assert_eq!(items("CLIENT LI")[0].label, "LIST");
+        assert_eq!(items("set k v e")[0].label, "ex");
+        // The value isn't an option's place.
+        assert!(items("set k e").is_empty());
+        assert_eq!(items("zrange k 0 -1 with")[0].label, "withscores");
     }
 
     #[test]

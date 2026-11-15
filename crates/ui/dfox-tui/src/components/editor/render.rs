@@ -277,29 +277,33 @@ pub(super) fn clean(text: &str) -> std::borrow::Cow<'_, str> {
 
 /// The function's arguments on the line above the cursor (below it on the
 /// first line), the one being typed in bold.
-fn render_signature(
-    (name, args, current): &(String, &'static str, usize),
-    f: &mut Frame,
-    x: u16,
-    y: u16,
-    ctx: &RenderCtx,
-) {
+fn render_signature(signature: &super::Signature, f: &mut Frame, x: u16, y: u16, ctx: &RenderCtx) {
     let theme = ctx.theme;
-    let mut spans = vec![Span::styled(format!(" {name}("), theme.dim())];
-    for (i, arg) in args.split(", ").enumerate() {
+    let (open, between, close) = if signature.call {
+        ("(", ", ", ")")
+    } else {
+        (" ", " ", "")
+    };
+    let mut spans = vec![Span::styled(
+        format!(" {}{open}", signature.name),
+        theme.dim(),
+    )];
+    let last = signature.parts.len().saturating_sub(1);
+    for (i, part) in signature.parts.iter().enumerate() {
         if i > 0 {
-            spans.push(Span::styled(", ", theme.dim()));
+            spans.push(Span::styled(between, theme.dim()));
         }
-        // A trailing `…` takes every argument after it.
-        let typing = i == *current || (arg == "…" && i < *current);
+        // A last part with `…` takes every argument after it.
+        let typing =
+            i == signature.current || (i == last && signature.current > last && part.contains('…'));
         let style = if typing {
             theme.base().add_modifier(Modifier::BOLD)
         } else {
             theme.dim()
         };
-        spans.push(Span::styled(arg.to_string(), style));
+        spans.push(Span::styled(part.to_string(), style));
     }
-    spans.push(Span::styled(") ", theme.dim()));
+    spans.push(Span::styled(format!("{close} "), theme.dim()));
     let line = Line::from(spans);
     let screen = f.area();
     let width = (line.width() as u16).min(screen.width);
