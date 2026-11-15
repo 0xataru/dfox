@@ -281,11 +281,9 @@ impl App {
         match self.secrets.get(name) {
             Ok(secret) => secret,
             Err(err) => {
-                self.toasts.push(
-                    Level::Warning,
-                    format!("Couldn't read the keychain: {err}"),
-                    Instant::now(),
-                );
+                let message = format!("Couldn't read the keychain for {name}: {err}");
+                self.log.push(format!("Warning: {message}"));
+                self.toasts.push(Level::Warning, message, Instant::now());
                 None
             }
         }
@@ -299,6 +297,21 @@ impl App {
         password: Option<String>,
         ssh: Option<String>,
     ) {
+        // A found connection may not know its user (a port forward); Postgres
+        // and MySQL won't do without one.
+        let default_user = match connection.driver {
+            DbType::Postgres => Some("postgres"),
+            DbType::MySql => Some("root"),
+            _ => None,
+        };
+        if let (true, Some(user)) = (connection.user.is_empty(), default_user) {
+            self.overlay = Some(Overlay::Password {
+                connection,
+                typed: user.to_string(),
+                ask: Ask::User { password, ssh },
+            });
+            return;
+        }
         let password = match password {
             Some(password) => password,
             None if connection.driver == DbType::Sqlite => String::new(),

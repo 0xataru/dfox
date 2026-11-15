@@ -150,4 +150,8 @@ fn scans_add_new_databases_and_drop_gone_ones() {
     // The forward closed: it goes, what wasn't scanned stays.
     manager.rescanned(vec![detected(at("cache", "127.0.0.1", 16379))]);
     assert_eq!(names(&manager), ["from env", "cache"]);
+    // Saved since it was found: the found one goes.
+    manager.saved.push(at("my cache", "localhost", 16379));
+    manager.rescanned(vec![detected(at("cache", "127.0.0.1", 16379))]);
+    assert_eq!(names(&manager), ["from env"]);
 }

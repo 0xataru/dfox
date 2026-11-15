@@ -77,7 +77,8 @@ Valkey, Cassandra, ScyllaDB), with the user, password and database from the
 container's environment (`POSTGRES_PASSWORD`…), and databases behind ports
 listening on this machine: a `kubectl port-forward`, a k9s port-forward, an
 `ssh -L` tunnel or a server running here. Each port is told apart by a short
-handshake, not its number, and nothing logs in. While the manager is open, dfox
+handshake, not its number, and nothing logs in; connecting to one asks for the
+user (`postgres` or `root` filled in) and the password. While the manager is open, dfox
 looks again every 5 seconds in the background: a forward opened in another
 terminal shows up, and one closed goes. Press
 **e** on one to save it. Every connection is checked in the background, so a

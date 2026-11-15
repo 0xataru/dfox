@@ -72,6 +72,16 @@ pub struct Manager {
     scanned: Vec<String>,
 }
 
+/// Where a connection leads: two at the same place are one database.
+fn place(c: &Connection) -> (DbType, String, u16) {
+    let params = c.target();
+    let host = match params.host.as_str() {
+        "localhost" | "::1" => "127.0.0.1".to_string(),
+        host => host.to_string(),
+    };
+    (c.driver, host, params.port)
+}
+
 impl Manager {
     pub fn new(saved: Vec<Connection>, detected: Vec<Detected>) -> Self {
         Self {
@@ -111,6 +121,18 @@ impl Manager {
             .filter(|name| !now.iter().any(|d| &d.connection.name == *name))
             .cloned()
             .collect();
+        // Gone, or saved since it was found: either way not found any more.
+        let saved: Vec<_> = self.saved.iter().map(place).collect();
+        let gone: Vec<String> = gone
+            .into_iter()
+            .chain(
+                self.detected
+                    .iter()
+                    .filter(|d| self.scanned.contains(&d.connection.name))
+                    .filter(|d| saved.contains(&place(&d.connection)))
+                    .map(|d| d.connection.name.clone()),
+            )
+            .collect();
         self.detected.retain(|d| !gone.contains(&d.connection.name));
         self.scanned.retain(|name| !gone.contains(name));
         let fresh: Vec<Detected> = now
@@ -130,14 +152,6 @@ impl Manager {
     /// Adds connections found after the start, leaving out those already
     /// listed: the same engine at the same host and port.
     fn found(&mut self, more: Vec<Detected>) {
-        fn place(c: &Connection) -> (DbType, String, u16) {
-            let params = c.target();
-            let host = match params.host.as_str() {
-                "localhost" | "::1" => "127.0.0.1".to_string(),
-                host => host.to_string(),
-            };
-            (c.driver, host, params.port)
-        }
         for found in more {
             let at = place(&found.connection);
             let listed = self
