@@ -232,6 +232,42 @@ async fn late_fields_widen_the_result() {
 }
 
 #[tokio::test]
+async fn embedded_fields_complete_as_dotted_names() {
+    let database = unique("dfox_it_nested");
+    let Some(mut s) = session(&database).await else {
+        return;
+    };
+    execute(
+        s.as_mut(),
+        "db.users.insertOne({ _id: 1, name: 'a', address: { city: 'x', geo: { lat: 1, deep: { no: 1 } } } })",
+    )
+    .await;
+    let db = NodePath::root().child(database.clone());
+    let fields: Vec<(String, String)> = s
+        .catalog()
+        .all_columns(&db)
+        .await
+        .expect("columns")
+        .into_iter()
+        .map(|c| (c.name, c.data_type))
+        .collect();
+    let field = |n: &str, t: &str| (n.to_string(), t.to_string());
+    assert_eq!(
+        fields,
+        [
+            field("_id", "int"),
+            field("name", "string"),
+            field("address", "object"),
+            field("address.city", "string"),
+            field("address.geo", "object"),
+            field("address.geo.lat", "int"),
+            field("address.geo.deep", "object"),
+        ]
+    );
+    drop_database(s.as_mut()).await;
+}
+
+#[tokio::test]
 async fn the_catalog_learns_fields_and_shows_definitions() {
     let database = unique("dfox_it_catalog");
     let Some(mut s) = session(&database).await else {

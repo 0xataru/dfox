@@ -214,23 +214,35 @@ pub fn suggest_shell(
         }
         mongo::Want::Methods(_) => mongo::METHODS
             .iter()
-            .map(|method| Item {
+            .map(|(method, args)| Item {
                 label: (*method).to_string(),
                 insert: (*method).to_string(),
                 kind: ItemKind::Method,
-                detail: "method".to_string(),
+                detail: format!("{method}({args})"),
             })
             .collect(),
-        mongo::Want::Fields(collection) => catalog
-            .columns(None, collection)
-            .iter()
-            .map(|field| Item {
-                label: field.name.clone(),
-                insert: mongo_key(&field.name),
-                kind: ItemKind::Column,
-                detail: field.data_type.clone(),
-            })
-            .collect(),
+        mongo::Want::Keys { fields, operators } => {
+            let fields = fields.iter().flat_map(|collection| {
+                catalog.columns(None, collection).iter().map(|field| Item {
+                    label: field.name.clone(),
+                    insert: mongo_key(&field.name),
+                    kind: ItemKind::Column,
+                    detail: field.data_type.clone(),
+                })
+            });
+            // Operators match from their start, as SQL keywords do.
+            let typed = prefix.to_lowercase();
+            let operators = operators
+                .iter()
+                .filter(|(name, _)| name.to_lowercase().starts_with(&typed));
+            let operators = operators.map(|(name, shape)| Item {
+                label: (*name).to_string(),
+                insert: mongo_key(name),
+                kind: ItemKind::Keyword,
+                detail: format!("{name}: {shape}"),
+            });
+            fields.chain(operators).collect()
+        }
     };
     if !forced && prefix.is_empty() && !after_dot {
         return None;
@@ -832,6 +844,46 @@ mod tests {
         assert!(!labels("select * from events ").contains(&"LEFT JOIN".to_string()));
         assert!(labels("select ").contains(&"writetime".to_string()));
         assert_eq!(labels("create table t (id timeu"), ["timeuuid"]);
+    }
+
+    #[test]
+    fn mongo_operators_stages_and_dotted_fields() {
+        let mut catalog = Catalog::default();
+        catalog.on_schemas(&["shop".into()]);
+        catalog.on_tables("shop", vec!["users".into()]);
+        let field = |name: &str| dfox_core::models::schema::TableColumn {
+            table: "users".into(),
+            name: name.into(),
+            data_type: "string".into(),
+            values: Vec::new(),
+            key: None,
+        };
+        catalog.on_columns("shop", Ok(vec![field("age"), field("address.city")]));
+        let items = |text: &str| {
+            suggest_shell(text, (0, text.chars().count()), &catalog, true)
+                .map(|c| c.items)
+                .unwrap_or_default()
+        };
+        let gt = &items("db.users.find({ age: { $gt")[0];
+        assert_eq!(
+            (gt.insert.as_str(), gt.detail.as_str()),
+            ("$gt", "$gt: value")
+        );
+        let stage = &items("db.users.aggregate([{ $loo")[0];
+        assert_eq!(
+            stage.detail,
+            "$lookup: { from, localField, foreignField, as }"
+        );
+        let city = &items("db.users.find({ addr")[0];
+        assert_eq!(city.insert, "\"address.city\"");
+        // A bare letter doesn't bring up operators.
+        assert!(items("db.users.find({ a")
+            .iter()
+            .all(|i| !i.label.starts_with('$')));
+        assert_eq!(
+            items("db.users.upd")[0].detail,
+            "updateMany(filter, update, options)"
+        );
     }
 
     #[test]

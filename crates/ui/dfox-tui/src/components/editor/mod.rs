@@ -187,6 +187,14 @@ impl EditorPanel {
                     Some((name, args, arg))
                 })
             }
+            QueryLanguage::MongoShell => {
+                sql::mongo::call(&self.buffer.text(), self.buffer.cursor()).and_then(
+                    |(method, arg)| {
+                        let (_, args) = sql::mongo::METHODS.iter().find(|(m, _)| *m == method)?;
+                        Some((method, *args, arg))
+                    },
+                )
+            }
             _ => None,
         };
         self.completion = if refresh && self.language == QueryLanguage::RedisCmd {

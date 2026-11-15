@@ -235,7 +235,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   column's values come after `=`, `<>` and `IN (`, SQLite's pragmas after `PRAGMA`, and a
   name begun with `` ` `` (MySQL) or `"` keeps its quotes. CQL gets its own keywords
   (`ALLOW FILTERING`, `USING TTL`, `IF NOT EXISTS`…), functions and types, keyspaces after
-  `USE`, and columns marked as partition or clustering key, the partition key first;
+  `USE`, and columns marked as partition or clustering key, the partition key first. In
+  MongoDB come collections after `db.`, methods with their arguments, fields (`address.city`
+  too), and the operators that fit the object: `$gt` on a field, `$set` in an update, stages
+  in `aggregate([...])`;
   **Ctrl+Space** asks anywhere. **↑/↓** pick, **Tab** or **Enter** inserts, **Esc** closes
 
 ## Configuration
