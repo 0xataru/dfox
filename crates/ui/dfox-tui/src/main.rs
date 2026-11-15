@@ -288,6 +288,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checking = update
         .then(|| dfox_tui::update::refresh(History::dir()))
         .flatten();
+    // Databases in local containers, found while the TUI starts.
+    let (found_tx, found) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let _ = found_tx.send(connections::containers::find().await);
+    });
     let (engine, events) = dfox_core::engine::spawn_with(Drivers::new(drivers()), opener());
     let mut app = App::new(
         engine,
@@ -312,7 +317,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Restores the terminal on panic too.
     let mut terminal = terminal::init(mouse)?;
-    let result = app.run(&mut terminal, events, checking).await;
+    let result = app.run(&mut terminal, events, checking, found).await;
     terminal::restore();
     result?;
 

@@ -4,6 +4,7 @@
 //! Passwords never do: they go to the OS keychain ([`secrets`]), and so do
 //! SSH passwords and key passphrases.
 
+pub mod containers;
 pub mod mycnf;
 pub mod pgpass;
 pub mod secrets;

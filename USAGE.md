@@ -71,7 +71,11 @@ MySQL, and otherwise asks.
 
 The manager also lists connections found on the machine: `DATABASE_URL`
 (from the environment or a `.env` file), the entries of `~/.pgpass`, and
-`~/.my.cnf` when it names a host. Press
+`~/.my.cnf` when it names a host, and databases running in Docker or Podman
+containers that publish their port (Postgres, MySQL, MariaDB, MongoDB, Redis,
+Valkey, Cassandra, ScyllaDB), with the user, password and database from the
+container's environment (`POSTGRES_PASSWORD`…). Containers are looked up in the
+background, so they appear a moment after the start. Press
 **e** on one to save it. Every connection is checked in the background, so a
 dot shows whether it is reachable and a sparkline shows its latency.
 
