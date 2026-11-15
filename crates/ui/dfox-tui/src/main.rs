@@ -284,7 +284,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
     // The engines' own variables, SQLite files here, .pg_service.conf.
     if let Ok(cwd) = env::current_dir() {
-        detected.extend(connections::local::find(&cwd, &|name| env::var(name).ok()));
+        let var = |name: &str| env::var(name).ok();
+        detected.extend(connections::local::find(&cwd, &var));
+        detected.extend(connections::frameworks::find(&cwd, &var));
     }
 
     let mouse = config.mouse;

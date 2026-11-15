@@ -74,7 +74,9 @@ The manager also lists connections found on the machine: `DATABASE_URL`
 (`POSTGRES_URL`, `REDIS_URL`, `MONGODB_URI`, `PGHOST`/`PGUSER`/`PGDATABASE`,
 `MYSQL_HOST`, Laravel's `DB_CONNECTION`/`DB_HOST`/`DB_DATABASE`…), also from
 `.env.local`, `.env.development` and `.env.dev`, the database services of the
-folder's Docker Compose file, running or not, SQLite files in the folder dfox starts in and its `database`,
+folder's Docker Compose file, running or not, the development database of Rails'
+`config/database.yml`, Spring's `spring.datasource` (JDBC URLs), a Prisma
+datasource with its URL written out and `alembic.ini`, SQLite files in the folder dfox starts in and its `database`,
 `db`, `data`, `prisma` and `storage` folders, the entries of `~/.pgpass`, the
 services of `~/.pg_service.conf`, `~/.my.cnf` when it names a host, and databases running in Docker or Podman
 containers that publish their port (Postgres, MySQL, MariaDB, MongoDB, Redis,

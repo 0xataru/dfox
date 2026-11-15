@@ -37,6 +37,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   folder dfox starts in, running or not, read with `docker compose config` (so with its `.env`
   and overrides), the `DB_CONNECTION`/`DB_HOST`/`DB_DATABASE`/`DB_USERNAME` variables of
   Laravel and others, and the variables of `.env.local`, `.env.development` and `.env.dev`.
+- The connection manager also lists the databases a project's framework config names: Rails'
+  development database in `config/database.yml` (with its `<<: *default` and `ENV.fetch`
+  defaults), Spring's `spring.datasource` in `application.properties` or `application.yml`
+  (JDBC URLs, `${NAME:default}` values), a Prisma datasource whose URL is written out, and
+  `alembic.ini`'s `sqlalchemy.url`.
 
 ## [0.5.37] - 2026-11-15
 
