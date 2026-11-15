@@ -16,8 +16,11 @@ use crate::{
 
 /// The splash shows at least this long, so the logo can sweep in...
 const SPLASH_MIN: Duration = Duration::from_millis(400);
-/// ...and never longer than this, even while checks are still running.
+/// ...and never longer than this, even while checks are still running...
 const SPLASH_MAX: Duration = Duration::from_millis(600);
+/// ...but while the first look for databases is out, up to this: the list
+/// would show empty, and the logo is better company.
+const SPLASH_SEARCH: Duration = Duration::from_millis(2500);
 
 /// What effects react to, taken before and after handling something.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,6 +165,9 @@ impl App {
     pub(super) fn update_splash(&mut self, now: Instant) {
         let Some(started) = self.splash else { return };
         let shown = now.saturating_duration_since(started);
+        if self.looking() && shown < SPLASH_SEARCH {
+            return;
+        }
         let (answered, total) = self.manager.ping_progress();
         let done = answered == total && !self.checking_update;
         if shown >= SPLASH_MAX || (done && shown >= SPLASH_MIN) {
@@ -175,9 +181,21 @@ impl App {
         }
     }
 
+    /// The first look for databases is out and hasn't answered yet.
+    fn looking(&self) -> bool {
+        self.manager.searching && !self.found_once
+    }
+
     /// The splash bar: the share of checks answered, or of the time when
-    /// there is nothing to check.
+    /// there is nothing to check, or of the search's longest wait.
     pub(super) fn splash_progress(&self, now: Instant) -> (f64, String) {
+        if self.looking() {
+            let shown = self
+                .splash
+                .map_or(SPLASH_SEARCH, |s| now.saturating_duration_since(s));
+            let ratio = shown.as_secs_f64() / SPLASH_SEARCH.as_secs_f64();
+            return (ratio.min(1.0), "looking for databases".to_string());
+        }
         let (answered, total) = self.manager.ping_progress();
         if total == 0 {
             let shown = self

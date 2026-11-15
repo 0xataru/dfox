@@ -207,6 +207,8 @@ pub struct App {
     /// The update check is still out; the splash waits for it, up to its
     /// longest.
     checking_update: bool,
+    /// The first look for databases has answered.
+    found_once: bool,
     pub should_quit: bool,
     frame: u64,
     motion: crate::motion::Motion,
@@ -281,6 +283,7 @@ impl App {
             clipboard,
             history,
             checking_update: false,
+            found_once: false,
             overlay: None,
             update,
             should_quit: false,
@@ -416,7 +419,8 @@ impl App {
                     }
                     dirty = true;
                 }
-                _ = scans.tick(), if self.screen == Screen::Manager && !scanning => {
+                // From the splash on, so the list is ready when it shows.
+                _ = scans.tick(), if matches!(self.screen, Screen::Manager | Screen::Splash) && !scanning => {
                     scanning = true;
                     discovery.spawn(found_tx.clone());
                 }
@@ -426,6 +430,7 @@ impl App {
                 }
                 Some(now) = found.recv() => {
                     scanning = false;
+                    self.found_once = true;
                     self.manager.searching = discovery.first_pending();
                     self.with_ctx(|app, ctx| {
                         app.manager.rescanned(now);

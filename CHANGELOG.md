@@ -57,6 +57,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   on this machine…" when it is still empty, a `· searching` spinner in its title otherwise,
   until the slow searches (clusters, the file index) have answered. What they find in time
   comes with the first answer instead of five seconds later.
+- The splash stays while that first look is out, up to 2.5 s, its bar reading "looking for
+  databases", so the logo shows instead of an empty list; the search starts with the splash.
+  A key still skips it.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They
