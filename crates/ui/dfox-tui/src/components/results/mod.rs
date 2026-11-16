@@ -82,6 +82,8 @@ pub struct ResultsPanel {
     pub store: ArrowResultSet,
     pub error: Option<String>,
     pub message: Option<String>,
+    /// How long the last query that worked took.
+    pub took: Option<Duration>,
     pub running: Option<RunningQuery>,
     /// When the last query's rows were counted, to roll the count up.
     counted: Option<(Instant, QueryStats)>,
@@ -144,6 +146,7 @@ impl ResultsPanel {
             store: empty(),
             error: None,
             message: None,
+            took: None,
             running: None,
             counted: None,
             unsorted: None,
@@ -428,6 +431,7 @@ impl ResultsPanel {
                 finished.ok = true;
                 finished.changed = !browsed;
                 finished.elapsed = stats.elapsed;
+                self.took = Some(stats.elapsed);
                 finished.rows = Some(if has_columns {
                     stats.rows
                 } else {
@@ -853,7 +857,10 @@ impl Component for ResultsPanel {
             let marks = self
                 .edits
                 .as_ref()
-                .map(|e| e.marks.clone())
+                .map(|e| grid::Marks {
+                    keys: e.key_columns(),
+                    ..e.marks.clone()
+                })
                 .unwrap_or_default();
             // New rows show after the result's own, with what is set in them.
             let shown = grid::WithNew {

@@ -33,6 +33,8 @@ const MAX_SHOWN: usize = 512;
 struct Widths {
     sampled: usize,
     widths: Vec<u16>,
+    /// Sized for the types under the names.
+    typed: bool,
 }
 
 /// Where things were drawn, for the mouse.
@@ -55,6 +57,9 @@ pub struct Grid {
     top: Cell<usize>,
     left: Cell<usize>,
     widths: RefCell<Widths>,
+    /// The new layout's header: the type under each name, and the key's
+    /// columns.
+    typed: RefCell<Option<BTreeSet<usize>>>,
     /// Width changes made with `<` and `>`, per column.
     adjust: Vec<i16>,
     page: Cell<usize>,
@@ -100,6 +105,17 @@ pub struct Marks {
     pub cells: BTreeMap<(usize, usize), Option<String>>,
     /// Rows to delete.
     pub deleted: BTreeSet<usize>,
+    /// The primary key's columns, `[PK]` in a typed header.
+    pub keys: BTreeSet<usize>,
+}
+
+/// What a typed header says under a column's name.
+fn type_label(type_name: &str, key: bool) -> String {
+    if key {
+        format!("[PK] {type_name}")
+    } else {
+        type_name.to_string()
+    }
 }
 
 impl Grid {
@@ -255,7 +271,12 @@ impl Grid {
         let mut cache = self.widths.borrow_mut();
         let columns = result.columns();
         let sampled = result.row_count().min(SAMPLE_ROWS);
-        if cache.sampled != sampled || cache.widths.len() != columns.len() || sampled == 0 {
+        let typed = self.typed.borrow();
+        if cache.sampled != sampled
+            || cache.widths.len() != columns.len()
+            || cache.typed != typed.is_some()
+            || sampled == 0
+        {
             cache.widths = columns
                 .iter()
                 .enumerate()
@@ -265,10 +286,15 @@ impl Grid {
                         .map(|value| display(value, icons).width())
                         .max()
                         .unwrap_or(0);
-                    (content.max(meta.name.width()) as u16).clamp(MIN_WIDTH, MAX_AUTO_WIDTH)
+                    let label = typed.as_ref().map_or(0, |keys| {
+                        type_label(&meta.type_name, keys.contains(&col)).width()
+                    });
+                    (content.max(meta.name.width()).max(label) as u16)
+                        .clamp(MIN_WIDTH, MAX_AUTO_WIDTH)
                 })
                 .collect();
             cache.sampled = sampled;
+            cache.typed = typed.is_some();
         }
         cache
             .widths
@@ -310,6 +336,12 @@ impl Grid {
         if area.height < 3 || area.width < 8 || columns == 0 {
             return;
         }
+        let typed = ctx.layout == crate::config::LayoutStyle::Workspace;
+        *self.typed.borrow_mut() = typed.then(|| marks.keys.clone());
+        let header = if typed { 2 } else { 1 };
+        if area.height < 2 + header {
+            return;
+        }
         let widths = self.widths(result, ctx.icons);
         let (cursor_row, cursor_col) = (
             self.cursor.0.min(rows.saturating_sub(1)),
@@ -320,7 +352,7 @@ impl Grid {
         let prefix = number_width + 3;
         let data_x = area.x + prefix;
         let data_width = area.width.saturating_sub(prefix);
-        let visible = (area.height - 2) as usize;
+        let visible = (area.height - 1 - header) as usize;
         self.page.set(visible);
         let top = scroll_to(cursor_row, self.top.get(), visible);
         self.top.set(top);
@@ -353,8 +385,12 @@ impl Grid {
         );
         buf.set_string(area.x + number_width, y, " │ ", rule_style);
         let rule: String = "─".repeat(area.width as usize);
-        buf.set_stringn(area.x, y + 1, &rule, area.width as usize, rule_style);
-        buf.set_string(area.x + number_width + 1, y + 1, "┼", rule_style);
+        if typed {
+            buf.set_string(area.x + number_width, y + 1, " │ ", rule_style);
+        }
+        let ruled = y + header;
+        buf.set_stringn(area.x, ruled, &rule, area.width as usize, rule_style);
+        buf.set_string(area.x + number_width + 1, ruled, "┼", rule_style);
         for &(col, x, width) in &placed {
             let name = &result.columns()[col].name;
             let name = match self.sorted {
@@ -369,11 +405,16 @@ impl Grid {
                 theme.header()
             };
             put(buf, x, y, name, width, false, style);
+            if typed {
+                let meta = &result.columns()[col];
+                let label = type_label(&meta.type_name, marks.keys.contains(&col));
+                put(buf, x, y + 1, &label, width, false, dim);
+            }
         }
 
         // Rows.
         for (i, row) in (top..rows.min(top + visible)).enumerate() {
-            let y = area.y + 2 + i as u16;
+            let y = area.y + 1 + header + i as u16;
             let number_style = if row == cursor_row { theme.key() } else { dim };
             buf.set_stringn(
                 area.x,
@@ -428,7 +469,7 @@ impl Grid {
         }
 
         *self.drawn.borrow_mut() = Drawn {
-            first_row: Rect::new(area.x, area.y + 2, area.width, visible as u16),
+            first_row: Rect::new(area.x, area.y + 1 + header, area.width, visible as u16),
             top,
             columns: placed,
         };
