@@ -184,6 +184,43 @@ fn the_cursor_column_scrolls_into_view() {
 }
 
 #[test]
+fn the_new_layout_types_the_header_and_marks_the_key() {
+    let mut test = TestCtx::new();
+    test.layout = crate::config::LayoutStyle::Workspace;
+    let mut result = store(3, 2);
+    result.columns[0] = ColumnMeta::new("id", "bigint");
+    let grid = Grid::default();
+    let marks = Marks {
+        keys: [0].into(),
+        ..Marks::default()
+    };
+    let mut terminal = Terminal::new(TestBackend::new(40, 6)).expect("terminal");
+    let ctx = test.render_ctx();
+    terminal
+        .draw(|f| {
+            let area = f.area();
+            grid.render_marked(f.buffer_mut(), area, &result, true, &ctx, &marks)
+        })
+        .expect("draw");
+    let screen: Vec<String> = terminal
+        .backend()
+        .buffer()
+        .content
+        .chunks(40)
+        .map(|row| {
+            row.iter()
+                .map(|c| c.symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    insta::assert_snapshot!(screen.join("\n"));
+    // Clicks land on the rows under the two-line header.
+    assert_eq!(grid.cell_at(6, 3), Some((0, 0)));
+}
+
+#[test]
 fn clicks_find_cells_once_drawn() {
     let result = store(20, 3);
     let mut grid = Grid::default();

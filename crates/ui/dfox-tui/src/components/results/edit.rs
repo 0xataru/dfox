@@ -4,6 +4,8 @@
 //! key, which the result must hold. New rows come after the result's own;
 //! the columns they leave empty get their defaults.
 
+use std::collections::BTreeSet;
+
 use dfox_core::{
     catalog::NodePath,
     result::{Cell, OwnedCell, ResultSet},
@@ -38,6 +40,11 @@ pub struct Edits {
 }
 
 impl Edits {
+    /// Where the result holds the primary key's columns.
+    pub fn key_columns(&self) -> BTreeSet<usize> {
+        self.key.iter().map(|(_, col)| *col).collect()
+    }
+
     /// Edits of `result`, rows of `table` keyed by the columns `key`. Fails
     /// when the result doesn't hold every key column.
     pub fn new(table: NodePath, key: &[String], result: &impl ResultSet) -> Result<Self, String> {

@@ -80,6 +80,23 @@ impl App {
                         .add_modifier(ratatui::style::Modifier::BOLD),
                 ));
             }
+        } else if let Some(results) = self
+            .workspace
+            .as_ref()
+            .filter(|_| self.screen == Screen::Workspace)
+            .map(|w| w.results())
+        {
+            // The new layout's word on the tab's result.
+            location.push(Span::styled(
+                format!("  Total rows: {}", results.store.row_count()),
+                theme.dim(),
+            ));
+            if let Some(took) = results.took {
+                location.push(Span::styled(
+                    format!(" · Query complete {}", clock(took)),
+                    theme.dim(),
+                ));
+            }
         }
 
         let tooltip = self
@@ -379,5 +396,28 @@ mod tests {
             rate(1500, Duration::from_secs(3)).as_deref(),
             Some("500 rows/s")
         );
+    }
+}
+
+/// `00:00:00.492`, as pgAdmin says how long a query took.
+fn clock(took: Duration) -> String {
+    let ms = took.as_millis();
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        ms / 3_600_000,
+        ms / 60_000 % 60,
+        ms / 1000 % 60,
+        ms % 1000
+    )
+}
+
+#[cfg(test)]
+mod clock_tests {
+    use super::*;
+
+    #[test]
+    fn times_read_as_a_clock() {
+        assert_eq!(clock(Duration::from_millis(492)), "00:00:00.492");
+        assert_eq!(clock(Duration::from_millis(3_723_004)), "01:02:03.004");
     }
 }

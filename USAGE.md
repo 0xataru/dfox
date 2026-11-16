@@ -300,6 +300,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   - **Data | Messages** over the results (**m** or a click): Messages lists how each query
     of the tab went, its rows or error and time, with the server's notices, which then
     don't pop up
+  - each column's type under its name in the grid, `[PK]` on the key of a table's rows
+  - `Total rows` and how long the query took (`Query complete 00:00:00.492`) in the
+    status bar
   - a maximize button on the editor and the results, and a centred note while there are
     no results yet
 - **F12** - Event log

@@ -1,0 +1,11 @@
+---
+source: crates/ui/dfox-tui/src/components/results/grid_tests.rs
+assertion_line: 218
+expression: "screen.join(\"\\n\")"
+---
+# │ id           column_1
+  │ [PK] bigint  text
+──┼─────────────────────────────────────
+1 │ r0c0         r0c1
+2 │ r1c0         r1c1
+3 │ r2c0         r2c1
