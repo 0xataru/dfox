@@ -108,8 +108,39 @@ fn manager_with_a_found_connection_selected() {
 #[test]
 fn manager_when_empty() {
     let test = TestCtx::new();
-    let manager = Manager::default();
+    let mut manager = Manager::default();
     insta::assert_snapshot!(render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx)));
+    manager.clusters = Some("the current context, stage-crm-1 (do)".into());
+    insta::assert_snapshot!(
+        "manager_when_empty_with_clusters",
+        render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))
+    );
+    // Tall enough, the fox stands above it.
+    insta::assert_snapshot!(
+        "manager_when_empty_with_the_fox",
+        render(&test, 80, 26, |f, area, ctx| manager.render(f, area, ctx))
+    );
+}
+
+#[test]
+fn manager_while_looking_for_databases() {
+    let test = TestCtx::new();
+    let mut manager = Manager {
+        searching: true,
+        ..Manager::default()
+    };
+    insta::assert_snapshot!(
+        "manager_looking_when_empty",
+        render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))
+    );
+    manager
+        .saved
+        .push(Connection::new("local", DbType::Postgres));
+    insta::assert_snapshot!(
+        "manager_looking_with_one",
+        render(&test, 80, 8, |f, area, ctx| manager.render(f, area, ctx))
+    );
+    assert!(manager.is_animating());
 }
 
 #[test]
@@ -235,4 +266,103 @@ fn one_database_found_several_ways_merges_what_each_knows() {
         (one.connection.user.as_str(), one.password.as_deref()),
         ("postgres", Some("dfox"))
     );
+}
+
+#[test]
+fn found_connections_sit_in_sections_and_the_cursor_stays_put() {
+    let found = |name: &str, port: u16, source: &str| {
+        let mut connection = Connection::new(name, DbType::Postgres);
+        connection.host = "127.0.0.1".into();
+        connection.port = Some(port);
+        Detected {
+            connection,
+            password: None,
+            source: source.into(),
+        }
+    };
+    let mut manager = Manager::new(
+        Vec::new(),
+        vec![
+            found("cli", 1, "the command line"),
+            found("forward", 2, "port-forward from k9s"),
+            found("env", 3, "DATABASE_URL"),
+        ],
+    );
+    let names = |m: &Manager| -> Vec<String> {
+        m.detected
+            .iter()
+            .map(|d| d.connection.name.clone())
+            .collect()
+    };
+    assert_eq!(names(&manager), ["cli", "env", "forward"]);
+    // On the forward, then a scan brings containers and a cluster's.
+    manager.select(2);
+    manager.rescanned(vec![
+        found("pg (stage)", 4, "kubernetes: do-ams3-stage"),
+        found("db-1", 5, "docker: postgres:16"),
+    ]);
+    assert_eq!(
+        names(&manager),
+        ["cli", "env", "db-1", "pg (stage)", "forward"]
+    );
+    assert_eq!(
+        manager
+            .entry(manager.selected)
+            .map(|(_, c)| c.name.clone())
+            .as_deref(),
+        Some("forward")
+    );
+    assert_eq!(group(&manager.detected[3]).1, "Kubernetes · stage (do)");
+}
+
+#[test]
+fn each_cluster_has_one_section() {
+    let found = |name: &str, port: u16, source: &str| {
+        let mut connection = Connection::new(name, DbType::Postgres);
+        connection.host = "127.0.0.1".into();
+        connection.port = Some(port);
+        Detected {
+            connection,
+            password: None,
+            source: source.into(),
+        }
+    };
+    let mut manager = Manager::new(
+        Vec::new(),
+        vec![
+            found("a", 1, "kubernetes: do-ams3-stage"),
+            found("b", 2, "kubernetes: gke_p_z_prod"),
+        ],
+    );
+    // A stage one found later joins its cluster, not the end; clusters
+    // follow their headings' order.
+    manager.rescanned(vec![found("c", 3, "kubernetes: do-ams3-stage")]);
+    let names: Vec<&str> = manager
+        .detected
+        .iter()
+        .map(|d| d.connection.name.as_str())
+        .collect();
+    assert_eq!(names, ["b", "a", "c"]);
+}
+
+#[test]
+fn a_database_saved_under_an_alias_isnt_found_again() {
+    let kube = |namespace: &str, service: &str| {
+        let mut connection = Connection::new(service, DbType::Postgres);
+        connection.port = Some(5432);
+        connection.kube = Some(dfox_core::models::connections::KubeParams {
+            context: Some("do".into()),
+            namespace: namespace.into(),
+            service: service.into(),
+        });
+        connection
+    };
+    let found = Detected {
+        connection: kube("apps", "db"),
+        password: None,
+        source: "kubernetes: do · also svc/stage-postgresql in ns stage".into(),
+    };
+    let mut manager = Manager::new(vec![kube("stage", "stage-postgresql")], Vec::new());
+    manager.rescanned(vec![found]);
+    assert!(manager.detected.is_empty());
 }

@@ -6,7 +6,7 @@ expression: "render(&test, 120, 20, |f, area, ctx| manager.render(f, area, ctx))
 │ Saved                                        ││ Driver    PostgreSQL                                                 │
 │ ▌● prod ◆ pg ro                              ││ Host      db.example.com:5432                                        │
 │ ▌● local ◆ sqlite                            ││ Database  shop                                                       │
-│ Found on this machine                        ││ User      app                                                        │
+│ Environment and config files                 ││ User      app                                                        │
 │ ▌⠷ DATABASE_URL ◆ mysql                      ││ TLS       require                                                    │
 │                                              ││ Password  OS keychain                                                │
 │                                              ││ Access    read-only                                                  │

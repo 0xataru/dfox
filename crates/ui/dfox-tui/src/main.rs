@@ -319,6 +319,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
+    // kubectl on the PATH: the manager hints at the cluster picker.
+    app.kubectl = env::var_os("PATH").is_some_and(|path| {
+        env::split_paths(&path)
+            .any(|dir| dir.join("kubectl").is_file() || dir.join("kubectl.exe").is_file())
+    });
+
     // Restores the terminal on panic too.
     let mut terminal = terminal::init(mouse)?;
     let result = app.run(&mut terminal, events, checking).await;

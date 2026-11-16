@@ -154,6 +154,13 @@ impl App {
 
         let hints: &[(Action, &str)] = match self.screen {
             Screen::Splash => &[],
+            Screen::Manager if self.kubectl => &[
+                (Action::Confirm, "connect"),
+                (Action::New, "new"),
+                (Action::Edit, "edit"),
+                (Action::Clusters, "clusters"),
+                (Action::Help, "keys"),
+            ],
             Screen::Manager => &[
                 (Action::Confirm, "connect"),
                 (Action::New, "new"),

@@ -34,17 +34,32 @@ pub struct Discovery {
     probed: Arc<ports::Probed>,
     /// Folders searched for SQLite files besides the index.
     folders: Vec<PathBuf>,
+    /// The Kubernetes contexts to ask, changed from the app.
+    contexts: Arc<Mutex<Vec<String>>>,
     /// The last SQLite and cluster searches, kept for [`SLOW_EVERY`].
     sqlite: Searched,
     kube: Searched,
 }
 
 impl Discovery {
-    pub fn new(folders: Vec<PathBuf>) -> Self {
+    pub fn new(folders: Vec<PathBuf>, contexts: Vec<String>) -> Self {
         Self {
             folders,
+            contexts: Arc::new(Mutex::new(contexts)),
             ..Default::default()
         }
+    }
+
+    /// A slow search hasn't answered once yet: the list may still grow.
+    pub fn first_pending(&self) -> bool {
+        let waiting = |slow: &Searched| slow.lock().unwrap_or_else(|e| e.into_inner()).at.is_none();
+        waiting(&self.sqlite) || waiting(&self.kube)
+    }
+
+    /// Asks `contexts` from now on, at the next scan.
+    pub fn set_contexts(&self, contexts: Vec<String>) {
+        *self.contexts.lock().unwrap_or_else(|e| e.into_inner()) = contexts;
+        self.kube.lock().unwrap_or_else(|e| e.into_inner()).at = None;
     }
 
     pub fn spawn(&self, found: UnboundedSender<Vec<Detected>>) {
@@ -52,8 +67,17 @@ impl Discovery {
         tokio::spawn(async move {
             let cwd = std::env::current_dir().unwrap_or_default();
             // Running containers first: a Compose service that runs is theirs.
-            let sqlite = slow(&this.sqlite, sqlite::find(this.folders.clone()));
-            let kube = slow(&this.kube, kubernetes::find());
+            // Started first, read last: what they find meanwhile comes along.
+            slow(&this.sqlite, sqlite::find(this.folders.clone()));
+            slow(
+                &this.kube,
+                kubernetes::find(
+                    this.contexts
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone(),
+                ),
+            );
             let (mut all, ports, compose) = tokio::join!(
                 containers::find(),
                 ports::find(&this.probed),
@@ -61,8 +85,9 @@ impl Discovery {
             );
             all.extend(ports);
             all.extend(compose);
-            all.extend(sqlite);
-            all.extend(kube);
+            for slow in [&this.sqlite, &this.kube] {
+                all.extend(slow.lock().unwrap_or_else(|e| e.into_inner()).found.clone());
+            }
             let _ = found.send(all);
         });
     }

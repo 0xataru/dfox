@@ -11,5 +11,6 @@ row_limit = 100000
 confirm_destructive = true
 update_check = true
 sqlite_folders = []
+kube_contexts = ["current"]
 
 [keys]

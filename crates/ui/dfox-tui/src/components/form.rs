@@ -598,7 +598,7 @@ mod tests {
         form.kube_namespace = "crm".into();
         form.user = "app".into();
         let connection = form.connection().expect("valid");
-        assert_eq!(connection.address(), "app@svc/crm-db:5432 in crm");
+        assert_eq!(connection.address(), "app@svc/crm-db:5432 in ns crm");
         assert!(connection.ssh.is_none());
         let params = connection.params("pw", None);
         assert_eq!(

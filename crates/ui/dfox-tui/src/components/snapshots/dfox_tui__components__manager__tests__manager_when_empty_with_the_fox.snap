@@ -1,0 +1,29 @@
+---
+source: crates/ui/dfox-tui/src/components/manager_tests.rs
+assertion_line: 119
+expression: "render(&test, 80, 26, |f, area, ctx| manager.render(f, area, ctx))"
+---
+
+
+
+                                  ▄          ▄
+                                  ▀▀▄      ▄▀▀
+                                   ▀▀▀▄▄▄▄▀▀▀
+                                   ▀▀▀▀▀▀▀▀▀▀
+                                  ▀▀▀▀▀▀▀▀▀▀▀▀
+                                      ▀▀▀▀
+                                       ▀▀
+
+
+    ╭ Connections ─────────────────────────────────────────────────────────╮
+    │                                                                      │
+    │                        No databases found yet.                       │
+    │                                                                      │
+    │ dfox looked in Docker, local ports, Kubernetes (the current context, │
+    │    stage-crm-1 (do)), SQLite files and the environment, and keeps    │
+    │                   looking while this list is open.                   │
+    │                                                                      │
+    │        n  add a connection         K  pick Kubernetes clusters       │
+    │                                                                      │
+    │      or start dfox with a URL: dfox postgres://user@localhost/db     │
+    ╰──────────────────────────────────────────────────────────────────────╯

@@ -1125,6 +1125,33 @@ fn the_splash_waits_for_the_update_check_up_to_its_longest() {
 }
 
 #[test]
+fn the_splash_waits_for_the_first_search_up_to_its_longest() {
+    let mut test = splash_app("splash-search", true);
+    let started = test.app.splash.expect("splash");
+    test.app.manager.searching = true;
+    test.app
+        .update_splash(started + Duration::from_millis(1000));
+    assert_eq!(test.app.screen, Screen::Splash);
+    assert_eq!(
+        test.app
+            .splash_progress(started + Duration::from_millis(1250)),
+        (0.5, "looking for databases".to_string())
+    );
+    // No answer by 2.5 s: the list shows, with its own loader.
+    test.app
+        .update_splash(started + Duration::from_millis(2500));
+    assert_eq!(test.app.screen, Screen::Manager);
+
+    // An answer ends it as soon as the logo has swept in.
+    let mut test = splash_app("splash-search-found", true);
+    let started = test.app.splash.expect("splash");
+    test.app.manager.searching = true;
+    test.app.found_once = true;
+    test.app.update_splash(started + Duration::from_millis(600));
+    assert_eq!(test.app.screen, Screen::Manager);
+}
+
+#[test]
 fn the_update_check_never_holds_the_splash_past_600_ms() {
     let mut test = splash_app("splash-update-max", true);
     let started = test.app.splash.expect("splash");

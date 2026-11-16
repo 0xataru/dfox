@@ -283,12 +283,15 @@ impl Connection {
         }
         if let Some(kube) = &self.kube {
             // The service is the address; its port is the database's.
-            let mut place = format!("svc/{}:{} in {}", kube.service, params.port, kube.namespace);
+            let mut place = format!(
+                "svc/{}:{} in ns {}",
+                kube.service, params.port, kube.namespace
+            );
             if !self.user.is_empty() {
                 place = format!("{}@{place}", self.user);
             }
             if let Some(context) = &kube.context {
-                place = format!("{place} ({context})");
+                place = format!("{place} · {}", kubernetes::short_context(context));
             }
             return place;
         }

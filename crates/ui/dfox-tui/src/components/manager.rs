@@ -83,6 +83,11 @@ pub struct Manager {
     next_ping: u64,
     /// The found connections that came from scanning the machine, by name.
     scanned: Vec<String>,
+    /// The first look for databases on the machine is still out.
+    pub searching: bool,
+    /// The Kubernetes clusters searched, as the empty list names them;
+    /// `None` without kubectl.
+    pub clusters: Option<String>,
 }
 
 /// One database found by another way too: its source joins the listed
@@ -103,6 +108,46 @@ fn merge(listed: &mut Detected, other: Detected) {
     if into.database.is_none() {
         into.database = from.database;
     }
+}
+
+/// The section of the list a found connection shows in, by the way it was
+/// found first: the order, then the heading.
+fn group(found: &Detected) -> (u8, String) {
+    let source = found.source.split(" · ").next().unwrap_or_default();
+    if source.starts_with("docker") || source.starts_with("podman") {
+        (2, "Docker".to_string())
+    } else if let Some(context) = source.strip_prefix("kubernetes: ") {
+        let cluster = crate::connections::kubernetes::short_context(context);
+        (3, format!("Kubernetes · {cluster}"))
+    } else if source == "port-forward from k9s"
+        || source.starts_with("kubectl port-forward")
+        || source == "an SSH tunnel"
+        || source.starts_with("port ")
+    {
+        (4, "Local ports".to_string())
+    } else if source.starts_with("a SQLite file") {
+        (5, "SQLite files".to_string())
+    } else {
+        (1, "Environment and config files".to_string())
+    }
+}
+
+/// Every place a found connection leads to: its own, and for a Kubernetes
+/// one, the other services it stands for.
+fn places(found: &Detected) -> Vec<(DbType, String, u16)> {
+    let mut all = vec![place(&found.connection)];
+    if let Some(kube) = &found.connection.kube {
+        for (namespace, service) in crate::connections::kubernetes::aliases(&found.source) {
+            let mut alias = found.connection.clone();
+            alias.kube = Some(dfox_core::models::connections::KubeParams {
+                context: kube.context.clone(),
+                namespace,
+                service,
+            });
+            all.push(place(&alias));
+        }
+    }
+    all
 }
 
 /// Where a connection leads: two at the same place are one database.
@@ -138,10 +183,31 @@ impl Manager {
                 None => once.push(found),
             }
         }
-        Self {
+        let mut manager = Self {
             saved,
             detected: once,
             ..Default::default()
+        };
+        manager.regroup();
+        manager
+    }
+
+    /// Keeps the found connections in their sections' order, the selection
+    /// on the same connection. Within a section, as found.
+    fn regroup(&mut self) {
+        let selected = self.entry(self.selected).map(|(_, c)| c.name.clone());
+        // By section and then by its heading, a cluster's together.
+        self.detected.sort_by_key(group);
+        if let Some(name) = selected {
+            let at = self
+                .saved
+                .iter()
+                .map(|c| &c.name)
+                .chain(self.detected.iter().map(|d| &d.connection.name))
+                .position(|n| *n == name);
+            if let Some(at) = at {
+                self.selected = at;
+            }
         }
     }
 
@@ -183,7 +249,7 @@ impl Manager {
                 self.detected
                     .iter()
                     .filter(|d| self.scanned.contains(&d.connection.name))
-                    .filter(|d| saved.contains(&place(&d.connection)))
+                    .filter(|d| places(d).iter().any(|p| saved.contains(p)))
                     .map(|d| d.connection.name.clone()),
             )
             .collect();
@@ -200,6 +266,7 @@ impl Manager {
             .map(|d| d.connection.name.clone())
             .collect();
         self.scanned.extend(added);
+        self.regroup();
         self.select(self.selected);
     }
 
@@ -208,7 +275,9 @@ impl Manager {
     fn found(&mut self, more: Vec<Detected>) {
         for found in more {
             let at = place(&found.connection);
-            if self.saved.iter().any(|c| place(c) == at) {
+            // Saved under any of the names it goes by: shown as saved.
+            let leads = places(&found);
+            if self.saved.iter().any(|c| leads.contains(&place(c))) {
                 continue;
             }
             match self
@@ -321,6 +390,7 @@ impl Component for Manager {
                 }
             }
             Action::Refresh => self.ping_all(ctx),
+            Action::Clusters => return Some(Command::Clusters),
             Action::Back => return Some(Command::Quit),
             _ => {}
         }
@@ -328,20 +398,91 @@ impl Component for Manager {
     }
 
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
-        if self.len() == 0 {
+        if self.len() == 0 && self.searching {
             let message = Paragraph::new(vec![
-                Line::from("No saved connections yet."),
-                Line::from(""),
                 Line::from(vec![
-                    Span::raw("Press "),
-                    Span::styled(ctx.keymap.hint(Action::New), ctx.theme.key()),
-                    Span::raw(" to add one, or start dfox with a URL:"),
+                    spinner(ctx, ctx.theme.dim()),
+                    Span::raw(" Looking for databases on this machine…"),
                 ]),
-                Line::styled("dfox postgres://user@localhost/db", ctx.theme.dim()),
+                Line::from(""),
+                Line::styled(
+                    "Docker, ports, Kubernetes, files, the environment",
+                    ctx.theme.dim(),
+                ),
             ])
             .centered()
             .block(panel(vec![Span::raw("Connections")], true, ctx));
-            f.render_widget(message, centered(area, 60, 8));
+            f.render_widget(message, centered(area, 60, 7));
+            return;
+        }
+        if self.len() == 0 {
+            let theme = ctx.theme;
+            // Where dfox looked, and that it goes on looking.
+            let mut places = vec!["Docker".to_string(), "local ports".to_string()];
+            if let Some(clusters) = &self.clusters {
+                places.push(format!("Kubernetes ({clusters})"));
+            }
+            places.extend(["SQLite files".to_string(), "the environment".to_string()]);
+            let last = places.pop().unwrap_or_default();
+            let looked = format!(
+                "dfox looked in {} and {last}, and keeps looking while this list is open.",
+                places.join(", ")
+            );
+            let key = |action: Action, what: &str| {
+                vec![
+                    Span::styled(format!("{:>6}", ctx.keymap.hint(action)), theme.key()),
+                    Span::raw(format!("  {what}")),
+                ]
+            };
+            let mut keys = key(Action::New, "add a connection");
+            if self.clusters.is_some() {
+                keys.push(Span::raw("    "));
+                keys.extend(key(Action::Clusters, "pick Kubernetes clusters"));
+            }
+            let message = Paragraph::new(vec![
+                Line::from(""),
+                Line::from("No databases found yet."),
+                Line::from(""),
+                Line::styled(looked, theme.dim()),
+                Line::from(""),
+                Line::from(keys),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("or start dfox with a URL: ", theme.dim()),
+                    Span::raw("dfox postgres://user@localhost/db"),
+                ]),
+            ])
+            .centered()
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .block(panel(vec![Span::raw("Connections")], true, ctx));
+            // The fox above it where there is room, as the splash left it.
+            let fox_rows = if ctx.icons.ascii || area.height < 24 {
+                0
+            } else {
+                8
+            };
+            let [fox_area, _, text] = Layout::vertical([
+                Constraint::Length(fox_rows),
+                Constraint::Length(u16::from(fox_rows > 0)),
+                Constraint::Length(12),
+            ])
+            .flex(ratatui::layout::Flex::Center)
+            .areas(area);
+            if fox_rows > 0 {
+                let [fox_area] = Layout::horizontal([Constraint::Length(
+                    crate::widgets::fox::Fox::width(fox_rows),
+                )])
+                .flex(ratatui::layout::Flex::Center)
+                .areas(fox_area);
+                f.render_widget(
+                    crate::widgets::fox::Fox {
+                        progress: 1.0,
+                        depth: crate::theme::ColorDepth::of(theme.bg),
+                    },
+                    fox_area,
+                );
+            }
+            f.render_widget(message, centered(text, 72, 12));
             return;
         }
         let [list, detail] =
@@ -352,7 +493,7 @@ impl Component for Manager {
     }
 
     fn is_animating(&self) -> bool {
-        self.health.values().any(|h| h.pinging)
+        self.searching || self.health.values().any(|h| h.pinging)
     }
 }
 
@@ -360,7 +501,13 @@ impl Manager {
     fn render_list(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
         // Leave room for the section headers.
-        let visible = (inner(area).height as usize).saturating_sub(2).max(1);
+        let headers = 1 + self
+            .detected
+            .iter()
+            .map(|d| group(d).0)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        let visible = (inner(area).height as usize).saturating_sub(headers).max(1);
         self.visible.set(visible);
         let width = inner(area).width as usize;
 
@@ -369,11 +516,16 @@ impl Manager {
             if index == 0 && !self.saved.is_empty() {
                 items.push(ListItem::new(Line::styled("Saved", theme.header())));
             }
-            if index == self.saved.len() {
-                items.push(ListItem::new(Line::styled(
-                    "Found on this machine",
-                    theme.header(),
-                )));
+            // A heading where a section of found connections starts.
+            if let Some(found) = index
+                .checked_sub(self.saved.len())
+                .and_then(|i| self.detected.get(i))
+            {
+                let starts = index == self.saved.len()
+                    || group(&self.detected[index - self.saved.len() - 1]) != group(found);
+                if starts {
+                    items.push(ListItem::new(Line::styled(group(found).1, theme.header())));
+                }
             }
             let Some((_, connection)) = self.entry(index) else {
                 continue;
@@ -415,10 +567,15 @@ impl Manager {
                 line
             }));
         }
-        let title = vec![
+        let mut title = vec![
             Span::raw("Connections"),
             Span::styled(format!(" {}", self.len()), theme.dim()),
         ];
+        if self.searching {
+            title.push(Span::styled(" · ", theme.dim()));
+            title.push(spinner(ctx, theme.dim()));
+            title.push(Span::styled(" searching", theme.dim()));
+        }
         f.render_widget(List::new(items).block(panel(title, true, ctx)), area);
     }
 
@@ -440,12 +597,16 @@ impl Manager {
             let params = connection.target();
             match &connection.kube {
                 Some(kube) => {
-                    let mut service =
-                        format!("svc/{}:{} in {}", kube.service, params.port, kube.namespace);
-                    if let Some(context) = &kube.context {
-                        service.push_str(&format!(" ({context})"));
-                    }
+                    let service = format!(
+                        "svc/{}:{} in ns {}",
+                        kube.service, params.port, kube.namespace
+                    );
                     lines.push(field("Service", service));
+                    let cluster = kube.context.as_deref().map_or_else(
+                        || "the current context".to_string(),
+                        crate::connections::kubernetes::short_context,
+                    );
+                    lines.push(field("Cluster", cluster));
                     lines.push(field("Through", "kubectl port-forward".to_string()));
                 }
                 None => lines.push(field("Host", format!("{}:{}", params.host, params.port))),
@@ -505,6 +666,15 @@ impl Manager {
         let health = self.health.get(&connection.name);
         lines.push(Line::from(""));
         lines.push(match health.and_then(|h| h.last.as_ref()) {
+            // Through Kubernetes the check is kubectl finding the service,
+            // not a trip to the database.
+            Some(Ok(latency)) if connection.kube.is_some() => Line::from(vec![
+                Span::styled("● ", theme.success()),
+                Span::raw(format!(
+                    "service found · kubectl took {}",
+                    millis(latency.as_micros() as u64)
+                )),
+            ]),
             Some(Ok(latency)) => Line::from(vec![
                 Span::styled("● ", theme.success()),
                 Span::raw(format!(
@@ -526,7 +696,12 @@ impl Manager {
             );
             lines.push(Line::styled(
                 format!(
-                    "latency, last {} checks: {} – {}",
+                    "{}, last {} checks: {} – {}",
+                    if connection.kube.is_some() {
+                        "kubectl"
+                    } else {
+                        "latency"
+                    },
                     latencies.len(),
                     millis(low),
                     millis(high)

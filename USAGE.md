@@ -92,7 +92,9 @@ listening on this machine: a `kubectl port-forward`, a k9s port-forward, an
 handshake, not its number, and nothing logs in; connecting to one asks for the
 user (`postgres` or `root` filled in) and the password. While the manager is open, dfox
 looks again every 5 seconds in the background: a forward opened in another
-terminal shows up, and one closed goes. Press
+terminal shows up, and one closed goes. They are listed in sections by how
+they were found: environment and config files, Docker, Kubernetes (one per
+cluster), local ports and SQLite files. Press
 **e** on one to save it. A found server is also saved by itself the first time
 its login works, with the password in the keychain, so the next time (a port
 forward opened again, say) Enter logs straight in; **e** renames it, **d**
@@ -139,7 +141,9 @@ if dfox dies, so there is no forward to keep open by hand. `kubectl` and your
 kubeconfig do the login, cloud plugins (GKE, EKS, AKS) included. It's saved by
 service, never by pod, so a restarted pod still works, and the list checks that
 the service is there. The connection list also finds the databases of the
-current kubeconfig context by itself: its services whose port is a database's
+current kubeconfig context by itself, or of the clusters you tick with **K** in
+the connection list (kept as `kube_contexts` in the config; `all` there leaves
+out those named like `prod`, which are asked only when ticked): its services whose port is a database's
 (5432, 3306, 27017, 6379, 9042, or a port named so), in every namespace you may
 list, ready to connect through such a forward; headless services and
 CloudNativePG's read-only ones are left out, and a context named like `prod`
@@ -318,6 +322,8 @@ confirm_destructive = true  # false runs DELETE without WHERE, DROP, … without
 row_limit = 100000    # rows kept from a query; the rest are read and dropped
 update_check = true   # false: never ask GitHub whether a newer dfox is out
 sqlite_folders = []   # more folders to search for SQLite files, as ["~/clients"]
+kube_contexts = ["current"]  # Kubernetes contexts to list databases of: "current", "all"
+                      # (but those named like prod), or names
 
 [keys]                # replaces all keys of an action
 execute = ["f5", "ctrl+r"]

@@ -4,13 +4,15 @@ expression: "render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))"
 ---
 
 
-
-
-          ╭ Connections ─────────────────────────────────────────────╮
-          │                 No saved connections yet.                │
-          │                                                          │
-          │       Press n to add one, or start dfox with a URL:      │
-          │             dfox postgres://user@localhost/db            │
-          │                                                          │
-          │                                                          │
-          ╰──────────────────────────────────────────────────────────╯
+    ╭ Connections ─────────────────────────────────────────────────────────╮
+    │                                                                      │
+    │                        No databases found yet.                       │
+    │                                                                      │
+    │       dfox looked in Docker, local ports, SQLite files and the       │
+    │        environment, and keeps looking while this list is open.       │
+    │                                                                      │
+    │                          n  add a connection                         │
+    │                                                                      │
+    │      or start dfox with a URL: dfox postgres://user@localhost/db     │
+    │                                                                      │
+    ╰──────────────────────────────────────────────────────────────────────╯

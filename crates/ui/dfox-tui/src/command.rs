@@ -38,6 +38,8 @@ pub enum Command {
     UseDatabase(String),
     /// Back to the connection manager.
     Connections,
+    /// Picks which Kubernetes clusters' databases are listed.
+    Clusters,
     /// Asks before running SQL the guard flagged, saying why.
     ConfirmRun {
         sql: String,

@@ -93,6 +93,12 @@ impl App {
                 }
             }
             Command::Connections => self.show_manager(),
+            Command::Clusters => {
+                match crate::components::clusters::ClusterPicker::open(&self.config.kube_contexts) {
+                    Ok(picker) => self.overlay = Some(Overlay::Clusters(picker)),
+                    Err(err) => self.notify(Level::Warning, err, Instant::now()),
+                }
+            }
             Command::ConfirmRun { sql, reasons } => {
                 let mut message = reasons.join("\n");
                 message.push_str("\n\nRun it anyway?");
@@ -172,7 +178,7 @@ impl App {
                 (_, false) => secrets.delete(&ssh_name),
             });
         if let Err(err) = keychain {
-            self.toasts.push(
+            self.notify(
                 Level::Warning,
                 format!("Couldn't keep the password in the keychain ({err}); dfox will ask for it"),
                 now,
@@ -199,13 +205,12 @@ impl App {
         let name = connection.name.clone();
         let now = Instant::now();
         if let Err(err) = self.store.save(None, connection) {
-            self.toasts
-                .push(Level::Warning, format!("Couldn't save {name}: {err}"), now);
+            self.notify(Level::Warning, format!("Couldn't save {name}: {err}"), now);
             return base;
         }
         if !password.is_empty() {
             if let Err(err) = self.secrets.set(&name, password) {
-                self.toasts.push(
+                self.notify(
                     Level::Warning,
                     format!(
                         "Couldn't keep the password in the keychain ({err}); dfox will ask for it"
@@ -235,7 +240,7 @@ impl App {
                     .delete(name)
                     .and_then(|()| self.secrets.delete(&ssh_secret_name(name)));
                 if let Err(err) = deleted {
-                    self.toasts.push(
+                    self.notify(
                         Level::Warning,
                         format!("Couldn't remove the password from the keychain: {err}"),
                         now,
@@ -245,7 +250,7 @@ impl App {
                     .push(Level::Success, format!("Deleted {name}"), now);
                 self.manager.saved = self.store.connections.clone();
             }
-            Err(err) => self.toasts.push(Level::Error, err, now),
+            Err(err) => self.notify(Level::Error, err, now),
         }
     }
 
@@ -306,7 +311,7 @@ impl App {
         // does when copying to connections without saved ones matters.
         let (Some(password), false) = (password, ssh.is_none() && connection.needs_ssh_password())
         else {
-            self.toasts.push(
+            self.notify(
                 Level::Warning,
                 format!(
                     "Save {name}'s password first (e on it in the connection list) to copy into it"
@@ -336,7 +341,7 @@ impl App {
             Err(err) => {
                 let message = format!("Couldn't read the keychain for {name}: {err}");
                 self.log.push(format!("Warning: {message}"));
-                self.toasts.push(Level::Warning, message, Instant::now());
+                self.notify(Level::Warning, message, Instant::now());
                 None
             }
         }

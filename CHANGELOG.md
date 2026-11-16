@@ -27,7 +27,43 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - At the user or password prompt of a Kubernetes connection, Tab reads the password (and the
   user, when named) from the Secret the operator or chart made next to the service:
   CloudNativePG, Zalando, and charts' `*-password` keys. Only when asked; never logged; a
-  forbidden Secret leaves the prompt for the password typed.
+  forbidden Secret leaves the prompt for the password typed. At the user prompt a Secret that names its
+  own user gives that user; pgbouncer's `userlist.txt` gives a password kept in plain text and
+  says when it holds only a hash; and when no password fits, the warning names the Secrets
+  read and their keys (never the values). A Secret named for the release (`stage-postgresql`
+  for the service `postgresql`) is found too, and when none fits, the warning lists the
+  namespace's Secrets by name.
+- **K** in the connection list picks which Kubernetes clusters' databases it lists, from the
+  kubeconfig's contexts: the current one, others by name, a prod one only when ticked (with a
+  warning). The choice is kept as `kube_contexts` in the config (`["all"]` there means all but
+  prod) and applies at once. Each cluster is asked on its own. Found services read `crm-redis · ns stage · stage-crm-1 (do)`:
+  the namespace said as one and the cluster by a short name (GKE, DigitalOcean, EKS, kind),
+  and their check reads `service found · kubectl took 180 ms`, not a database latency.
+- The forward dfox opens to a Kubernetes service while connected no longer shows in the list
+  as a found `localhost:58683` database: the port search leaves out the `kubectl` processes dfox
+  started itself, nor any other dfox's: a forward is told by the shell that stops it, so one
+  still stopping after dfox quits doesn't flash under "Local ports" at the next start.
+- Kubernetes services that lead to the same database show once, under the more specific name,
+  with "also svc/… in ns …" in its source: services of any namespace reaching the same pods
+  (from EndpointSlices), and `ExternalName` services naming another one. A service that
+  reaches no ready pod (a leftover of an old install) isn't listed, and a database saved under
+  one of its names isn't found again under another.
+- Every warning and error the app shows also goes to the event log (F12) and the debug log,
+  so a toast cut short can be read whole.
+- Found connections are listed in sections by how they were found: environment and config
+  files, Docker, Kubernetes (a section per cluster), local ports, SQLite files. The cursor stays
+  on its connection when a scan adds or removes some, and each cluster has one section.
+- While dfox first looks for databases, the connection list says so: "Looking for databases
+  on this machine…" when it is still empty, a `· searching` spinner in its title otherwise,
+  until the slow searches (clusters, the file index) have answered. What they find in time
+  comes with the first answer instead of five seconds later.
+- The splash stays while that first look is out, up to 2.5 s, its bar reading "looking for
+  databases", so the logo shows instead of an empty list; the search starts with the splash.
+  A key still skips it.
+- With nothing saved or found, the connection list says where dfox looked (Docker, local ports,
+  the Kubernetes clusters picked, SQLite files, the environment), that it keeps looking, and
+  what to do: `n` to add a connection, `K` to pick clusters, or a URL on the command line,
+  under the fox where the terminal is tall enough.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

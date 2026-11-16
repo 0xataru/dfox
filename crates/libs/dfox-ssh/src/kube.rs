@@ -19,6 +19,10 @@ use tokio::{
     process::{Child, ChildStdin, Command},
 };
 
+/// The line of the shell around kubectl that stops it, which tells a
+/// forward dfox opened, this run's or an earlier one's still stopping.
+pub const WATCHER: &str = r#"(read -r _ <&3; kill "$pid" 2>/dev/null) >/dev/null 2>&1 &"#;
+
 /// How long `kubectl` may take to start forwarding.
 const START: Duration = Duration::from_secs(20);
 
@@ -49,13 +53,11 @@ impl Forward {
             // before any redirection), writes nowhere, and stops kubectl when
             // that stdin closes. The shell isn't killed on drop: it ends by
             // itself once kubectl is stopped.
-            let script = r#"command -v "$1" >/dev/null 2>&1 || exit 127
-exec 3<&0
-"$@" 3<&- & pid=$!
-(read -r _ <&3; kill "$pid" 2>/dev/null) >/dev/null 2>&1 &
-wait "$pid""#;
+            let script = format!(
+                "command -v \"$1\" >/dev/null 2>&1 || exit 127\nexec 3<&0\n\"$@\" 3<&- & pid=$!\n{WATCHER}\nwait \"$pid\""
+            );
             let mut sh = Command::new("sh");
-            sh.args(["-c", script, "sh", kubectl]);
+            sh.args(["-c", &script, "sh", kubectl]);
             sh
         } else {
             // shortcut: on Windows kubectl stops with the forward, but not if

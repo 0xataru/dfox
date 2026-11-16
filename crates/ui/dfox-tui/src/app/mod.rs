@@ -89,6 +89,8 @@ enum Overlay {
     Palette(Palette),
     Menu,
     Confirm(Confirm),
+    /// Which Kubernetes clusters' databases are listed.
+    Clusters(crate::components::clusters::ClusterPicker),
     /// Typing a password for `connection`: the database's, or the SSH
     /// jump host's.
     Password {
@@ -186,6 +188,10 @@ pub struct App {
     pub form: Option<ConnectionForm>,
     pub workspace: Option<Workspace>,
     connecting: Option<Connecting>,
+    /// The search for databases on the machine, while running.
+    discovery: Option<crate::connections::discover::Discovery>,
+    /// `kubectl` is installed: the manager hints at the cluster picker.
+    pub kubectl: bool,
     /// Where passwords read from Kubernetes Secrets arrive, while running.
     secrets_tx: Option<mpsc::UnboundedSender<SecretAnswer>>,
     /// A found connection being connected to, saved once its login works.
@@ -201,6 +207,8 @@ pub struct App {
     /// The update check is still out; the splash waits for it, up to its
     /// longest.
     checking_update: bool,
+    /// The first look for databases has answered.
+    found_once: bool,
     pub should_quit: bool,
     frame: u64,
     motion: crate::motion::Motion,
@@ -267,12 +275,15 @@ impl App {
             connecting: None,
             remember: None,
             secrets_tx: None,
+            discovery: None,
+            kubectl: false,
             session: None,
             toasts: Toasts::default(),
             log: EventLog::default(),
             clipboard,
             history,
             checking_update: false,
+            found_once: false,
             overlay: None,
             update,
             should_quit: false,
@@ -312,9 +323,16 @@ impl App {
                 .iter()
                 .filter_map(|f| crate::connections::sqlite::expand(f)),
         );
-        let discovery = crate::connections::discover::Discovery::new(folders);
+        let discovery = crate::connections::discover::Discovery::new(
+            folders,
+            self.config.kube_contexts.clone(),
+        );
+        self.discovery = Some(discovery.clone());
         let (found_tx, mut found) = mpsc::unbounded_channel();
         let mut scanning = false;
+        // Until the first look has answered, the list may still grow.
+        self.manager.searching = true;
+        self.manager.clusters = self.clusters_searched();
         let (secrets_tx, mut secrets) = mpsc::unbounded_channel::<SecretAnswer>();
         self.secrets_tx = Some(secrets_tx);
         let mut scans = tokio::time::interval(SCAN_EVERY);
@@ -402,7 +420,8 @@ impl App {
                     }
                     dirty = true;
                 }
-                _ = scans.tick(), if self.screen == Screen::Manager && !scanning => {
+                // From the splash on, so the list is ready when it shows.
+                _ = scans.tick(), if matches!(self.screen, Screen::Manager | Screen::Splash) && !scanning => {
                     scanning = true;
                     discovery.spawn(found_tx.clone());
                 }
@@ -412,6 +431,8 @@ impl App {
                 }
                 Some(now) = found.recv() => {
                     scanning = false;
+                    self.found_once = true;
+                    self.manager.searching = discovery.first_pending();
                     self.with_ctx(|app, ctx| {
                         app.manager.rescanned(now);
                         app.manager.ping_new(ctx);
@@ -606,7 +627,7 @@ impl App {
                         help.confirm = Some(help::Change::Bind(pressed));
                     } else {
                         help.capturing = true;
-                        self.toasts.push(
+                        self.notify(
                             Level::Warning,
                             format!("{} can't be bound", pressed.label()),
                             Instant::now(),
@@ -630,6 +651,17 @@ impl App {
                     _ => return,
                 }
                 self.overlay = Some(Overlay::Help(help));
+            }
+            Overlay::Clusters(mut picker) => {
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => picker.up(),
+                    KeyCode::Down | KeyCode::Char('j') => picker.down(),
+                    KeyCode::Char(' ') => picker.toggle(),
+                    KeyCode::Enter => return self.save_clusters(picker.chosen()),
+                    KeyCode::Esc => return,
+                    _ => {}
+                }
+                self.overlay = Some(Overlay::Clusters(picker));
             }
             Overlay::Menu => {
                 if let KeyCode::Char(c) = key.code {
@@ -678,7 +710,8 @@ impl App {
                         Ask::User { .. } => typed.trim().to_string(),
                         _ => connection.user.clone(),
                     };
-                    self.read_secret(&connection, user);
+                    let any_user = matches!(ask, Ask::User { .. });
+                    self.read_secret(&connection, user, any_user);
                     self.overlay = Some(Overlay::Password {
                         connection,
                         typed,
@@ -712,9 +745,65 @@ impl App {
         }
     }
 
+    /// Shows a warning or an error, and keeps it in the event log (F12) and
+    /// the debug log, where a toast cut short can be read whole.
+    pub(super) fn notify(&mut self, level: Level, text: impl Into<String>, now: Instant) {
+        let text = text.into();
+        let kind = if level == Level::Error {
+            "Error"
+        } else {
+            "Warning"
+        };
+        self.log.push(format!("{kind}: {text}"));
+        self.toasts.push(level, text, now);
+    }
+
+    /// The Kubernetes clusters searched, as the empty list says them, or
+    /// `None` without kubectl or with none picked.
+    fn clusters_searched(&self) -> Option<String> {
+        let names: Vec<String> = self
+            .config
+            .kube_contexts
+            .iter()
+            .map(|c| match c.as_str() {
+                "current" => "the current context".to_string(),
+                "all" => "every cluster but prod".to_string(),
+                name => crate::connections::kubernetes::short_context(name),
+            })
+            .collect();
+        (self.kubectl && !names.is_empty()).then(|| names.join(", "))
+    }
+
+    /// Keeps `contexts` as `kube_contexts`, in the config and for the search
+    /// running now.
+    fn save_clusters(&mut self, contexts: Vec<String>) {
+        let now = Instant::now();
+        let saved = match &self.config_dir {
+            Some(dir) => Config::save_kube_contexts(dir, &contexts),
+            None => Err("no config folder to keep it in".to_string()),
+        };
+        match saved {
+            Ok(()) => self.toasts.push(
+                Level::Success,
+                "Saved the clusters to list".to_string(),
+                now,
+            ),
+            Err(err) => self.notify(
+                Level::Warning,
+                format!("Couldn't save the clusters: {err}"),
+                now,
+            ),
+        }
+        self.config.kube_contexts = contexts.clone();
+        self.manager.clusters = self.clusters_searched();
+        if let Some(discovery) = &self.discovery {
+            discovery.set_contexts(contexts);
+        }
+    }
+
     /// Reads the password of `connection`, a Kubernetes one, for `user` from
     /// its cluster's Secrets in the background.
-    fn read_secret(&mut self, connection: &Connection, user: String) {
+    fn read_secret(&mut self, connection: &Connection, user: String, any_user: bool) {
         let (Some(kube), Some(tx)) = (connection.kube.clone(), self.secrets_tx.clone()) else {
             return;
         };
@@ -725,7 +814,7 @@ impl App {
             Instant::now(),
         );
         tokio::spawn(async move {
-            let answer = crate::connections::kube_secret::find(&kube, &user).await;
+            let answer = crate::connections::kube_secret::find(&kube, &user, any_user).await;
             let _ = tx.send((name, answer));
         });
     }
@@ -740,7 +829,7 @@ impl App {
         let found = match answer {
             Ok(found) => found,
             Err(err) => {
-                self.toasts.push(Level::Warning, err, Instant::now());
+                self.notify(Level::Warning, err, Instant::now());
                 return;
             }
         };
@@ -938,6 +1027,7 @@ impl App {
             Some(Overlay::Menu) => which_key::render(f, main, ctx),
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
             Some(Overlay::Copy(dialog)) => dialog.render(f, main, ctx),
+            Some(Overlay::Clusters(picker)) => picker.render(f, main, ctx),
             Some(Overlay::Password {
                 connection,
                 typed,
