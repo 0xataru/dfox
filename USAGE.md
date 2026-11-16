@@ -102,7 +102,8 @@ deletes it. A URL given on the command line and SQLite files aren't saved. Every
 dot shows whether it is reachable and a sparkline shows its latency.
 
 A connection can be **read-only**: the server refuses writes (Postgres and
-MySQL start the session read-only, SQLite opens the file read-only; for
+MySQL start the session read-only; through a pooler such as pgbouncer that drops
+or refuses that, Postgres runs each statement in a read-only transaction instead, SQLite opens the file read-only; for
 MongoDB and Redis, which have no read-only sessions, dfox refuses commands that
 write). **TLS**
 can be `prefer` (the default), `require`, `verify` (the server's certificate

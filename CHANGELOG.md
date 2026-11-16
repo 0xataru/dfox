@@ -105,6 +105,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Fixed
 
+- A read-only Postgres connection through pgbouncer is held read-only by the server. An older
+  pgbouncer refused the startup setting dfox makes it with (`unsupported startup parameter:
+  options`), so the connection failed; a pooler may also drop it without a word. dfox now
+  connects without it when refused, checks `default_transaction_read_only` once in, and when the
+  server doesn't hold the session read-only, runs each statement in `BEGIN READ ONLY … COMMIT`,
+  which a pooler keeps on one server connection.
 - The connection list's latency sparkline drew a lone full-height bar for a 1 ms ping among
   0 ms ones, and nothing at all for local databases. Latencies are now measured in
   microseconds (`reachable · 0.3 ms`), the scale tops at 50 ms or more so tenths of a
