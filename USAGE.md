@@ -85,7 +85,7 @@ system, of apps, of dependencies and caches are left out, and files from the
 index are never opened, so macOS asks for no access to Documents or Desktop; the entries of `~/.pgpass`, the
 services of `~/.pg_service.conf`, `~/.my.cnf` when it names a host, the hosts of
 `~/.ssh/config` with a `LocalForward` to a database's port (offered through that host
-with dfox's own tunnel), and databases running in Docker or Podman
+with dfox's own tunnel, and one entry with the `ssh -L` tunnel while it is up), and databases running in Docker or Podman
 containers that publish their port (Postgres, MySQL, MariaDB, MongoDB, Redis,
 Valkey, Cassandra, ScyllaDB), with the user, password and database from the
 container's environment (`POSTGRES_PASSWORD`…), and databases behind ports
@@ -111,6 +111,11 @@ write). **TLS**
 can be `prefer` (the default), `require`, `verify` (the server's certificate
 and name are checked against the system's roots and an optional **CA file**)
 or turned off, and a coloured **tag** marks it in the list and the status bar.
+Cassandra doesn't negotiate TLS, so there `prefer` connects plain; `verify`
+checks the certificate against the host as typed. A MongoDB **SRV** connection
+(`mongodb+srv://`, or **SRV** in the form) takes its servers, replica set and
+auth database from the host's DNS records, with TLS on unless turned off; it
+isn't pinged in the list.
 
 A connection can go through an **SSH jump host** when the database isn't
 reachable directly. dfox logs in with your ssh-agent, a key file or a
@@ -185,6 +190,7 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 ### Connections
 - **Enter** - Connect
 - **n** / **e** / **d** - New, edit (or save a found connection), delete
+- **o** - Open any SQLite file by its path (`~/` for home)
 - **R** - Check every connection again
 
 ### Explorer
@@ -261,13 +267,15 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   Rows go in ten thousand at a time, each batch in its own transaction (a COPY in
   Postgres, multi-row inserts in MySQL, `insertMany` in MongoDB), so a failed import
   says how many went in. **Copy to…** sends all the rows to a table of another saved
-  connection (Postgres, MySQL, SQLite or MongoDB): pick it with ←/→, name the table
+  connection (Postgres, MySQL, SQLite, MongoDB, or an existing Cassandra table, whose rows
+  go in as `INSERT … JSON` so each value takes its column's type): pick it with ←/→, name the table
   (`schema.table` in Postgres), and say whether to create it from the rows' columns, in
   that database's own types. The connection's password must be saved, or in `~/.pgpass`
 - **J** - Show the rows as JSON documents, and back to the grid. Each row is a document
   shown on one line; **→** or **Enter** opens it, and the objects and lists in it, **←**
   closes them or goes up. Columns that hold JSON (MongoDB's nested documents, a Redis
-  string of JSON) open as JSON. **Ctrl+C** copies the JSON at the cursor
+  string of JSON) open as JSON. **Ctrl+C** copies the JSON at the cursor. A click selects a
+  line, a click on the selected one opens or closes it, and the wheel moves through them
 
 ### Interface Controls
 - **F1** - Back to the connections

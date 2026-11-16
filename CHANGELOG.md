@@ -7,6 +7,27 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- Copy to… and imports into Cassandra and ScyllaDB tables, as `INSERT … JSON` so the server
+  types each value by its column (text into a uuid or a timestamp, a list into a set,
+  decimals exact). A Cassandra table isn't created by the copy: its primary key is yours to
+  choose.
+- TLS for Cassandra and ScyllaDB: `require` encrypts, `verify` checks the certificate
+  against the system's roots and the CA file, and the host as typed, since the driver
+  connects by IP address.
+- `mongodb+srv://` addresses, and **SRV** in the connection form for MongoDB: the servers,
+  replica set and auth database come from DNS, with TLS on unless turned off.
+- **o** in the connection list opens any SQLite file by its path.
+- The JSON view takes the mouse: a click selects a line, a click on the selected one opens or
+  closes it, the wheel scrolls.
+- Formatting puts a long `SELECT` list a column a line.
+
+### Changed
+
+- A database in `~/.ssh/config` and its `ssh -L` tunnel while it is up are one entry in the
+  connection list, under SSH hosts.
+
 ## [0.5.39] - 2026-11-16
 
 ### Added
