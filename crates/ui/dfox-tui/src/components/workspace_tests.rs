@@ -1677,3 +1677,24 @@ fn a_picked_suggestion_ranks_higher_afterwards() {
     w.handle(Action::Input(' '), &mut harness.ctx());
     assert_eq!(w.catalog.uses(&first), 1);
 }
+
+#[test]
+fn esc_and_enter_leave_the_explorers_filter_even_when_it_found_nothing() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    w.explorer.load(&mut harness.ctx());
+    answer_catalog(&mut w, &mut harness);
+    w.set_focus(Panel::Explorer);
+    for (keys, last) in [
+        ("sqgq", Action::Back),
+        ("sqgq", Action::Confirm),
+        ("ord", Action::Back),
+    ] {
+        w.handle(Action::Filter, &mut harness.ctx());
+        for c in keys.chars() {
+            w.handle(Action::Input(c), &mut harness.ctx());
+        }
+        assert_eq!(w.handle(last, &mut harness.ctx()), None, "{keys} {last:?}");
+        assert!(!w.wants_text(), "{keys} {last:?}");
+    }
+}
