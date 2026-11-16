@@ -5,33 +5,33 @@ expression: "test.snapshot(120, 32)"
 ---
 ╭ Connections 1╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮──────────────╮
 │ Saved        │                                                                                        │              │
-│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          m                 Data / messages           │              │
-│              │ F5 Ctrl+E         Run statement/selection  o                 Add a row / open a file   │              │
-│              │ Shift+F5          Run the whole script     x                 Export rows to a file     │              │
-│              │ Ctrl+Space        Suggest names            >                 Widen column              │              │
-│              │ Ctrl+R            Query history            s                 Sort by column            │              │
-│              │ Ctrl+N            New query tab            <                 Narrow column             │              │
-│              │ Ctrl+W            Close query tab          Tab               Next panel                │              │
-│              │ Alt+] Ctrl+PgDn   Next query tab           Shift+Tab         Previous panel            │              │
-│              │ Alt+[ Ctrl+PgUp   Previous query tab       /                 Filter                    │              │
-│              │ Ctrl+C            Copy / cancel query      R                 Refresh                   │              │
-│              │ Ctrl+X            Cut                      n                 New connection            │              │
-│              │ Ctrl+V            Paste                    e                 Edit / definition         │              │
-│              │ Ctrl+Z            Undo                     Delete d          Delete                    │              │
-│              │ Ctrl+Y            Redo                     Ctrl+S            Save                      │              │
-│              │ Ctrl+A            Select all               F1                Connection list           │              │
-│              │ Shift+←           Select left              K                 Kubernetes clusters       │              │
-│              │ Shift+→           Select right             Ctrl+T            Next theme                │              │
-│              │ Shift+↑           Select up                –                 Classic / new layout      │              │
-│              │ Shift+↓           Select down              Ctrl+G            Maximize the panel        │              │
-│              │ Shift+Home        Select to line start     F12               Event log                 │              │
-│              │ Shift+End         Select to line end       Space             Command menu              │              │
-│              │ Alt+Shift+←       Select previous word     ? F2              Show keys                 │              │
-│              │ Alt+Shift+→       Select next word         Esc               Back / close              │              │
-│              │ Ctrl+L            Select the line          q Ctrl+Q          Quit                      │              │
-│              │ Ctrl+/ Ctrl+7     Comment lines out or in  Enter             Select / new line         │              │
-│              │ Alt+Shift+F       Format the statement     ↑                 Up                        │              │
-│              │ Alt+B Alt+←       Previous word            ↓                 Down                      │              │
+│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          J                 Results as JSON / grid    │              │
+│              │ F5 Ctrl+E         Run statement/selection  m                 Data / messages           │              │
+│              │ Shift+F5          Run the whole script     o                 Add a row / open a file   │              │
+│              │ F7                Explain the statement    x                 Export rows to a file     │              │
+│              │ Shift+F7          Explain analyze          >                 Widen column              │              │
+│              │ Ctrl+Space        Suggest names            s                 Sort by column            │              │
+│              │ Ctrl+R            Query history            <                 Narrow column             │              │
+│              │ Ctrl+N            New query tab            Tab               Next panel                │              │
+│              │ Ctrl+W            Close query tab          Shift+Tab         Previous panel            │              │
+│              │ Alt+] Ctrl+PgDn   Next query tab           /                 Filter                    │              │
+│              │ Alt+[ Ctrl+PgUp   Previous query tab       R                 Refresh                   │              │
+│              │ Ctrl+C            Copy / cancel query      n                 New connection            │              │
+│              │ Ctrl+X            Cut                      e                 Edit / definition         │              │
+│              │ Ctrl+V            Paste                    Delete d          Delete                    │              │
+│              │ Ctrl+Z            Undo                     Ctrl+S            Save                      │              │
+│              │ Ctrl+Y            Redo                     F1                Connection list           │              │
+│              │ Ctrl+A            Select all               K                 Kubernetes clusters       │              │
+│              │ Shift+←           Select left              Ctrl+T            Next theme                │              │
+│              │ Shift+→           Select right             –                 Classic / new layout      │              │
+│              │ Shift+↑           Select up                Ctrl+G            Maximize the panel        │              │
+│              │ Shift+↓           Select down              F12               Event log                 │              │
+│              │ Shift+Home        Select to line start     Space             Command menu              │              │
+│              │ Shift+End         Select to line end       ? F2              Show keys                 │              │
+│              │ Alt+Shift+←       Select previous word     Esc               Back / close              │              │
+│              │ Alt+Shift+→       Select next word         q Ctrl+Q          Quit                      │              │
+│              │ Ctrl+L            Select the line          Enter             Select / new line         │              │
+│              │ Ctrl+/ Ctrl+7     Comment lines out or in  ↑                 Up                        │              │
 │              │                                                                                        │              │
 ╰──────────────╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯──────────────╯
  dfox 0.0.0                                                                        Enter connect  n new  e edit  ? keys

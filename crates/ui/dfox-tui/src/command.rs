@@ -49,6 +49,8 @@ pub enum Command {
     },
     /// Runs SQL that was confirmed.
     RunConfirmed(String),
+    /// Does what a key bound to the action does.
+    Dispatch(crate::action::Action),
     /// Asks before closing a query tab that holds text.
     ConfirmCloseTab {
         tab: usize,

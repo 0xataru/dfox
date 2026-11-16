@@ -82,6 +82,11 @@ impl App {
             }
         }
 
+        let tooltip = self
+            .workspace
+            .as_ref()
+            .filter(|_| self.screen == Screen::Workspace)
+            .and_then(|w| w.tooltip(ctx.keymap));
         let running = self
             .workspace
             .as_ref()
@@ -207,6 +212,11 @@ impl App {
                     (Action::Help, "keys"),
                 ],
             },
+        };
+        // The button under the mouse says what it does.
+        let activity = match tooltip {
+            Some(tip) => Some(vec![Span::styled(format!("{tip} "), theme.key())]),
+            None => activity,
         };
         StatusBar {
             location,

@@ -513,6 +513,90 @@ fn messages_keep_how_each_query_went() {
 }
 
 #[test]
+fn explain_runs_the_statement_explained() {
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    w.editor_mut().set_text("select 1");
+    w.handle(Action::Explain, &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "EXPLAIN select 1"
+    ));
+
+    // ANALYZE runs it: the statement itself is checked.
+    let mut w = workspace();
+    w.editor_mut().set_text("delete from t");
+    assert_eq!(
+        w.handle(Action::ExplainAnalyze, &mut harness.ctx()),
+        Some(Command::ConfirmRun {
+            sql: "EXPLAIN ANALYZE delete from t".into(),
+            reasons: vec!["DELETE without WHERE on t".into()],
+        })
+    );
+
+    let mut w = Workspace::new("local", DbType::Cassandra, "ks");
+    w.editor_mut().set_text("select * from t");
+    w.handle(Action::Explain, &mut harness.ctx());
+    assert!(harness.sent().is_empty());
+    assert_eq!(
+        harness.toast_texts().last().map(String::as_str),
+        Some("This database has no explain")
+    );
+}
+
+#[test]
+fn the_toolbar_fits_the_width_and_its_buttons_work() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    w.in_transaction = true;
+    let screen = render(&test, 160, 8, |f, area, ctx| w.render(f, area, ctx));
+    insta::assert_snapshot!(screen);
+    assert_eq!(
+        w.toolbar.borrow().len(),
+        w.buttons().len(),
+        "all fit at 160"
+    );
+    render(&test, 60, 8, |f, area, ctx| w.render(f, area, ctx));
+    let shown: Vec<Button> = w.toolbar.borrow().iter().map(|(_, b)| *b).collect();
+    assert!(
+        shown.len() < w.buttons().len() && shown[0] == bar::RUN,
+        "{shown:?}"
+    );
+
+    let spot = |w: &Workspace, button: Button| {
+        let toolbar = w.toolbar.borrow();
+        let (spot, _) = toolbar.iter().find(|(_, b)| *b == button).expect("shown");
+        (spot.x, spot.y)
+    };
+    let (x, y) = spot(&w, bar::RUN);
+    w.mouse(mouse(MouseEventKind::Moved, x, y), &mut harness.ctx());
+    assert_eq!(
+        w.tooltip(&test.keymap).as_deref(),
+        Some("Run the statement · F5")
+    );
+    assert_eq!(
+        w.mouse(
+            mouse(MouseEventKind::Down(MouseButton::Left), x, y),
+            &mut harness.ctx()
+        ),
+        Some(Command::Dispatch(Action::Execute))
+    );
+    let (x, y) = spot(&w, bar::COMMIT);
+    w.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), x, y),
+        &mut harness.ctx(),
+    );
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "COMMIT"
+    ));
+    w.mouse(mouse(MouseEventKind::Moved, 0, 0), &mut harness.ctx());
+    assert_eq!(w.tooltip(&test.keymap), None);
+}
+
+#[test]
 fn maximize_fills_the_workspace_and_back() {
     let mut test = TestCtx::new();
     let mut harness = Harness::new();

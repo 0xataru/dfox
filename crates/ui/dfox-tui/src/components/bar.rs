@@ -18,6 +18,89 @@ use crate::{action::Action, component::RenderCtx, connections::Tag};
 /// Rows of databases shown at once.
 const SHOWN: usize = 10;
 
+/// What a toolbar button does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Click {
+    Action(Action),
+    Sql(&'static str),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Button {
+    pub click: Click,
+    pub label: &'static str,
+    /// Nerd Font, Unicode, ASCII.
+    glyphs: [&'static str; 3],
+}
+
+const fn button(click: Click, label: &'static str, glyphs: [&'static str; 3]) -> Button {
+    Button {
+        click,
+        label,
+        glyphs,
+    }
+}
+
+pub const RUN: Button = button(
+    Click::Action(Action::Execute),
+    "Run the statement",
+    ["\u{f04b}", "▶", ">"],
+);
+pub const STOP: Button = button(
+    Click::Action(Action::Copy),
+    "Stop the query",
+    ["\u{f04d}", "■", "#"],
+);
+pub const COMMIT: Button = button(Click::Sql("COMMIT"), "Commit", ["\u{f00c}", "✔", "C"]);
+pub const ROLLBACK: Button = button(Click::Sql("ROLLBACK"), "Roll back", ["\u{f0e2}", "↶", "R"]);
+pub const SCRIPT: Button = button(
+    Click::Action(Action::ExecuteAll),
+    "Run the whole script",
+    ["\u{f04e}", "»", ">>"],
+);
+pub const EXPLAIN: Button = button(
+    Click::Action(Action::Explain),
+    "Explain the statement",
+    ["\u{f0e8}", "Ex", "Ex"],
+);
+pub const ANALYZE: Button = button(
+    Click::Action(Action::ExplainAnalyze),
+    "Explain analyze: runs it",
+    ["\u{f0e4}", "Ex+", "Ex+"],
+);
+pub const FORMAT: Button = button(
+    Click::Action(Action::Format),
+    "Format the statement",
+    ["\u{f036}", "≡", "F"],
+);
+pub const HISTORY: Button = button(
+    Click::Action(Action::History),
+    "Query history",
+    ["\u{f1da}", "⟲", "H"],
+);
+pub const HELP: Button = button(Click::Action(Action::Help), "Keys", ["\u{f059}", "?", "?"]);
+
+impl Button {
+    fn glyph(&self, ctx: &RenderCtx) -> &'static str {
+        match (ctx.icons.nerd, ctx.icons.ascii) {
+            (true, _) => self.glyphs[0],
+            (_, true) => self.glyphs[2],
+            _ => self.glyphs[1],
+        }
+    }
+
+    /// What the status bar says while the mouse is over it.
+    pub fn tooltip(&self, keymap: &crate::keymap::Keymap) -> String {
+        match self.click {
+            Click::Action(action) => match keymap.hint(action) {
+                key if key.is_empty() => self.label.to_string(),
+                key => format!("{} · {key}", self.label),
+            },
+            Click::Sql(sql) => format!("{} · runs {sql}", self.label),
+        }
+    }
+}
+
 pub struct Bar<'a> {
     pub tag: Tag,
     pub driver: Option<DbType>,
@@ -25,11 +108,19 @@ pub struct Bar<'a> {
     pub database: &'a str,
     pub read_only: bool,
     pub in_transaction: bool,
+    /// The toolbar, most wanted first: the last ones go when it doesn't fit.
+    pub buttons: &'a [Button],
 }
 
 impl Bar<'_> {
-    /// Draws the bar on `area`'s row and returns where the database is.
-    pub fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) -> Rect {
+    /// Draws the bar on `area`'s row and returns where the database is, and
+    /// where each button that fit is.
+    pub fn render(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        ctx: &RenderCtx,
+    ) -> (Rect, Vec<(Rect, Button)>) {
         let theme = ctx.theme;
         let mut spans = vec![Span::raw(" ")];
         if self.tag != Tag::None {
@@ -63,8 +154,32 @@ impl Bar<'_> {
                     .add_modifier(Modifier::BOLD),
             ));
         }
+        let used: usize = spans.iter().map(|s| s.content.width()).sum();
         f.render_widget(Paragraph::new(Line::from(spans)).style(theme.base()), area);
-        Rect::new(area.x + before as u16, area.y, width as u16, 1).intersection(area)
+        let database =
+            Rect::new(area.x + before as u16, area.y, width as u16, 1).intersection(area);
+
+        let mut room = (area.width as usize).saturating_sub(used + 2);
+        let fit: Vec<(Button, String)> = self
+            .buttons
+            .iter()
+            .map(|b| (*b, format!(" {} ", b.glyph(ctx))))
+            .take_while(|(_, text)| {
+                let fits = text.width() <= room;
+                room = room.saturating_sub(text.width());
+                fits
+            })
+            .collect();
+        let total: usize = fit.iter().map(|(_, text)| text.width()).sum();
+        let mut x = area.right().saturating_sub(total as u16 + 1);
+        let mut spots = Vec::new();
+        for (button, text) in fit {
+            let spot = Rect::new(x, area.y, text.width() as u16, 1);
+            f.render_widget(Span::styled(text, theme.key()), spot);
+            spots.push((spot, button));
+            x += spot.width;
+        }
+        (database, spots)
     }
 }
 

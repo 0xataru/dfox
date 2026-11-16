@@ -263,6 +263,8 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["tab"], Action::NextFocus),
         bind(&["shift+tab"], Action::PrevFocus),
         bind(&["backspace"], Action::Backspace),
+        bind(&["f7"], Action::Explain),
+        bind(&["shift+f7"], Action::ExplainAnalyze),
         bind(&["f5", "ctrl+e", "ctrl+enter"], Action::Execute),
         bind(
             &["shift+f5", "ctrl+shift+enter", "ctrl+shift+e"],

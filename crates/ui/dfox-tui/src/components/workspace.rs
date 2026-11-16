@@ -26,7 +26,7 @@ use ratatui::{
 };
 
 use super::{
-    bar::{Bar, DatabasePicker, Picked},
+    bar::{self, Bar, Button, Click, DatabasePicker, Picked},
     card::{CardEvent, ColumnCard, TableCard},
     copy::CopyDialog,
     editor::{Checker, EditorPanel, TabLabel},
@@ -161,6 +161,10 @@ pub struct Workspace {
     database_spot: Cell<Rect>,
     /// The list of databases the bar opened.
     picker: Option<DatabasePicker>,
+    /// The toolbar's buttons where they were drawn, and the one the mouse
+    /// is over.
+    toolbar: RefCell<Vec<(Rect, Button)>>,
+    hovered: Option<Button>,
     /// The focused editor or results fill the workspace.
     maximized: bool,
     /// Where the maximize buttons of the editor and the results were drawn.
@@ -208,6 +212,8 @@ impl Workspace {
             tag: Tag::None,
             database_spot: Cell::new(Rect::default()),
             picker: None,
+            toolbar: RefCell::new(Vec::new()),
+            hovered: None,
             maximized: false,
             buttons: Cell::new([Rect::default(); 2]),
             card: None,
@@ -545,6 +551,73 @@ impl Workspace {
             ctx.toast(Level::Info, "Nothing to run");
             return None;
         };
+        let checked = sql.clone();
+        self.run_guarded(sql, &checked, ctx)
+    }
+
+    /// What `EXPLAIN` is in this database, `None` where there is none.
+    fn explain_prefix(&self, analyze: bool) -> Option<&'static str> {
+        if !matches!(self.language, QueryLanguage::Sql(_)) {
+            return None;
+        }
+        match (self.dialect, analyze) {
+            (Dialect::Postgres | Dialect::MySql, false) => Some("EXPLAIN "),
+            (Dialect::Postgres | Dialect::MySql, true) => Some("EXPLAIN ANALYZE "),
+            (Dialect::Sqlite, false) => Some("EXPLAIN QUERY PLAN "),
+            _ => None,
+        }
+    }
+
+    /// Runs the statement under the cursor explained. `ANALYZE` runs it, so
+    /// the statement itself is what the guard checks.
+    fn explain(&mut self, analyze: bool, ctx: &mut Ctx) -> Option<Command> {
+        let Some(prefix) = self.explain_prefix(analyze) else {
+            let what = if analyze {
+                "explain analyze"
+            } else {
+                "explain"
+            };
+            ctx.toast(Level::Info, format!("This database has no {what}"));
+            return None;
+        };
+        let statement = self.editor().statement();
+        let Some(statement) = statement
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+        else {
+            ctx.toast(Level::Info, "Nothing to run");
+            return None;
+        };
+        self.run_guarded(format!("{prefix}{statement}"), &statement, ctx)
+    }
+
+    /// The toolbar for what can be done now, most wanted first.
+    fn buttons(&self) -> Vec<Button> {
+        let mut buttons = vec![bar::RUN];
+        if self.running().is_some() {
+            buttons.push(bar::STOP);
+        }
+        if self.in_transaction {
+            buttons.extend([bar::COMMIT, bar::ROLLBACK]);
+        }
+        buttons.push(bar::SCRIPT);
+        if self.explain_prefix(false).is_some() {
+            buttons.push(bar::EXPLAIN);
+        }
+        if self.explain_prefix(true).is_some() {
+            buttons.push(bar::ANALYZE);
+        }
+        buttons.extend([bar::FORMAT, bar::HISTORY, bar::HELP]);
+        buttons
+    }
+
+    /// What the status bar says about the button under the mouse.
+    pub fn tooltip(&self, keymap: &crate::keymap::Keymap) -> Option<String> {
+        self.hovered.map(|b| b.tooltip(keymap))
+    }
+
+    /// Runs `sql`, checked as if it were `checked`.
+    fn run_guarded(&mut self, sql: String, checked: &str, ctx: &mut Ctx) -> Option<Command> {
         // New rows would replace the edited ones.
         let pending = self.results().pending();
         if pending > 0 {
@@ -555,11 +628,11 @@ impl Workspace {
             return None;
         }
         let findings = match self.language {
-            QueryLanguage::Sql(_) | QueryLanguage::Cql => guard::check(&sql, self.dialect),
-            QueryLanguage::MongoShell => sql::mongo::check(&sql),
+            QueryLanguage::Sql(_) | QueryLanguage::Cql => guard::check(checked, self.dialect),
+            QueryLanguage::MongoShell => sql::mongo::check(checked),
             // Only flags what wipes a database: the driver itself refuses
             // writes on a read-only connection.
-            QueryLanguage::RedisCmd => sql::redis::check(&sql),
+            QueryLanguage::RedisCmd => sql::redis::check(checked),
         };
         if self.read_only && findings.writes {
             ctx.toast(
@@ -1589,6 +1662,29 @@ impl Workspace {
             }
             return None;
         }
+        let button = self
+            .toolbar
+            .borrow()
+            .iter()
+            .find(|(spot, _)| spot.contains(point))
+            .map(|(_, button)| *button);
+        if event.kind == MouseEventKind::Moved {
+            self.hovered = button;
+            return None;
+        }
+        if let (MouseEventKind::Down(MouseButton::Left), Some(button), false) =
+            (event.kind, button, self.modal())
+        {
+            return match button.click {
+                Click::Action(action) => {
+                    if action == Action::Format {
+                        self.set_focus(Panel::Editor);
+                    }
+                    Some(Command::Dispatch(action))
+                }
+                Click::Sql(sql) => self.run(Some(sql.to_string()), ctx),
+            };
+        }
         if event.kind == MouseEventKind::Down(MouseButton::Left)
             && !self.modal()
             && self.database_spot.get().contains(point)
@@ -1748,6 +1844,8 @@ impl Component for Workspace {
                 let sql = Some(self.editor().text());
                 return self.run(sql, ctx);
             }
+            Action::Explain => return self.explain(false, ctx),
+            Action::ExplainAnalyze => return self.explain(true, ctx),
             Action::Complete if self.focus.is(Panel::Editor) => {
                 let tab = &mut self.tabs[self.active];
                 tab.editor.complete(&self.catalog, action);
@@ -1833,7 +1931,8 @@ impl Component for Workspace {
         } else {
             [none, none, right]
         };
-        let spot = if workspace {
+        let buttons = self.buttons();
+        let (spot, toolbar) = if workspace {
             Bar {
                 tag: self.tag,
                 driver: self.explorer.driver,
@@ -1841,11 +1940,13 @@ impl Component for Workspace {
                 database: &self.explorer.active,
                 read_only: self.read_only,
                 in_transaction: self.in_transaction,
+                buttons: &buttons,
             }
             .render(f, bar, ctx)
         } else {
-            none
+            (none, Vec::new())
         };
+        self.toolbar.replace(toolbar);
         self.database_spot.set(spot);
         let [editor, results] = match shown {
             Some(Panel::Editor) => [right, none],

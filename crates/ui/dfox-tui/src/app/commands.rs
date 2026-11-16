@@ -110,6 +110,7 @@ impl App {
                     danger: true,
                 }));
             }
+            Command::Dispatch(action) => self.dispatch(action),
             Command::ConfirmCloseTab { tab, title } => {
                 self.overlay = Some(Overlay::Confirm(Confirm {
                     title: "Close the tab".to_string(),

@@ -23,6 +23,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - The new layout has **Data | Messages** over the results (**m** or a click): Messages lists
   how each query of the tab went, rows or error and time, with the server's notices under it
   instead of as pop-ups.
+- **F7** explains the statement under the cursor, **Shift+F7** explains analyze it, which runs
+  it: a destructive one asks first. Postgres and MySQL, plain explain on SQLite.
+- The new layout has a toolbar at the right of the connection bar: run, stop, commit and
+  rollback while a transaction is open, run the script, explain, explain analyze, format,
+  history and keys. The mouse over a button says what it does and its key in the status
+  bar. On a narrow terminal the last buttons go.
 
 ## [0.5.40] - 2026-11-16
 
