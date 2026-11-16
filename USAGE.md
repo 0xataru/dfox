@@ -286,7 +286,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   query tabs in a row of their own above the editor (a click switches, **×** closes and
   asks first when the tab holds a query), the connection in a bar under them instead of
   the status bar (a click on the database lists the server's databases to switch to, as
-  Enter on one in the explorer does), a maximize button on the editor and the results,
+  Enter on one in the explorer does), **Data | Messages** over the results (**m** or a
+  click switches: Messages lists how each query of the tab went, its rows or error and
+  time, with the server's notices, which then don't pop up), a maximize button on the
+  editor and the results,
   and a centred note while there are no results yet
 - **F12** - Event log
 - **Esc**, **q** or **Ctrl+Q** - Quit (asks first while connected)
@@ -411,6 +414,7 @@ action without a key. The actions and their default keys:
 | `next_theme` | Next theme | `ctrl+t` |
 | `switch_layout` | Classic / new layout | |
 | `maximize` | Maximize the panel | `ctrl+g` |
+| `messages` | Data / messages | `m` |
 | `debug` | Event log | `f12` |
 | `menu` | Command menu | `space` |
 | `help` | Show keys | `?`, `f2` |

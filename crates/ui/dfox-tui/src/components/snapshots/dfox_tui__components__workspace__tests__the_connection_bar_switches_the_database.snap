@@ -10,7 +10,7 @@ expression: "render(&test, 100, 16, |f, area, ctx| w.render(f, area, ctx))"
 │     ▸ ▤ customers ~1.2k  ││          │ shop     │                                                │
 │     ▸ ▤ order_items ~48. ││          ╰──────────╯                                                │
 │     ▸ ▤ orders ~12.4k    │╰───────────────────────────────────────────────────────── Ln 1, Col 1 ╯
-│   ▸ Views 1              │╭ Results ────────────────────────────────────────────────────────── ⤢ ╮
+│   ▸ Views 1              │╭ Data │ Messages ────────────────────────────────────────────────── ⤢ ╮
 │   ▸ Functions 1          ││                                                                      │
 │   ▸ Procedures 1         ││                                                                      │
 │                          ││                                                                      │

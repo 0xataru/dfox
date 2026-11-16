@@ -5,6 +5,7 @@ pub mod export;
 pub mod grid;
 mod inspector;
 mod json;
+mod messages;
 
 use std::{cell::Cell, sync::Arc, time::Duration};
 
@@ -19,6 +20,7 @@ use dfox_core::{
 };
 use ratatui::{
     layout::{Constraint, Flex, Layout, Position, Rect},
+    style::Modifier,
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -29,6 +31,7 @@ use self::{
     edit::Edits,
     export::{Format, Target},
     grid::Grid,
+    messages::Messages,
 };
 use super::editor::buffer::{Buffer, Motion};
 use super::{inner, panel};
@@ -116,6 +119,13 @@ pub struct ResultsPanel {
     cell_edit: Option<CellEdit>,
     /// The edits are listed for a last look before they are saved.
     reviewing: bool,
+    /// How the tab's queries went, the new layout's Messages.
+    pub messages: Messages,
+    /// Messages show instead of the rows.
+    showing_messages: bool,
+    /// Where the new layout drew `Data`, `Messages` after it, on the top
+    /// border.
+    views: Cell<Option<Position>>,
 }
 
 /// A cell being changed: where it is, and what is typed.
@@ -153,6 +163,9 @@ impl ResultsPanel {
             edits: None,
             cell_edit: None,
             reviewing: false,
+            messages: Messages::default(),
+            showing_messages: false,
+            views: Cell::new(None),
         }
     }
 
@@ -382,6 +395,14 @@ impl ResultsPanel {
     ) -> Option<Finished> {
         if !self.is_current(id) {
             return None;
+        }
+        if self.table.is_none() {
+            let said = match &outcome {
+                Ok(stats) => Ok(query_message(stats, !self.store.columns().is_empty())),
+                Err(DbError::Cancelled) => Err("cancelled".to_string()),
+                Err(err) => Err(err.to_string()),
+            };
+            self.messages.done(&self.sql, said);
         }
         let started = self.running.take().map(|q| q.started);
         self.store.finish();
@@ -617,6 +638,17 @@ impl ResultsPanel {
     }
 
     pub fn click(&mut self, column: u16, row: u16, drag: bool) -> bool {
+        if let Some(at) = self.views.get().filter(|at| at.y == row) {
+            if !drag && (at.x..at.x + 4).contains(&column) {
+                self.showing_messages = false;
+            } else if !drag && (at.x + 7..at.x + 15).contains(&column) {
+                self.showing_messages = true;
+            }
+            return true;
+        }
+        if self.showing_messages {
+            return false;
+        }
         if let Some(view) = &mut self.json {
             return !drag && view.click(column, row, &self.store);
         }
@@ -675,6 +707,13 @@ impl Component for ResultsPanel {
             }
             return None;
         }
+        if action == Action::Messages && ctx.config.layout == LayoutStyle::Workspace {
+            self.showing_messages = !self.showing_messages;
+            return None;
+        }
+        if self.showing_messages {
+            return None;
+        }
         if let Some(command) = self.handle_edit(action, ctx) {
             return command;
         }
@@ -724,7 +763,27 @@ impl Component for ResultsPanel {
 
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
-        let mut title = vec![Span::raw("Results")];
+        let workspace = ctx.layout == LayoutStyle::Workspace;
+        let messages = workspace && self.showing_messages;
+        let mut title = if workspace {
+            let style = |shown: bool| {
+                if shown {
+                    theme.title(self.focused).add_modifier(Modifier::UNDERLINED)
+                } else {
+                    theme.dim()
+                }
+            };
+            let x = area.x + 2;
+            self.views.set(Some(Position::new(x, area.y)));
+            vec![
+                Span::styled("Data", style(!messages)),
+                Span::styled(" │ ", theme.dim()),
+                Span::styled("Messages", style(messages)),
+            ]
+        } else {
+            self.views.set(None);
+            vec![Span::raw("Results")]
+        };
         if let Some(note) = &self.note {
             title.push(Span::styled(format!(" · {note}"), theme.dim()));
         }
@@ -738,7 +797,9 @@ impl Component for ResultsPanel {
         }
         let rows = self.store.row_count();
         let columns = self.store.columns().len();
-        if rows > 0 && self.json.is_some() {
+        if messages {
+            // The rows' counts are about Data.
+        } else if rows > 0 && self.json.is_some() {
             title.push(Span::styled(format!(" {rows} rows"), theme.dim()));
             title.push(Span::styled(" · JSON", theme.key()));
         } else if rows > 0 {
@@ -771,7 +832,10 @@ impl Component for ResultsPanel {
         }
         let block = panel(title, self.focused, ctx);
 
-        if let Some(error) = &self.error {
+        if messages {
+            f.render_widget(block, area);
+            self.messages.render(f, inner(area), ctx);
+        } else if let Some(error) = &self.error {
             let text = Paragraph::new(Line::from(vec![
                 Span::styled(format!("{} ", ctx.icons.error), theme.danger()),
                 Span::styled(error.as_str(), theme.danger()),

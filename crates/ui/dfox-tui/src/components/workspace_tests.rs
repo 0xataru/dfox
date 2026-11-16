@@ -470,6 +470,49 @@ fn the_connection_bar_switches_the_database() {
 }
 
 #[test]
+fn messages_keep_how_each_query_went() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
+    let mut w = workspace();
+    w.editor_mut()
+        .set_text("create table if not exists t (id int)");
+    w.handle(Action::Execute, &mut harness.ctx());
+    let id = sent_query(&mut harness);
+    let mut ctx = harness.ctx();
+    let notice = "NOTICE: relation \"t\" already exists, skipping".to_string();
+    w.on_query_event(
+        EngineEvent::Notice {
+            id,
+            message: notice,
+        },
+        &mut ctx,
+    );
+    let done = EngineEvent::QueryDone {
+        id,
+        outcome: Ok(QueryStats::default()),
+    };
+    w.on_query_event(done, &mut ctx);
+    assert!(harness.toast_texts().is_empty(), "the notice isn't a toast");
+
+    w.handle(Action::NextFocus, &mut harness.ctx());
+    w.handle(Action::Messages, &mut harness.ctx());
+    insta::assert_snapshot!(render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx)));
+
+    // A click on Data brings the rows back.
+    let results = w.area(Panel::Results);
+    let data = mouse(
+        MouseEventKind::Down(MouseButton::Left),
+        results.x + 3,
+        results.y,
+    );
+    w.mouse(data, &mut harness.ctx());
+    let screen = render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx));
+    assert!(!screen.contains("skipping"), "{screen}");
+}
+
+#[test]
 fn maximize_fills_the_workspace_and_back() {
     let mut test = TestCtx::new();
     let mut harness = Harness::new();

@@ -20,6 +20,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - The new layout shows the connection in a bar under the query tabs, with its colour tag,
   read-only and an open transaction, instead of in the status bar. A click on the database
   lists the server's databases to switch to.
+- The new layout has **Data | Messages** over the results (**m** or a click): Messages lists
+  how each query of the tab went, rows or error and time, with the server's notices under it
+  instead of as pop-ups.
 
 ## [0.5.40] - 2026-11-16
 
