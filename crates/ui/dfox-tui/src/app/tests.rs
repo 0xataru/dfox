@@ -393,6 +393,33 @@ fn switching_database_reconnects_with_the_same_login() {
 }
 
 #[test]
+fn o_opens_any_sqlite_file() {
+    let mut test = test_app("open-file", Some("pw"), "");
+    let file = test.dir.join("notes.data");
+    std::fs::write(&file, b"").expect("file");
+    test.typed("o");
+    test.app.paste("/no/such/file.db");
+    test.key(KeyCode::Enter);
+    assert!(test.sent().is_empty(), "nothing opened without a file");
+    // Still asking: the path is typed again.
+    for _ in 0.."/no/such/file.db".len() {
+        test.key(KeyCode::Backspace);
+    }
+    test.app.paste(&file.display().to_string());
+    test.key(KeyCode::Enter);
+    match &test.sent()[..] {
+        [DbCommand::Connect { db_type, params }] => {
+            assert_eq!(*db_type, DbType::Sqlite);
+            assert_eq!(
+                params.database.as_deref(),
+                Some(file.to_str().expect("utf-8"))
+            );
+        }
+        other => panic!("expected a connect, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_url_on_the_command_line_connects_right_away() {
     let (connection, password) =
         crate::connections::url::parse("command line", "postgres://me:pw@localhost/shop")

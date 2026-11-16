@@ -174,7 +174,7 @@ pub fn is_sqlite(path: &Path) -> bool {
         .is_ok_and(|()| &header == b"SQLite format 3\0")
 }
 
-fn detected(path: &Path, home: &Path) -> Detected {
+pub fn detected(path: &Path, home: &Path) -> Detected {
     let shown = match path.strip_prefix(home) {
         Ok(inside) => format!("~/{}", inside.display()),
         Err(_) => path.display().to_string(),

@@ -298,6 +298,22 @@ impl Manager {
         }
     }
 
+    /// A database the user pointed at: listed with the found ones, or the
+    /// saved one already there. What to connect to.
+    pub fn opened(&mut self, found: Detected) -> Option<EntryKey> {
+        if let Some(saved) = self
+            .saved
+            .iter()
+            .find(|c| place(c) == place(&found.connection))
+        {
+            return Some(EntryKey::Saved(saved.name.clone()));
+        }
+        self.found(vec![found.clone()]);
+        self.regroup();
+        let index = self.detected.iter().position(|d| same(d, &found))?;
+        Some(EntryKey::Detected(index))
+    }
+
     pub fn select_name(&mut self, name: &str) {
         if let Some(i) = self.saved.iter().position(|c| c.name == name) {
             self.select(i);
@@ -398,6 +414,8 @@ impl Component for Manager {
             }
             Action::Refresh => self.ping_all(ctx),
             Action::Clusters => return Some(Command::Clusters),
+            // `o`: open a file.
+            Action::AddRow => return Some(Command::OpenFile),
             Action::Back => return Some(Command::Quit),
             _ => {}
         }

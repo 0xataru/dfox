@@ -40,6 +40,8 @@ pub enum Command {
     Connections,
     /// Picks which Kubernetes clusters' databases are listed.
     Clusters,
+    /// Asks for a SQLite file to open.
+    OpenFile,
     /// Asks before running SQL the guard flagged, saying why.
     ConfirmRun {
         sql: String,
