@@ -115,6 +115,11 @@ fn manager_when_empty() {
         "manager_when_empty_with_clusters",
         render(&test, 80, 16, |f, area, ctx| manager.render(f, area, ctx))
     );
+    // Tall enough, the fox stands above it.
+    insta::assert_snapshot!(
+        "manager_when_empty_with_the_fox",
+        render(&test, 80, 26, |f, area, ctx| manager.render(f, area, ctx))
+    );
 }
 
 #[test]

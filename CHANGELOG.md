@@ -62,7 +62,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   A key still skips it.
 - With nothing saved or found, the connection list says where dfox looked (Docker, local ports,
   the Kubernetes clusters picked, SQLite files, the environment), that it keeps looking, and
-  what to do: `n` to add a connection, `K` to pick clusters, or a URL on the command line.
+  what to do: `n` to add a connection, `K` to pick clusters, or a URL on the command line,
+  under the fox where the terminal is tall enough.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They

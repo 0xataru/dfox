@@ -455,7 +455,34 @@ impl Component for Manager {
             .centered()
             .wrap(ratatui::widgets::Wrap { trim: true })
             .block(panel(vec![Span::raw("Connections")], true, ctx));
-            f.render_widget(message, centered(area, 72, 12));
+            // The fox above it where there is room, as the splash left it.
+            let fox_rows = if ctx.icons.ascii || area.height < 24 {
+                0
+            } else {
+                8
+            };
+            let [fox_area, _, text] = Layout::vertical([
+                Constraint::Length(fox_rows),
+                Constraint::Length(u16::from(fox_rows > 0)),
+                Constraint::Length(12),
+            ])
+            .flex(ratatui::layout::Flex::Center)
+            .areas(area);
+            if fox_rows > 0 {
+                let [fox_area] = Layout::horizontal([Constraint::Length(
+                    crate::widgets::fox::Fox::width(fox_rows),
+                )])
+                .flex(ratatui::layout::Flex::Center)
+                .areas(fox_area);
+                f.render_widget(
+                    crate::widgets::fox::Fox {
+                        progress: 1.0,
+                        depth: crate::theme::ColorDepth::of(theme.bg),
+                    },
+                    fox_area,
+                );
+            }
+            f.render_widget(message, centered(text, 72, 12));
             return;
         }
         let [list, detail] =
