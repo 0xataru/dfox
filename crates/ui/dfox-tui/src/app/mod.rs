@@ -91,6 +91,8 @@ enum Overlay {
     Confirm(Confirm),
     /// Which Kubernetes clusters' databases are listed.
     Clusters(crate::components::clusters::ClusterPicker),
+    /// The path of a SQLite file to open, being typed.
+    OpenFile(String),
     /// Typing a password for `connection`: the database's, or the SSH
     /// jump host's.
     Password {
@@ -569,7 +571,8 @@ impl App {
         match &mut self.overlay {
             Some(Overlay::Password {
                 typed: password, ..
-            }) => {
+            })
+            | Some(Overlay::OpenFile(password)) => {
                 password.extend(typed);
                 return;
             }
@@ -684,6 +687,19 @@ impl App {
                 KeyCode::Enter if !confirm.danger => self.apply_command(confirm.on_yes),
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {}
                 _ => self.overlay = Some(Overlay::Confirm(confirm)),
+            },
+            Overlay::OpenFile(mut typed) => match key.code {
+                KeyCode::Enter => self.open_file(typed),
+                KeyCode::Esc => {}
+                KeyCode::Backspace => {
+                    typed.pop();
+                    self.overlay = Some(Overlay::OpenFile(typed));
+                }
+                KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    typed.push(c);
+                    self.overlay = Some(Overlay::OpenFile(typed));
+                }
+                _ => self.overlay = Some(Overlay::OpenFile(typed)),
             },
             Overlay::Password {
                 connection,
@@ -1032,6 +1048,9 @@ impl App {
             Some(Overlay::Confirm(confirm)) => confirm.render(f, main, ctx),
             Some(Overlay::Copy(dialog)) => dialog.render(f, main, ctx),
             Some(Overlay::Clusters(picker)) => picker.render(f, main, ctx),
+            Some(Overlay::OpenFile(typed)) => {
+                prompt::render(f, main, "Open a SQLite file", typed, None, ctx)
+            }
             Some(Overlay::Password {
                 connection,
                 typed,

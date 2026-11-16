@@ -155,6 +155,9 @@ pub struct Connection {
     pub host: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    /// `host` is a MongoDB DNS seed list (`mongodb+srv://`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub srv: bool,
     /// The database to open; for SQLite, the file path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub database: Option<String>,
@@ -184,6 +187,7 @@ impl Connection {
             driver,
             host: String::new(),
             port: None,
+            srv: false,
             database: None,
             user: String::new(),
             tls: TlsMode::default(),
@@ -240,6 +244,7 @@ impl Connection {
         ConnectionParams {
             host: host.to_string(),
             port: self.port.unwrap_or(Self::default_port(self.driver)),
+            srv: self.srv,
             username: self.user.clone(),
             password: String::new(),
             database: Some(database),
@@ -258,12 +263,19 @@ impl Connection {
             return self.database.clone().unwrap_or_default();
         }
         let params = self.target();
-        let mut address = format!("{}:{}", params.host, params.port);
+        // A seed list's ports come from DNS.
+        let mut address = match self.srv {
+            true => params.host.clone(),
+            false => format!("{}:{}", params.host, params.port),
+        };
         if !self.user.is_empty() {
             address = format!("{}@{address}", self.user);
         }
         if let Some(database) = &self.database {
             address = format!("{address}/{database}");
+        }
+        if self.srv {
+            address.push_str(" (SRV)");
         }
         if let Some(ssh) = &self.ssh {
             address = format!("{address} via {}", ssh.host);

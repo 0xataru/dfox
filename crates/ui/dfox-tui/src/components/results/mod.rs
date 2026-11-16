@@ -616,6 +616,9 @@ impl ResultsPanel {
     }
 
     pub fn click(&mut self, column: u16, row: u16, drag: bool) -> bool {
+        if let Some(view) = &mut self.json {
+            return !drag && view.click(column, row, &self.store);
+        }
         match self.grid.cell_at(column, row) {
             Some(cell) => {
                 let size = self.size();
@@ -627,6 +630,10 @@ impl ResultsPanel {
     }
 
     pub fn scroll_by(&mut self, rows: isize) {
+        if let Some(view) = &mut self.json {
+            view.scroll_by(rows, &self.store);
+            return;
+        }
         let size = self.size();
         self.grid.scroll_by(rows, size);
     }

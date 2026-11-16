@@ -26,6 +26,8 @@ enum Field {
     Name,
     Driver,
     Host,
+    /// The host is a MongoDB DNS seed list.
+    Srv,
     Port,
     Database,
     User,
@@ -51,7 +53,13 @@ impl Field {
     fn is_text(self) -> bool {
         !matches!(
             self,
-            Field::Driver | Field::Tls | Field::Ssh | Field::Kube | Field::ReadOnly | Field::Tag
+            Field::Driver
+                | Field::Srv
+                | Field::Tls
+                | Field::Ssh
+                | Field::Kube
+                | Field::ReadOnly
+                | Field::Tag
         )
     }
 }
@@ -96,6 +104,7 @@ pub struct ConnectionForm {
     kube_context: String,
     kube_namespace: String,
     kube_service: String,
+    srv: bool,
     read_only: bool,
     tag: Tag,
     field: usize,
@@ -161,6 +170,7 @@ impl ConnectionForm {
             kube_context: kube.and_then(|k| k.context.clone()).unwrap_or_default(),
             kube_namespace: kube.map(|k| k.namespace.clone()).unwrap_or_default(),
             kube_service: kube.map(|k| k.service.clone()).unwrap_or_default(),
+            srv: connection.srv,
             read_only: connection.read_only,
             tag: connection.tag,
             field: 0,
@@ -183,17 +193,20 @@ impl ConnectionForm {
         if !self.kube {
             fields.push(Field::Host);
         }
-        fields.extend([
-            Field::Port,
-            Field::Database,
-            Field::User,
-            Field::Password,
-            Field::Tls,
-        ]);
+        let srv = self.srv();
+        if self.driver == DbType::Mongo && !self.kube {
+            fields.push(Field::Srv);
+        }
+        // A seed list's records give the servers' ports.
+        if !srv {
+            fields.push(Field::Port);
+        }
+        fields.extend([Field::Database, Field::User, Field::Password, Field::Tls]);
         if self.tls == TlsMode::VerifyFull {
             fields.push(Field::CaFile);
         }
-        if !self.kube {
+        // A seed list names several servers: no one tunnel reaches them.
+        if !self.kube && !srv {
             fields.push(Field::Ssh);
         }
         if let Some(login) = self.ssh.filter(|_| !self.kube) {
@@ -206,7 +219,7 @@ impl ConnectionForm {
             }
             fields.push(Field::KnownHosts);
         }
-        if self.ssh.is_none() || self.kube {
+        if (self.ssh.is_none() || self.kube) && !srv {
             fields.push(Field::Kube);
         }
         if self.kube {
@@ -214,6 +227,11 @@ impl ConnectionForm {
         }
         fields.extend([Field::ReadOnly, Field::Tag]);
         fields
+    }
+
+    /// The host is a seed list: a Mongo server, not through Kubernetes.
+    fn srv(&self) -> bool {
+        self.srv && self.driver == DbType::Mongo && !self.kube
     }
 
     fn current(&self) -> Field {
@@ -279,6 +297,7 @@ impl ConnectionForm {
             Field::Tls => self.tls = step(&TLS, self.tls, forward),
             Field::Ssh => self.ssh = step(&SSH, self.ssh, forward),
             Field::Kube => self.kube = !self.kube,
+            Field::Srv => self.srv = !self.srv,
             Field::ReadOnly => self.read_only = !self.read_only,
             Field::Tag => self.tag = step(&Tag::ALL, self.tag, forward),
             _ => {}
@@ -348,14 +367,15 @@ impl ConnectionForm {
             name: name.to_string(),
             driver: self.driver,
             host: server(&self.host),
-            port: if sqlite { None } else { port },
+            port: if sqlite || self.srv() { None } else { port },
+            srv: self.srv(),
             database: (!database.is_empty()).then(|| database.to_string()),
             user: server(&self.user),
             tls: self.tls,
             ca_file: optional(&self.ca_file).filter(|_| !sqlite && self.tls == TlsMode::VerifyFull),
             read_only: self.read_only,
             tag: self.tag,
-            ssh: if sqlite || self.kube {
+            ssh: if sqlite || self.kube || self.srv() {
                 None
             } else {
                 self.ssh()?
@@ -547,6 +567,11 @@ impl ConnectionForm {
             Field::KubeContext => ("  Context", self.kube_context.clone(), "the current one"),
             Field::KubeNamespace => ("  Namespace", self.kube_namespace.clone(), "default"),
             Field::KubeService => ("  Service", self.kube_service.clone(), "postgres"),
+            Field::Srv => (
+                "  SRV (+srv)",
+                choice(if self.srv { "yes" } else { "no" }),
+                "",
+            ),
             Field::ReadOnly => (
                 "Read-only",
                 choice(if self.read_only { "yes" } else { "no" }),
@@ -576,6 +601,25 @@ mod tests {
             .iter()
             .filter_map(|a| form.handle(*a, &mut harness.ctx()))
             .last()
+    }
+
+    #[test]
+    fn a_mongo_seed_list() {
+        let mut form = ConnectionForm::new();
+        type_text(&mut form, "atlas");
+        assert!(!form.fields().contains(&Field::Srv), "Postgres has none");
+        form.driver = DbType::Mongo;
+        form.host = "cluster0.abc.mongodb.net".into();
+        form.port = "27018".into();
+        form.srv = true;
+        let fields = form.fields();
+        assert!(fields.contains(&Field::Srv));
+        assert!(!fields.contains(&Field::Port) && !fields.contains(&Field::Ssh));
+        let connection = form.connection().expect("valid");
+        assert!(connection.srv && connection.port.is_none());
+        assert!(connection.params("pw", None).srv);
+        let edited = ConnectionForm::edit(Some("atlas".into()), &connection, None);
+        assert_eq!(edited.connection().expect("valid"), connection);
     }
 
     #[test]

@@ -93,6 +93,7 @@ impl App {
                 }
             }
             Command::Connections => self.show_manager(),
+            Command::OpenFile => self.overlay = Some(Overlay::OpenFile(String::new())),
             Command::Clusters => {
                 match crate::components::clusters::ClusterPicker::open(&self.config.kube_contexts) {
                     Ok(picker) => self.overlay = Some(Overlay::Clusters(picker)),
@@ -344,6 +345,28 @@ impl App {
                 self.notify(Level::Warning, message, Instant::now());
                 None
             }
+        }
+    }
+
+    /// Opens the SQLite file at `typed` (`~/` for home), listed with the
+    /// found databases, or asks again when there is no such file.
+    pub(super) fn open_file(&mut self, typed: String) {
+        let path = std::path::PathBuf::from(crate::connections::expand_home(typed.trim()));
+        if !path.is_file() {
+            self.notify(
+                Level::Warning,
+                format!("No file at {}", path.display()),
+                Instant::now(),
+            );
+            self.overlay = Some(Overlay::OpenFile(typed));
+            return;
+        }
+        let home = directories::BaseDirs::new()
+            .map(|d| d.home_dir().to_path_buf())
+            .unwrap_or_default();
+        let found = crate::connections::sqlite::detected(&path, &home);
+        if let Some(key) = self.manager.opened(found) {
+            self.connect(key);
         }
     }
 

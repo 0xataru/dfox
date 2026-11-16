@@ -8,7 +8,7 @@ expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &supe
                │                                                                                        │
                │ Ctrl+P            Command palette          i                 Inspect / insert name     │
                │ F5 Ctrl+E         Run statement/selection  J                 Results as JSON / grid    │
-               │ Shift+F5          Run the whole script     o                 Add a row                 │
+               │ Shift+F5          Run the whole script     o                 Add a row / open a file   │
                │ Ctrl+Space        Suggest names            x                 Export rows to a file     │
                │ Ctrl+R            Query history            >                 Widen column              │
                │ Ctrl+N            New query tab            s                 Sort by column            │

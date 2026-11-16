@@ -19,7 +19,7 @@ use dfox_core::{
     errors::DbError,
     models::connections::{ConnectionParams, TlsMode},
     session::{
-        ApplyReport, CancelHandle, Capabilities, ChangeSet, QueryLanguage, Request, Session,
+        ApplyReport, CancelHandle, Capabilities, Change, ChangeSet, QueryLanguage, Request, Session,
     },
 };
 use futures_util::{future::BoxFuture, stream, StreamExt};
@@ -187,7 +187,7 @@ impl Session for CqlSession {
     }
 
     fn run(&mut self, request: Request) -> BoxFuture<'_, Result<ResultStream, DbError>> {
-        let lines: Vec<String> = request.text.split('\n').map(str::to_string).collect();
+        let lines: Vec<String> = dfox_sql::lines(&request.text);
         let statements: Vec<(usize, String)> =
             dfox_sql::statements(&request.text, dfox_sql::Dialect::Cql)
                 .iter()
@@ -214,7 +214,7 @@ impl Session for CqlSession {
             }
             Ok(spawn_run(move |tx| async move {
                 for (start, statement) in statements {
-                    let lines: Vec<String> = statement.split('\n').map(str::to_string).collect();
+                    let lines: Vec<String> = dfox_sql::lines(&statement);
                     run_one(&session, statement, limit, &tx)
                         .await
                         .map_err(|err| located(err, &lines).shifted(start))?;
@@ -229,8 +229,59 @@ impl Session for CqlSession {
         CancelHandle::unsupported()
     }
 
-    fn apply(&mut self, _changes: ChangeSet) -> BoxFuture<'_, Result<ApplyReport, DbError>> {
-        Box::pin(async { Err(DbError::General("editing rows isn't supported yet".into())) })
+    /// Adds rows, as an import or a copy brings them: `INSERT … JSON`, so
+    /// the server reads each value as its column's type. Editing rows in
+    /// place isn't supported.
+    fn apply(&mut self, changes: ChangeSet) -> BoxFuture<'_, Result<ApplyReport, DbError>> {
+        let session = self.session.clone();
+        let read_only = self.read_only;
+        Box::pin(async move {
+            if read_only {
+                return Err(DbError::General(
+                    "this connection is read-only: adding rows would write".into(),
+                ));
+            }
+            let [keyspace, table] = changes.table.parts() else {
+                return Err(DbError::General(format!(
+                    "not a table: {:?}",
+                    changes.table
+                )));
+            };
+            let quote = |name: &str| dfox_sql::quote_ident(name, dfox_sql::Dialect::Cql);
+            let insert = session
+                .prepare(format!(
+                    "INSERT INTO {}.{} JSON ? DEFAULT UNSET",
+                    quote(keyspace),
+                    quote(table)
+                ))
+                .await
+                .map_err(db_error)?;
+            let rows: Vec<String> = changes
+                .changes
+                .iter()
+                .map(|change| match change {
+                    Change::Insert(values) => convert::row_json(values),
+                    _ => Err(DbError::General(
+                        "Cassandra rows can be added, not edited in place".into(),
+                    )),
+                })
+                .collect::<Result<_, _>>()?;
+            // Rows of different partitions go to different nodes: in
+            // parallel, a bounded number at a time.
+            for chunk in rows.chunks(64) {
+                futures_util::future::try_join_all(
+                    chunk
+                        .iter()
+                        .map(|row| session.execute_unpaged(&insert, (row,))),
+                )
+                .await
+                .map_err(db_error)?;
+            }
+            Ok(ApplyReport {
+                inserted: rows.len() as u64,
+                ..ApplyReport::default()
+            })
+        })
     }
 }
 

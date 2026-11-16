@@ -16,6 +16,7 @@ use arrow_schema::{DataType, SchemaRef, TimeUnit};
 use dfox_core::{
     arrow::{decimal_field, field, json_field, schema},
     errors::DbError,
+    result::OwnedCell,
 };
 use scylla::{
     frame::response::result::{CollectionType, ColumnSpec, ColumnType, NativeType},
@@ -423,6 +424,45 @@ fn duration(d: CqlDuration) -> String {
         out.push('0');
     }
     out
+}
+
+/// A row as the JSON `INSERT … JSON` takes: a field a column, each value
+/// as JSON reads it. The server turns it into the column's type: text into
+/// a uuid or a timestamp, a list into a set. A name that isn't lower-case
+/// is quoted, as CQL would.
+pub fn row_json(values: &[(String, OwnedCell)]) -> Result<String, DbError> {
+    let mut row = serde_json::Map::new();
+    for (name, value) in values {
+        let value = match value {
+            OwnedCell::Null => serde_json::Value::Null,
+            OwnedCell::Bool(v) => (*v).into(),
+            OwnedCell::Int(v) => (*v).into(),
+            OwnedCell::UInt(v) => (*v).into(),
+            OwnedCell::Float(v) => (*v).into(),
+            // A string, as the server reads it: a JSON number would go
+            // through a float and lose digits.
+            OwnedCell::Decimal(v) => v.to_string().into(),
+            OwnedCell::Text(v) => v.to_string().into(),
+            OwnedCell::Json(v) => serde_json::from_str(v).unwrap_or_else(|_| v.to_string().into()),
+            OwnedCell::Bytes(v) => {
+                let hex: String = v.iter().map(|b| format!("{b:02x}")).collect();
+                format!("0x{hex}").into()
+            }
+            OwnedCell::Undecodable(reason) => {
+                return Err(DbError::General(format!("{name}: {reason}")))
+            }
+            _ => return Err(DbError::General(format!("{name}: a value CQL can't take"))),
+        };
+        let key = match name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
+            true => name.clone(),
+            false => format!("\"{}\"", name.replace('"', "\"\"")),
+        };
+        row.insert(key, value);
+    }
+    Ok(serde_json::Value::Object(row).to_string())
 }
 
 #[cfg(test)]

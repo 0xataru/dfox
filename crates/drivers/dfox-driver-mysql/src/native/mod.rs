@@ -167,7 +167,7 @@ fn located(err: DbError, text: &str) -> DbError {
         .map(|(near, _)| near);
     let at = match near {
         Some("") => {
-            let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+            let lines: Vec<String> = dfox_sql::lines(text);
             match dfox_sql::statements(text, dfox_sql::Dialect::MySql).as_slice() {
                 [one] => Some(dfox_sql::offset(&lines, one.end)),
                 _ => None,

@@ -24,8 +24,20 @@ struct Block {
     user: Option<String>,
     port: Option<u16>,
     identity: Option<String>,
-    /// `LocalForward` targets: host and port as seen from the SSH host.
-    forwards: Vec<(String, u16)>,
+    /// `LocalForward`s: the local port, and the target's host and port as
+    /// seen from the SSH host.
+    forwards: Vec<(Option<u16>, String, u16)>,
+}
+
+/// How a source names the local port a `LocalForward` listens on.
+const ON: &str = "on localhost:";
+
+/// The local port of the `LocalForward` a source names: while the tunnel
+/// is up, the same database is found there too.
+pub fn local_port(source: &str) -> Option<u16> {
+    source
+        .split(" · ")
+        .find_map(|part| part.strip_prefix(ON)?.parse().ok())
 }
 
 pub fn parse(text: &str) -> Vec<Detected> {
@@ -58,11 +70,15 @@ pub fn parse(text: &str) -> Vec<Detected> {
                     "identityfile" => block.identity = Some(value.to_string()),
                     "localforward" => {
                         // `[bind:]port host:hostport`
-                        let target = value.split_whitespace().nth(1).unwrap_or_default();
+                        let mut parts = value.split_whitespace();
+                        let local = parts
+                            .next()
+                            .and_then(|bind| bind.rsplit(':').next()?.parse().ok());
+                        let target = parts.next().unwrap_or_default();
                         if let Some((host, port)) = target.rsplit_once(':') {
                             if let Ok(port) = port.parse() {
                                 let host = host.trim_matches(['[', ']']).to_string();
-                                block.forwards.push((host, port));
+                                block.forwards.push((local, host, port));
                             }
                         }
                     }
@@ -77,7 +93,7 @@ pub fn parse(text: &str) -> Vec<Detected> {
         let Some(alias) = block.aliases.iter().find(|a| !a.contains(['*', '?', '!'])) else {
             continue;
         };
-        for (target, port) in &block.forwards {
+        for (local, target, port) in &block.forwards {
             let Some(driver) = engines::by_port(*port) else {
                 continue;
             };
@@ -99,7 +115,10 @@ pub fn parse(text: &str) -> Vec<Detected> {
             found.push(Detected {
                 connection,
                 password: None,
-                source: format!("~/.ssh/config: Host {alias}"),
+                source: match local {
+                    Some(local) => format!("~/.ssh/config: Host {alias} · {ON}{local}"),
+                    None => format!("~/.ssh/config: Host {alias}"),
+                },
             });
         }
     }
@@ -152,19 +171,19 @@ Match host other
                     "bastion-stage → db.internal:5432".into(),
                     "db.internal:5432 via 203.0.113.7".into(),
                     DbType::Postgres,
-                    "~/.ssh/config: Host bastion-stage".into()
+                    "~/.ssh/config: Host bastion-stage · on localhost:15432".into()
                 ),
                 (
                     "bastion-stage → 10.0.0.5:6379".into(),
                     "10.0.0.5:6379 via 203.0.113.7".into(),
                     DbType::Redis,
-                    "~/.ssh/config: Host bastion-stage".into()
+                    "~/.ssh/config: Host bastion-stage · on localhost:16379".into()
                 ),
                 (
                     "plain → localhost:5432".into(),
                     "localhost:5432 via plain".into(),
                     DbType::Postgres,
-                    "~/.ssh/config: Host plain".into()
+                    "~/.ssh/config: Host plain · on localhost:5433".into()
                 ),
             ]
         );

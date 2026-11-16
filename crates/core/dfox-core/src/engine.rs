@@ -938,6 +938,14 @@ async fn copy_rows(
                     ));
                 }
                 let columns = if target.create {
+                    // Its primary key decides where rows live: not guessed.
+                    if target.db_type == DbType::Cassandra {
+                        return Err(DbError::General(
+                            "a Cassandra table needs its primary key: create it first, \
+                             then copy into it"
+                                .into(),
+                        ));
+                    }
                     if let Some(ddl) =
                         crate::copy::create_table(target.db_type, &target.table, &schema)
                     {

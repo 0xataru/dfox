@@ -1,11 +1,7 @@
 use super::*;
 
-fn lines(text: &str) -> Vec<String> {
-    text.split('\n').map(str::to_string).collect()
-}
-
 fn kinds(text: &str) -> Vec<(String, Kind)> {
-    let lines = lines(text);
+    let lines = crate::lines(text);
     highlight(&lines, Dialect::Postgres)
         .iter()
         .enumerate()
@@ -81,7 +77,7 @@ fn scripts_split_on_semicolons_outside_strings_and_bodies() {
         "select ';';\n\ncreate function f() returns int as $$ begin; end $$;\n-- done\nselect 2";
     let found: Vec<String> = statements(text, Dialect::Postgres)
         .iter()
-        .map(|s| slice(&lines(text), s.start, s.end))
+        .map(|s| slice(&crate::lines(text), s.start, s.end))
         .collect();
     assert_eq!(
         found,
@@ -97,7 +93,8 @@ fn scripts_split_on_semicolons_outside_strings_and_bodies() {
 fn the_statement_under_the_cursor() {
     let text = "select 1;\nselect 2;  \n\nselect 3";
     let at = |cursor| {
-        statement_at(text, cursor, Dialect::Postgres).map(|s| slice(&lines(text), s.start, s.end))
+        statement_at(text, cursor, Dialect::Postgres)
+            .map(|s| slice(&crate::lines(text), s.start, s.end))
     };
     assert_eq!(at((0, 0)).as_deref(), Some("select 1;"));
     // Just after the semicolon still runs that statement.
@@ -116,7 +113,7 @@ fn the_statement_under_the_cursor() {
 fn trailing_space_after_the_last_statement_runs_it() {
     let text = "select 1;\n\n";
     let s = statement_at(text, (2, 0), Dialect::Sqlite).expect("a statement");
-    assert_eq!(slice(&lines(text), s.start, s.end), "select 1;");
+    assert_eq!(slice(&crate::lines(text), s.start, s.end), "select 1;");
 }
 
 #[test]
@@ -167,7 +164,7 @@ fn names_are_quoted_only_when_they_must_be() {
 fn split(text: &str, dialect: Dialect) -> Vec<String> {
     statements(text, dialect)
         .iter()
-        .map(|s| slice(&lines(text), s.start, s.end))
+        .map(|s| slice(&crate::lines(text), s.start, s.end))
         .collect()
 }
 
@@ -203,7 +200,7 @@ fn routine_bodies_stay_whole() {
 #[test]
 fn cql_words_are_keywords_only_in_cql() {
     let keyword = |dialect| {
-        highlight(&lines("SELECT * FROM t ALLOW FILTERING"), dialect)[0]
+        highlight(&crate::lines("SELECT * FROM t ALLOW FILTERING"), dialect)[0]
             .iter()
             .filter(|p| p.kind == Kind::Keyword)
             .count()

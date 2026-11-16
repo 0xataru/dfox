@@ -132,6 +132,25 @@ pub fn options(params: &ConnectionParams) -> ClientOptions {
     options
 }
 
+/// The servers of a DNS seed list, with what its TXT record sets: the
+/// replica set and where users live. TLS is on unless turned off, as the
+/// MongoDB spec has it for `mongodb+srv`.
+async fn seed_list(options: &mut ClientOptions, params: &ConnectionParams) -> Result<(), DbError> {
+    let resolved = ClientOptions::parse(format!("mongodb+srv://{}/", params.host))
+        .await
+        .map_err(db_error)?;
+    options.hosts = resolved.hosts;
+    options.repl_set_name = resolved.repl_set_name;
+    let source = resolved.credential.and_then(|c| c.source);
+    if let (Some(credential), Some(source)) = (options.credential.as_mut(), source) {
+        credential.source = Some(source);
+    }
+    if options.tls.is_none() && params.tls != TlsMode::Disable {
+        options.tls = resolved.tls;
+    }
+    Ok(())
+}
+
 /// What the session's runs share.
 #[derive(Debug)]
 struct State {
@@ -150,7 +169,11 @@ pub struct MongoSession {
 }
 
 pub async fn open(params: &ConnectionParams) -> Result<Box<dyn Session>, DbError> {
-    let client = Client::with_options(options(params)).map_err(db_error)?;
+    let mut options = options(params);
+    if params.srv && params.tunnel.is_none() {
+        seed_list(&mut options, params).await?;
+    }
+    let client = Client::with_options(options).map_err(db_error)?;
     // The driver connects lazily: ping now, so a wrong password fails here.
     client
         .database("admin")

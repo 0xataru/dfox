@@ -48,6 +48,29 @@ const NAMES: &[&str] = &["FROM", "JOIN", "INTO", "UPDATE", "TABLE"];
 
 const INDENT: &str = "  ";
 
+/// A `SELECT` list longer than this gets a line a column.
+const WIDTH: usize = 72;
+
+/// How long the `SELECT` list from `tokens[from..]` is on one line: up to
+/// the next clause, `;` or closing bracket at its level.
+fn list_width(tokens: &[&Lexeme], lines: &[String], from: usize) -> usize {
+    let mut depth = 0usize;
+    let mut width = 0;
+    for token in &tokens[from..] {
+        let word = token.keyword();
+        match token.token {
+            Token::LParen => depth += 1,
+            Token::RParen if depth == 0 => break,
+            Token::RParen => depth -= 1,
+            Token::SemiColon => break,
+            _ if depth == 0 && word.as_deref().is_some_and(|w| CLAUSES.contains(&w)) => break,
+            _ => {}
+        }
+        width += slice(lines, token.start, token.end).chars().count() + 1;
+    }
+    width
+}
+
 pub fn format(text: &str, dialect: Dialect) -> String {
     if without_delimiters(text, dialect).is_some() {
         return text.to_string();
@@ -56,7 +79,7 @@ pub fn format(text: &str, dialect: Dialect) -> String {
     if lexemes.iter().any(|l| l.token == Token::EOF) {
         return text.to_string();
     }
-    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let lines: Vec<String> = crate::lines(text);
     let tokens: Vec<&Lexeme> = lexemes.iter().filter(|l| !l.trivia || comment(l)).collect();
     let mut out = String::new();
     // Each open bracket, and whether it holds a subquery.
@@ -64,6 +87,8 @@ pub fn format(text: &str, dialect: Dialect) -> String {
     let mut clause = String::new();
     let mut between = false;
     let mut unary = false;
+    // The bracket level of a `SELECT` list laid out a column a line.
+    let mut list: Option<usize> = None;
     let mut previous: Option<&Lexeme> = None;
     for (i, lexeme) in tokens.iter().enumerate() {
         let next = tokens[i + 1..].iter().find(|l| !comment(l));
@@ -99,6 +124,9 @@ pub fn format(text: &str, dialect: Dialect) -> String {
         // A subquery's closing bracket goes under its opening line.
         let closes = lexeme.token == Token::RParen && brackets.last() == Some(&true);
         let depth = depth - usize::from(closes);
+        if list == Some(brackets.len()) && (closes || (level && CLAUSES.contains(&word))) {
+            list = None;
+        }
         if previous.is_some_and(|p| p.semicolon) {
             out.push_str("\n\n");
         } else if (breaks || closes) && !out.ends_with('\n') {
@@ -106,13 +134,20 @@ pub fn format(text: &str, dialect: Dialect) -> String {
         }
         if let Some(previous) = previous {
             if out.ends_with('\n') {
-                let extra = usize::from(breaks && matches!(word, "AND" | "OR"));
+                let extra = usize::from(breaks && matches!(word, "AND" | "OR"))
+                    + usize::from(list == Some(brackets.len()));
                 out.push_str(&INDENT.repeat(depth + extra));
             } else if !unary && spaced(previous, lexeme) {
                 out.push(' ');
             }
         }
         out.push_str(&text);
+        if word == "SELECT" && level && list_width(&tokens, &lines, i + 1) > WIDTH {
+            list = Some(brackets.len());
+            out.push('\n');
+        } else if lexeme.token == Token::Comma && list == Some(brackets.len()) {
+            out.push('\n');
+        }
         // A sign, not a subtraction: `= -1`, `(-x)`.
         unary = matches!(lexeme.token, Token::Minus | Token::Plus)
             && previous.is_none_or(|p| !value(p));
@@ -223,6 +258,17 @@ mod tests {
         assert_eq!(
             format(sql, Dialect::Postgres),
             "SELECT u.id, count(*) AS n\nFROM users u\nLEFT JOIN orders o ON o.user_id = u.id\nWHERE u.active\n  AND o.total BETWEEN 1 AND 9\n  OR u.vip\nGROUP BY u.id\nHAVING count(*) > 1\nORDER BY n DESC\nLIMIT 10;\n\n-- next\nSELECT 1"
+        );
+    }
+
+    #[test]
+    fn a_long_select_list_gets_a_line_a_column() {
+        let sql = "select o.id, o.created_at, c.email, coalesce(o.total, 0) as total, o.status from orders o where (select count(*) from items i where i.order_id = o.id) > 1";
+        let formatted = format(sql, Dialect::Postgres);
+        assert_eq!(format(&formatted, Dialect::Postgres), formatted);
+        assert_eq!(
+            formatted,
+            "SELECT\n  o.id,\n  o.created_at,\n  c.email,\n  coalesce(o.total, 0) AS total,\n  o.status\nFROM orders o\nWHERE (\n  SELECT count(*)\n  FROM items i\n  WHERE i.order_id = o.id\n) > 1"
         );
     }
 

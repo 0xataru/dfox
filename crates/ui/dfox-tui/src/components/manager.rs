@@ -138,6 +138,10 @@ fn group(found: &Detected) -> (u8, String) {
 /// one, the other services it stands for.
 fn places(found: &Detected) -> Vec<(DbType, String, u16)> {
     let mut all = vec![place(&found.connection)];
+    // An SSH config's forward, also found on its local port while it's up.
+    if let Some(port) = crate::connections::ssh_config::local_port(&found.source) {
+        all.push((found.connection.driver, "127.0.0.1".to_string(), port));
+    }
     if let Some(kube) = &found.connection.kube {
         for (namespace, service) in crate::connections::kubernetes::aliases(&found.source) {
             let mut alias = found.connection.clone();
@@ -150,6 +154,13 @@ fn places(found: &Detected) -> Vec<(DbType, String, u16)> {
         }
     }
     all
+}
+
+/// Whether two found connections are one database: they lead to a place in
+/// common.
+fn same(a: &Detected, b: &Detected) -> bool {
+    let at = places(a);
+    places(b).iter().any(|p| at.contains(p))
 }
 
 /// Where a connection leads: two at the same place are one database.
@@ -179,8 +190,7 @@ impl Manager {
     pub fn new(saved: Vec<Connection>, detected: Vec<Detected>) -> Self {
         let mut once: Vec<Detected> = Vec::new();
         for found in detected {
-            let at = place(&found.connection);
-            match once.iter_mut().find(|d| place(&d.connection) == at) {
+            match once.iter_mut().find(|d| same(d, &found)) {
                 Some(listed) => merge(listed, found),
                 None => once.push(found),
             }
@@ -276,21 +286,32 @@ impl Manager {
     /// listed: the same engine at the same host and port.
     fn found(&mut self, more: Vec<Detected>) {
         for found in more {
-            let at = place(&found.connection);
             // Saved under any of the names it goes by: shown as saved.
             let leads = places(&found);
             if self.saved.iter().any(|c| leads.contains(&place(c))) {
                 continue;
             }
-            match self
-                .detected
-                .iter_mut()
-                .find(|d| place(&d.connection) == at)
-            {
+            match self.detected.iter_mut().find(|d| same(d, &found)) {
                 Some(listed) => merge(listed, found),
                 None => self.detected.push(found),
             }
         }
+    }
+
+    /// A database the user pointed at: listed with the found ones, or the
+    /// saved one already there. What to connect to.
+    pub fn opened(&mut self, found: Detected) -> Option<EntryKey> {
+        if let Some(saved) = self
+            .saved
+            .iter()
+            .find(|c| place(c) == place(&found.connection))
+        {
+            return Some(EntryKey::Saved(saved.name.clone()));
+        }
+        self.found(vec![found.clone()]);
+        self.regroup();
+        let index = self.detected.iter().position(|d| same(d, &found))?;
+        Some(EntryKey::Detected(index))
     }
 
     pub fn select_name(&mut self, name: &str) {
@@ -320,6 +341,9 @@ impl Manager {
             .iter()
             .chain(self.detected.iter().map(|d| &d.connection))
             .filter(|c| !only_new || !self.health.contains_key(&c.name))
+            // shortcut: a seed list's servers come from DNS SRV records, which
+            // the ping can't read; resolve them in the ping if people ask.
+            .filter(|c| !c.srv)
             .cloned()
             .collect();
         for connection in connections {
@@ -393,6 +417,8 @@ impl Component for Manager {
             }
             Action::Refresh => self.ping_all(ctx),
             Action::Clusters => return Some(Command::Clusters),
+            // `o`: open a file.
+            Action::AddRow => return Some(Command::OpenFile),
             Action::Back => return Some(Command::Quit),
             _ => {}
         }

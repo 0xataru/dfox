@@ -27,7 +27,7 @@ const WRITES: &[&str] = &[
 
 pub fn check(sql: &str, dialect: Dialect) -> Findings {
     let mut findings = Findings::default();
-    let lines: Vec<String> = sql.split('\n').map(str::to_string).collect();
+    let lines: Vec<String> = crate::lines(sql);
     // Statements as the editor splits them: a routine's body is part of
     // the CREATE that holds it, and `DELIMITER` lines are left out.
     for statement in statements(sql, dialect) {
@@ -46,7 +46,7 @@ pub fn check(sql: &str, dialect: Dialect) -> Findings {
 /// The last `BEGIN` / `START TRANSACTION` or `COMMIT` / `END` / `ROLLBACK`
 /// decides; `ROLLBACK TO` a savepoint keeps it open.
 pub fn transaction(sql: &str, dialect: Dialect) -> Option<bool> {
-    let lines: Vec<String> = sql.split('\n').map(str::to_string).collect();
+    let lines: Vec<String> = crate::lines(sql);
     let mut state = None;
     for statement in statements(sql, dialect) {
         let text = slice(&lines, statement.start, statement.end);

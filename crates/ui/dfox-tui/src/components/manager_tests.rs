@@ -346,6 +346,30 @@ fn each_cluster_has_one_section() {
 }
 
 #[test]
+fn an_ssh_tunnel_up_joins_its_ssh_config_entry() {
+    let config = crate::connections::ssh_config::parse(
+        "Host bastion\n  HostName 203.0.113.7\n  LocalForward 15432 db.internal:5432\n",
+    );
+    let mut manager = Manager::new(Vec::new(), config);
+    let mut tunnel = Connection::new("localhost:15432", DbType::Postgres);
+    tunnel.host = "127.0.0.1".into();
+    tunnel.port = Some(15432);
+    manager.rescanned(vec![Detected {
+        connection: tunnel,
+        password: None,
+        source: "an SSH tunnel".into(),
+    }]);
+    let [one] = manager.detected.as_slice() else {
+        panic!("one entry expected: {:?}", manager.detected);
+    };
+    assert_eq!(
+        one.source,
+        "~/.ssh/config: Host bastion · on localhost:15432 · an SSH tunnel"
+    );
+    assert_eq!(group(one).1, "SSH hosts");
+}
+
+#[test]
 fn a_database_saved_under_an_alias_isnt_found_again() {
     let kube = |namespace: &str, service: &str| {
         let mut connection = Connection::new(service, DbType::Postgres);

@@ -60,7 +60,7 @@ pub fn of(driver: DbType) -> Engine {
             user: None,
             images: &["mongo"],
             port_names: &["mongo"],
-            schemes: &["mongodb"],
+            schemes: &["mongodb", "mongodb+srv"],
             adapters: &["mongodb"],
         },
         DbType::Cassandra => Engine {

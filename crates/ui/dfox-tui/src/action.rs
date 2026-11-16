@@ -283,7 +283,7 @@ impl Action {
             Action::Complete => "Suggest names",
             Action::Inspect => "Inspect / insert name",
             Action::JsonView => "Results as JSON / grid",
-            Action::AddRow => "Add a row",
+            Action::AddRow => "Add a row / open a file",
             Action::Export => "Export rows to a file",
             Action::Palette => "Command palette",
             Action::Connections => "Connection list",

@@ -7,7 +7,7 @@ use crate::sql::{self, Pos};
 const MAX_UNDO: usize = 200;
 
 /// Brackets and quotes that close themselves.
-const PAIRS: [(char, char); 6] = [
+pub(super) const PAIRS: [(char, char); 6] = [
     ('(', ')'),
     ('[', ']'),
     ('{', '}'),
@@ -126,7 +126,7 @@ impl Buffer {
     /// end.
     pub fn set_text(&mut self, text: &str) {
         self.checkpoint(EditKind::Other);
-        self.lines = split_lines(text);
+        self.lines = sql::lines(text);
         let last = self.lines.len() - 1;
         self.cursor = (last, char_len(&self.lines[last]));
         self.anchor = None;
@@ -387,11 +387,7 @@ impl Buffer {
                 self.lines[end.0].insert(at, close);
                 let at = byte_at(&self.lines[start.0], start.1);
                 self.lines[start.0].insert(at, c);
-                let shift = |pos: Pos| (pos.0, pos.1 + usize::from(pos.0 == start.0));
-                self.anchor = self.anchor.map(shift);
-                self.cursor = shift(self.cursor);
-                self.changed();
-                self.break_undo();
+                self.shifted(|pos| (pos.0, pos.1 + usize::from(pos.0 == start.0)));
                 return;
             }
         } else if next == Some(c) && PAIRS.iter().any(|(_, close)| *close == c) {
@@ -463,7 +459,13 @@ impl Buffer {
             Some((_, at, by)) if col >= *at => (line, col.saturating_add_signed(*by).max(*at)),
             _ => (line, col),
         };
-        self.anchor = self.anchor.map(shift);
+        self.shifted(shift);
+    }
+
+    /// After an edit that moved text along lines: the cursor and the
+    /// selection follow it, in an undo step of its own.
+    fn shifted(&mut self, shift: impl Fn(Pos) -> Pos) {
+        self.anchor = self.anchor.map(&shift);
         self.cursor = shift(self.cursor);
         self.changed();
         self.break_undo();
@@ -473,7 +475,7 @@ impl Buffer {
     pub fn insert_str(&mut self, text: &str) {
         self.checkpoint(EditKind::Other);
         self.delete_selection();
-        let mut pasted = split_lines(&text.replace("\r\n", "\n").replace('\r', "\n"));
+        let mut pasted = sql::lines(&text.replace("\r\n", "\n").replace('\r', "\n"));
         let (line, col) = self.cursor;
         let at = byte_at(&self.lines[line], col);
         let tail = self.lines[line].split_off(at);
@@ -632,10 +634,6 @@ impl Buffer {
     pub fn current_char(&self) -> Option<char> {
         self.lines[self.cursor.0].chars().nth(self.cursor.1)
     }
-}
-
-fn split_lines(text: &str) -> Vec<String> {
-    text.split('\n').map(str::to_string).collect()
 }
 
 #[cfg(test)]

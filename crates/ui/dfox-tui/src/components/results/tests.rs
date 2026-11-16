@@ -363,6 +363,36 @@ fn rows_show_as_json_documents() {
 }
 
 #[test]
+fn the_mouse_moves_through_json_documents() {
+    let test = TestCtx::new();
+    let mut harness = Harness::new();
+    let store = ArrowResultSet::from_cells(
+        vec![ColumnMeta::new("doc", "object")],
+        (0..3)
+            .map(|i| {
+                vec![OwnedCell::Json(
+                    format!(r#"{{"n":{i},"tags":["a"]}}"#).into(),
+                )]
+            })
+            .collect(),
+    );
+    let mut results = showing(store);
+    results.focused = true;
+    results.handle(Action::JsonView, &mut harness.ctx());
+    render(&test, 60, 10, |f, area, ctx| results.render(f, area, ctx));
+    // Lines start under the border: the second document is on row 2.
+    assert!(!results.click(10, 0, false));
+    assert!(results.click(10, 2, false));
+    assert_eq!(results.json.as_ref().map(|v| v.cursor), Some(1));
+    // Again on the selected line: the document opens.
+    results.click(10, 2, false);
+    let shown = render(&test, 60, 10, |f, area, ctx| results.render(f, area, ctx));
+    assert!(shown.contains("▾ 2"), "{shown}");
+    results.scroll_by(2);
+    assert_eq!(results.json.as_ref().map(|v| v.cursor), Some(3));
+}
+
+#[test]
 fn rows_are_edited_reviewed_and_saved_together() {
     let test = TestCtx::new();
     let mut harness = Harness::new();

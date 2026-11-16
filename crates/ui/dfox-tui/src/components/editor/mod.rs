@@ -77,20 +77,6 @@ impl Problem {
     }
 }
 
-/// `offset` characters into the text from `start`.
-fn advance(lines: &[String], (mut line, mut col): Pos, mut offset: usize) -> Pos {
-    while line < lines.len() {
-        let rest = lines[line].chars().count() - col.min(lines[line].chars().count());
-        if offset <= rest || line + 1 == lines.len() {
-            return (line, col + offset.min(rest));
-        }
-        offset -= rest + 1;
-        line += 1;
-        col = 0;
-    }
-    (line, col)
-}
-
 fn problems(checker: &Checker, lines: &[String], statements: &[Stmt]) -> Vec<Problem> {
     let Some(driver) = &checker.0 else {
         return Vec::new();
@@ -108,8 +94,8 @@ fn problems(checker: &Checker, lines: &[String], statements: &[Stmt]) -> Vec<Pro
             let tail = trimmed.chars().count() - last.chars().count();
             Some(Problem {
                 statement: *statement,
-                at: advance(lines, statement.start, offset),
-                tail: advance(lines, statement.start, tail),
+                at: sql::position(lines, statement.start, offset),
+                tail: sql::position(lines, statement.start, tail),
                 message,
             })
         })
@@ -133,9 +119,9 @@ fn matching(lines: &[String], highlight: &[Vec<Piece>], (line, col): Pos) -> Opt
     };
     let at = |pos: Pos| lines[pos.0].chars().nth(pos.1);
     let bracket = |c: char| {
-        [('(', ')'), ('[', ']'), ('{', '}')]
+        buffer::PAIRS
             .into_iter()
-            .find(|(o, c2)| *o == c || *c2 == c)
+            .find(|(o, c2)| o != c2 && (*o == c || *c2 == c))
     };
     let from = [Some(col), col.checked_sub(1)]
         .into_iter()
@@ -365,8 +351,8 @@ impl EditorPanel {
         else {
             return;
         };
-        let begin = advance(lines, (0, 0), *start);
-        let end = advance(lines, begin, length);
+        let begin = sql::position(lines, (0, 0), *start);
+        let end = sql::position(lines, begin, length);
         self.failure = Some((
             self.buffer.version(),
             Problem {
@@ -375,7 +361,7 @@ impl EditorPanel {
                     end,
                     zone_end: end,
                 },
-                at: advance(lines, begin, at),
+                at: sql::position(lines, begin, at),
                 tail: end,
                 message,
             },
