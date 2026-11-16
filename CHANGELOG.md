@@ -9,6 +9,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- When a Postgres, MySQL, SQLite or Cassandra statement fails and the server says where, the
+  editor underlines that place, with the server's message on its bottom border, until the
+  text is edited. In a script of several statements it is the one that failed.
 - The editor marks Mongo shell commands that dfox can't run as typed (`expected a value` at
   the place it stops) and Redis commands with a quote left open, as it does SQL.
 

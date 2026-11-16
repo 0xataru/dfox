@@ -707,6 +707,11 @@ impl Workspace {
                 }
             }
             EngineEvent::QueryDone { id, outcome } => {
+                let place = match &outcome {
+                    Err(DbError::At { at, message }) => Some((*at, message.clone())),
+                    _ => None,
+                };
+                let tab = self.tabs.iter().position(|t| t.results.is_current(id));
                 let Some(finished) = self
                     .results_for(id)
                     .and_then(|results| results.on_done(id, outcome, ctx))
@@ -717,6 +722,9 @@ impl Workspace {
                 let Some(sql) = &finished.sql else {
                     return false;
                 };
+                if let (Some((at, message)), Some(tab)) = (place, tab) {
+                    self.tabs[tab].editor.mark_failure(sql, at, message);
+                }
                 // A failed run may still have opened one (BEGIN; bad; …), but
                 // whether it closed one is unknown.
                 if matches!(self.language, QueryLanguage::Sql(_)) {

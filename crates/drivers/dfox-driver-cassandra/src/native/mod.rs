@@ -55,6 +55,29 @@ const WRITES: &[&str] = &[
     "GRANT", "REVOKE",
 ];
 
+/// A syntax error with the place CQL gives it, `line 2:7 …` (the column
+/// from 0), as a [`DbError::At`] into the statement of `lines`.
+fn located(err: DbError, lines: &[String]) -> DbError {
+    let DbError::General(message) = err else {
+        return err;
+    };
+    let place = message.split("line ").skip(1).find_map(|rest| {
+        let (line, rest) = rest.split_once(':')?;
+        let col: String = rest.chars().take_while(char::is_ascii_digit).collect();
+        Some((
+            line.parse::<usize>().ok()?.checked_sub(1)?,
+            col.parse::<usize>().ok()?,
+        ))
+    });
+    match place.filter(|(line, _)| *line < lines.len()) {
+        Some(pos) => DbError::At {
+            at: dfox_sql::offset(lines, pos),
+            message,
+        },
+        None => DbError::General(message),
+    }
+}
+
 pub(crate) fn db_error(err: impl std::fmt::Display) -> DbError {
     DbError::General(err.to_string())
 }
@@ -165,21 +188,23 @@ impl Session for CqlSession {
 
     fn run(&mut self, request: Request) -> BoxFuture<'_, Result<ResultStream, DbError>> {
         let lines: Vec<String> = request.text.split('\n').map(str::to_string).collect();
-        let statements: Vec<String> = dfox_sql::statements(&request.text, dfox_sql::Dialect::Cql)
-            .iter()
-            .map(|s| {
-                let text = dfox_sql::slice(&lines, s.start, s.end);
-                text.trim_end().trim_end_matches(';').to_string()
-            })
-            .collect();
+        let statements: Vec<(usize, String)> =
+            dfox_sql::statements(&request.text, dfox_sql::Dialect::Cql)
+                .iter()
+                .map(|s| {
+                    let text = dfox_sql::slice(&lines, s.start, s.end);
+                    let start = dfox_sql::offset(&lines, s.start);
+                    (start, text.trim_end().trim_end_matches(';').to_string())
+                })
+                .collect();
         let session = self.session.clone();
         let read_only = self.read_only;
         let limit = request.row_limit.unwrap_or(usize::MAX);
         Box::pin(async move {
             if read_only {
-                if let Some(write) = statements
+                if let Some((_, write)) = statements
                     .iter()
-                    .find(|s| WRITES.contains(&verb(s).as_str()))
+                    .find(|(_, s)| WRITES.contains(&verb(s).as_str()))
                 {
                     return Err(DbError::General(format!(
                         "this connection is read-only: {} would write",
@@ -188,8 +213,11 @@ impl Session for CqlSession {
                 }
             }
             Ok(spawn_run(move |tx| async move {
-                for statement in statements {
-                    run_one(&session, statement, limit, &tx).await?;
+                for (start, statement) in statements {
+                    let lines: Vec<String> = statement.split('\n').map(str::to_string).collect();
+                    run_one(&session, statement, limit, &tx)
+                        .await
+                        .map_err(|err| located(err, &lines).shifted(start))?;
                 }
                 Ok(())
             }))
@@ -300,6 +328,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn syntax_errors_are_placed_by_their_line_and_column() {
+        let lines: Vec<String> = ["SELECT *", "FORM t"].map(String::from).to_vec();
+        let err = DbError::General(
+            "Database returned an error: The submitted query has a syntax error, \
+             Error message: line 2:0 no viable alternative at input 'FORM'"
+                .into(),
+        );
+        match located(err, &lines).shifted(10) {
+            DbError::At { at, .. } => assert_eq!(at, 19),
+            other => panic!("expected a place, got {other:?}"),
+        }
+    }
 
     #[test]
     fn statements_are_known_by_their_verb() {

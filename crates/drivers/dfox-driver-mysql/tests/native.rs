@@ -369,3 +369,14 @@ async fn a_large_database_lists_quickly() {
     drop(s);
     drop_database(&base, &name).await;
 }
+
+#[tokio::test]
+async fn a_syntax_error_says_where_in_the_script() {
+    let Some(url) = server_url(URL) else { return };
+    let mut s = session(&params_from_url(&url)).await;
+    let script = "SELECT 1;\n\nSELECT\n  * FORM t";
+    match fails(s.as_mut(), script).await {
+        DbError::At { at, .. } => assert!(script[at..].starts_with("FORM"), "{at}"),
+        other => panic!("expected a place, got {other:?}"),
+    }
+}

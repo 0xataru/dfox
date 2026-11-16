@@ -292,6 +292,8 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   data changes, Mongo shell commands as dfox runs them, and Redis quotes left open. A statement
   still being typed isn't marked, utility commands (`VACUUM`, `PRAGMA`…) and CQL aren't
   checked, and running is never blocked
+- When the server says where a statement failed (Postgres, MySQL, SQLite, Cassandra), that
+  place is underlined the same way, with the server's message, until the text is edited
 - **Ctrl+/** (or **Cmd+/**) comments the line or the selected lines out, and back in:
   `--` in SQL and CQL, `//` in Mongo, `#` in Redis. Terminals without the kitty keyboard
   protocol send it as **Ctrl+7**, which works too

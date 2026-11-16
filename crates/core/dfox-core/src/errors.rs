@@ -19,4 +19,22 @@ pub enum DbError {
     /// General error with a custom message.
     #[error("Error: {0}")]
     General(String),
+    /// The server refused the query and said where: `at` characters into
+    /// the text it was given.
+    #[error("Error: {message}")]
+    At { message: String, at: usize },
+}
+
+impl DbError {
+    /// The error with its place `by` characters further on, for a statement
+    /// that starts there in a longer text.
+    pub fn shifted(self, by: usize) -> Self {
+        match self {
+            DbError::At { message, at } => DbError::At {
+                message,
+                at: at + by,
+            },
+            other => other,
+        }
+    }
 }

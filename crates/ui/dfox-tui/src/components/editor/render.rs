@@ -49,10 +49,16 @@ impl EditorPanel {
         let (line, col) = self.buffer.cursor();
         self.refresh_cache();
         let cache = self.cache.borrow();
-        let problems: Vec<&super::Problem> = cache
-            .problems
-            .iter()
-            .filter(|p| !p.typing((line, col)))
+        // The server's word on a statement replaces the editor's guess.
+        let failure = self.failure();
+        let problems: Vec<&super::Problem> = failure
+            .into_iter()
+            .chain(cache.problems.iter().filter(|p| {
+                !p.typing((line, col))
+                    && failure.is_none_or(|f| {
+                        p.statement.end < f.statement.start || p.statement.start > f.statement.end
+                    })
+            }))
             .collect();
         let mut block = panel(title, self.focused, ctx);
         let here = problems
@@ -60,7 +66,7 @@ impl EditorPanel {
             .find(|p| p.statement.start <= (line, col) && (line, col) <= p.statement.zone_end);
         if let (true, Some(problem)) = (self.focused, here) {
             block = block.title_bottom(Line::from(Span::styled(
-                format!(" ✗ {} ", problem.message),
+                format!(" ✗ {} ", problem.message.lines().next().unwrap_or_default()),
                 theme.danger(),
             )));
         }
