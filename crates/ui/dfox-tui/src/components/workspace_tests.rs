@@ -406,6 +406,41 @@ fn the_new_layout_has_buttons_and_an_empty_state() {
 }
 
 #[test]
+fn the_new_layout_has_the_query_tabs_on_top() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    w.handle(Action::NewTab, &mut harness.ctx());
+    w.editor_mut().set_text("select 1");
+    w.handle(Action::NewTab, &mut harness.ctx());
+    let screen = render(&test, 100, 12, |f, area, ctx| w.render(f, area, ctx));
+    insta::assert_snapshot!(screen);
+    let click = |x: u16| mouse(MouseEventKind::Down(MouseButton::Left), x, 0);
+
+    let first = w.tab_spots.borrow()[0].0;
+    w.mouse(click(first), &mut harness.ctx());
+    assert_eq!(w.active_tab(), 0);
+
+    // An empty tab closes at once, the active one staying active.
+    let close = w.closes.borrow()[2];
+    assert_eq!(w.mouse(click(close), &mut harness.ctx()), None);
+    assert_eq!((w.tab_count(), w.active_tab()), (2, 0));
+
+    // One holding a query asks first.
+    let close = w.closes.borrow()[1];
+    assert_eq!(
+        w.mouse(click(close), &mut harness.ctx()),
+        Some(Command::ConfirmCloseTab {
+            tab: 1,
+            title: "Query 2".into()
+        })
+    );
+    w.close_tab_at(1, &mut harness.ctx());
+    assert_eq!((w.tab_count(), w.active_tab()), (1, 0));
+}
+
+#[test]
 fn maximize_fills_the_workspace_and_back() {
     let mut test = TestCtx::new();
     let mut harness = Harness::new();
@@ -438,7 +473,11 @@ fn maximize_fills_the_workspace_and_back() {
         button.y,
     );
     w.mouse(click, &mut harness.ctx());
-    assert_eq!(draw(&w, &test), [Rect::default(), Rect::default(), full]);
+    let under_the_tabs = Rect::new(0, 1, 100, 29);
+    assert_eq!(
+        draw(&w, &test),
+        [Rect::default(), Rect::default(), under_the_tabs]
+    );
     let [_, button] = w.buttons.get();
     let click = mouse(
         MouseEventKind::Down(MouseButton::Left),

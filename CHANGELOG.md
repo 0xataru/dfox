@@ -15,6 +15,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   maximize button on the editor and the results and a centred note while there are no
   results.
 - **Ctrl+G** makes the focused editor or results fill the workspace, and back.
+- The new layout puts the query tabs in a row of their own above the editor: a click
+  switches, **×** closes, asking first when the tab holds a query.
 
 ## [0.5.40] - 2026-11-16
 

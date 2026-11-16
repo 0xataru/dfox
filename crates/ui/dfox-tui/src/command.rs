@@ -49,6 +49,12 @@ pub enum Command {
     },
     /// Runs SQL that was confirmed.
     RunConfirmed(String),
+    /// Asks before closing a query tab that holds text.
+    ConfirmCloseTab {
+        tab: usize,
+        title: String,
+    },
+    CloseTab(usize),
     /// Offers what can be done with the table or view at `path`, a `kind`;
     /// `name` is how SQL names it.
     TableMenu {

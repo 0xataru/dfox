@@ -19,7 +19,9 @@ use dfox_core::{
 };
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
-    text::Span,
+    style::Modifier,
+    text::{Line, Span},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -40,7 +42,7 @@ use crate::{
     config::LayoutStyle,
     history::Entry,
     sql::{self, guard, Dialect},
-    widgets::toast::Level,
+    widgets::{throbber::spinner, toast::Level},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,6 +150,9 @@ pub struct Workspace {
     /// The columns each tab's name was drawn across, on the editor's top
     /// border, for clicks.
     tab_spots: RefCell<Vec<(u16, u16)>>,
+    /// The new layout's row of query tabs, and the column of each tab's ×.
+    strip: Cell<Rect>,
+    closes: RefCell<Vec<u16>>,
     /// The focused editor or results fill the workspace.
     maximized: bool,
     /// Where the maximize buttons of the editor and the results were drawn.
@@ -190,6 +195,8 @@ impl Workspace {
             catalog: Catalog::default(),
             areas: Cell::new([Rect::default(); 3]),
             tab_spots: RefCell::new(Vec::new()),
+            strip: Cell::new(Rect::default()),
+            closes: RefCell::new(Vec::new()),
             maximized: false,
             buttons: Cell::new([Rect::default(); 2]),
             card: None,
@@ -437,6 +444,63 @@ impl Workspace {
         self.sync_focus();
     }
 
+    /// Closes tab `i`, the active one staying active.
+    pub fn close_tab_at(&mut self, i: usize, ctx: &mut Ctx) {
+        let was = self.active;
+        self.active = i;
+        self.close_tab(ctx);
+        if i < was {
+            self.active = was - 1;
+        } else if i > was {
+            self.active = was;
+        }
+        self.sync_focus();
+    }
+
+    /// A click on tab `i`'s ×: asks first when the tab holds a query.
+    fn close_clicked(&mut self, i: usize, ctx: &mut Ctx) -> Option<Command> {
+        if self.tabs[i].editor.text().trim().is_empty() {
+            self.close_tab_at(i, ctx);
+            return None;
+        }
+        Some(Command::ConfirmCloseTab {
+            tab: i,
+            title: self.title(i),
+        })
+    }
+
+    /// Draws the new layout's row of query tabs, keeping where each landed.
+    fn render_strip(&self, f: &mut Frame, strip: Rect, ctx: &RenderCtx) {
+        let theme = ctx.theme;
+        let close = if ctx.icons.ascii { "x" } else { "×" };
+        let (mut spans, mut spots, mut closes) = (Vec::new(), Vec::new(), Vec::new());
+        let mut x = strip.x;
+        for i in 0..self.tabs.len() {
+            if self.tabs[i].results.running.is_some() {
+                spans.push(Span::raw(" "));
+                spans.push(spinner(ctx, theme.key()));
+                x += 2;
+            }
+            let title = self.title(i);
+            let width = UnicodeWidthStr::width(title.as_str()) as u16;
+            let style = if i == self.active {
+                theme.key().add_modifier(Modifier::UNDERLINED)
+            } else {
+                theme.dim()
+            };
+            spans.push(Span::raw(" "));
+            spots.push((x + 1, x + 1 + width));
+            spans.push(Span::styled(title, style));
+            spans.push(Span::styled(format!(" {close} "), theme.dim()));
+            closes.push(x + 2 + width);
+            spans.push(Span::styled("│", theme.dim()));
+            x += width + 5;
+        }
+        f.render_widget(Paragraph::new(Line::from(spans)).style(theme.base()), strip);
+        self.tab_spots.replace(spots);
+        self.closes.replace(closes);
+    }
+
     fn switch_tab(&mut self, forward: bool) {
         let n = self.tabs.len();
         self.active = if forward {
@@ -554,7 +618,8 @@ impl Workspace {
     /// The tab whose name is at a point on screen.
     fn tab_at(&self, column: u16, row: u16) -> Option<usize> {
         let [_, editor, _] = self.areas.get();
-        if row != editor.y {
+        let strip = self.strip.get();
+        if row != if strip.is_empty() { editor.y } else { strip.y } {
             return None;
         }
         self.tab_spots
@@ -1485,7 +1550,14 @@ impl Workspace {
         };
         let sideways = event.modifiers.contains(KeyModifiers::SHIFT);
         let [editor_button, results_button] = self.buttons.get();
+        let strip = self.strip.get();
+        let closing = (strip.contains(point) && !self.modal())
+            .then(|| self.closes.borrow().iter().position(|x| *x == event.column))
+            .flatten();
         match event.kind {
+            MouseEventKind::Down(MouseButton::Left) if closing.is_some() => {
+                return self.close_clicked(closing?, ctx);
+            }
             MouseEventKind::Down(MouseButton::Left)
                 if !self.modal()
                     && (editor_button.contains(point) || results_button.contains(point)) =>
@@ -1693,22 +1765,35 @@ impl Component for Workspace {
 
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let none = Rect::default();
-        let [left, editor, results] = match self.focus.get() {
-            Panel::Editor if self.maximized => [none, area, none],
-            Panel::Results if self.maximized => [none, none, area],
-            _ => {
-                let [left, right] =
-                    Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)])
-                        .areas(area);
-                let [editor, results] =
-                    Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)])
-                        .areas(right);
-                [left, editor, results]
+        let workspace = ctx.layout == LayoutStyle::Workspace;
+        let shown = Some(self.focus.get()).filter(|p| self.maximized && *p != Panel::Explorer);
+        let [left, right] = if shown.is_some() {
+            [none, area]
+        } else {
+            Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)]).areas(area)
+        };
+        let [strip, right] = if workspace {
+            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(right)
+        } else {
+            [none, right]
+        };
+        let [editor, results] = match shown {
+            Some(Panel::Editor) => [right, none],
+            Some(_) => [none, right],
+            None => {
+                Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right)
             }
         };
         self.areas.set([left, editor, results]);
-        self.tab_spots.replace(self.tab_spots_in(editor));
-        let labels: Vec<TabLabel> = (0..self.tabs.len()).map(|i| self.label(i)).collect();
+        self.strip.set(strip);
+        let labels: Vec<TabLabel> = if workspace {
+            self.render_strip(f, strip, ctx);
+            vec![self.label(self.active)]
+        } else {
+            self.tab_spots.replace(self.tab_spots_in(editor));
+            self.closes.replace(Vec::new());
+            (0..self.tabs.len()).map(|i| self.label(i)).collect()
+        };
         if !left.is_empty() {
             self.explorer.render(f, left, ctx);
         }
