@@ -1,5 +1,6 @@
 //! Screens and the panels inside them.
 
+pub mod bar;
 pub mod card;
 pub mod clusters;
 pub mod copy;

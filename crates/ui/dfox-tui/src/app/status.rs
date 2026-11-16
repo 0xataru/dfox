@@ -10,6 +10,7 @@ use crate::{
     action::Action,
     component::RenderCtx,
     components::{manager::tag_color, results::format_duration, workspace::Panel},
+    config::LayoutStyle,
     connections::Tag,
     theme::Theme,
     widgets::{status_bar::StatusBar, throbber::spinner},
@@ -43,7 +44,10 @@ impl App {
             if let Some(update) = &self.update {
                 location.push(Span::styled(format!("  ↑ {update}"), theme.key()));
             }
-        } else if let Some(session) = &self.session {
+        } else if let Some(session) = self.session.as_ref().filter(|_| {
+            // The new layout shows the connection in a bar over the editor.
+            ctx.layout == LayoutStyle::Classic || self.screen != Screen::Workspace
+        }) {
             location.push(Span::raw("  "));
             if session.connection.tag != Tag::None {
                 location.push(Span::styled(

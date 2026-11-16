@@ -95,6 +95,7 @@ impl App {
         if remember.as_ref() == Some(&connection.name) && connecting.switch_to.is_none() {
             connection.name = self.remember(connection.clone(), &connecting.credentials.password);
         }
+        let tag = connection.tag;
         let (name, driver, read_only) = (
             connection.name.clone(),
             connection.driver,
@@ -125,6 +126,7 @@ impl App {
             });
         } else {
             let mut workspace = Workspace::new(&name, driver, &database)
+                .with_tag(tag)
                 .with_checker(self.drivers.get(driver).cloned())
                 .with_read_only(read_only)
                 .with_language(info.language)
