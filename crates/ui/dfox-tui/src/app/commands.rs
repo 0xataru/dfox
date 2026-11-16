@@ -110,6 +110,19 @@ impl App {
                     danger: true,
                 }));
             }
+            Command::ConfirmCloseTab { tab, title } => {
+                self.overlay = Some(Overlay::Confirm(Confirm {
+                    title: "Close the tab".to_string(),
+                    message: format!("Close {title}? Its query is lost."),
+                    on_yes: Command::CloseTab(tab),
+                    danger: false,
+                }));
+            }
+            Command::CloseTab(tab) => self.with_ctx(|app, ctx| {
+                if let Some(w) = app.workspace {
+                    w.close_tab_at(tab, ctx);
+                }
+            }),
             Command::RunConfirmed(sql) => self.with_ctx(|app, ctx| {
                 if let Some(w) = app.workspace {
                     w.run_checked(sql, ctx);
