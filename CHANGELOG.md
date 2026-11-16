@@ -7,31 +7,6 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
-### Changed
-
-- Highlighting: a Postgres function's or `DO` block's `$$` body is coloured as the SQL it is
-  (a body in another language, such as `plpython3u`, stays a string), and Redis options where
-  options go (`SET k v EX 10 NX`) are coloured as keywords, a key that happens to be called
-  `EX` is not.
-
-### Added
-
-- **Alt+Shift+F** formats Mongo shell commands too: `{ a: 1 }` spacing as mongosh writes it,
-  and documents or arrays that don't fit a line laid out a field a line. Only whitespace
-  changes; commands with comments are left as they are.
-
-### Added
-
-- **Alt+Shift+F** formats the SQL or CQL statement under the cursor, or the selection: clauses
-  on their own lines, subqueries indented, keywords upper-case, comments kept. Only whitespace
-  and keyword case change, and the text is left as it is when anything else would; one undo
-  step brings it back.
-- When a Postgres, MySQL, SQLite or Cassandra statement fails and the server says where, the
-  editor underlines that place, with the server's message on its bottom border, until the
-  text is edited. In a script of several statements it is the one that failed.
-- The editor marks Mongo shell commands that dfox can't run as typed (`expected a value` at
-  the place it stops) and Redis commands with a quote left open, as it does SQL.
-
 ### Added
 
 - The editor marks a Postgres, MySQL or SQLite query or data change that doesn't parse before
@@ -43,6 +18,32 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   at the cursor is underlined, strings and comments left out.
 - **Ctrl+/** comments the line or the selected lines out, and back in, with the language's
   own comment: `--` in SQL and CQL, `//` in Mongo, `#` in Redis.
+- **Alt+Shift+F** formats the SQL or CQL statement under the cursor, or the selection: clauses
+  on their own lines, subqueries indented, keywords upper-case, comments kept. Only whitespace
+  and keyword case change, and the text is left as it is when anything else would; one undo
+  step brings it back.
+- When a Postgres, MySQL, SQLite or Cassandra statement fails and the server says where, the
+  editor underlines that place, with the server's message on its bottom border, until the
+  text is edited. In a script of several statements it is the one that failed.
+- The editor marks Mongo shell commands that dfox can't run as typed (`expected a value` at
+  the place it stops) and Redis commands with a quote left open, as it does SQL.
+- **Alt+Shift+F** formats Mongo shell commands too: `{ a: 1 }` spacing as mongosh writes it,
+  and documents or arrays that don't fit a line laid out a field a line. Only whitespace
+  changes; commands with comments are left as they are.
+
+### Changed
+
+- Highlighting: a Postgres function's or `DO` block's `$$` body is coloured as the SQL it is
+  (a body in another language, such as `plpython3u`, stays a string), and Redis options where
+  options go (`SET k v EX 10 NX`) are coloured as keywords, a key that happens to be called
+  `EX` is not.
+
+### Fixed
+
+- The explorer's filter (**/**) finds databases too, and **Enter** on one the session can't
+  browse switches to it, instead of looking for it by hand in a long list.
+- **Esc** in the explorer's filter leaves it instead of asking to quit dfox, and **Enter**
+  with nothing found leaves it too.
 
 ## [0.5.38] - 2026-11-16
 

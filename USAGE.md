@@ -202,7 +202,8 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   SQL that creates it, in a tab
 - **i** - Put the selected name at the editor's cursor
 - **←** - Close, or go to the parent
-- **/** - Fuzzy-find a table, view or routine; **Enter** jumps to it
+- **/** - Fuzzy-find a table, view, routine or database; **Enter** jumps to it, or switches
+  to a database the session isn't on; **Esc** leaves the filter
 - Opening another database switches the session to it
 
 ### General Navigation

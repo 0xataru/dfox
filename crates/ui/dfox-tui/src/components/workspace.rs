@@ -1443,7 +1443,8 @@ impl Workspace {
             return true;
         }
         match self.focus.get() {
-            Panel::Explorer => false,
+            // Its filter takes Esc and Enter.
+            Panel::Explorer => self.explorer.wants_text(),
             Panel::Editor => self.editor().is_modal(),
             Panel::Results => self.results().is_modal(),
         }

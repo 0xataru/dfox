@@ -1,0 +1,11 @@
+---
+source: crates/ui/dfox-tui/src/components/explorer/tests.rs
+assertion_line: 197
+expression: "snapshot(&explorer, 6)"
+---
+╭ Filter /postg 1 ─────────────────────╮
+│ ◆ postgres                           │
+│                                      │
+│                                      │
+│                                      │
+╰──────────────────────────────────────╯

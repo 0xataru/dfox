@@ -5,10 +5,10 @@ use nucleo_matcher::{
     Config, Matcher, Utf32Str,
 };
 
-use dfox_core::catalog::NodePath;
+use dfox_core::catalog::{NodeKind, NodePath};
 
 use super::{Entry, Explorer, Match};
-use crate::action::Action;
+use crate::{action::Action, command::Command};
 
 /// Scores `names` against `query`, best first. Only matches are returned, as
 /// indexes into `names`.
@@ -42,12 +42,14 @@ impl Explorer {
     pub(super) fn update_matches(&mut self, query: &str) {
         fn walk(list: &[Entry], path: &NodePath, out: &mut Vec<Match>) {
             for entry in list {
-                if entry.is_object() {
+                // Databases too: switching to one is a search away.
+                if entry.is_object() || entry.node.kind == NodeKind::Database {
                     out.push(Match {
                         parent: path.clone(),
                         node: entry.node.clone(),
                     });
-                } else if let Some(children) = entry.children.loaded() {
+                }
+                if let (false, Some(children)) = (entry.is_object(), entry.children.loaded()) {
                     walk(children, &path.child(entry.node.name.clone()), out);
                 }
             }
@@ -68,6 +70,7 @@ impl Explorer {
     /// Leaves the filter and selects the chosen match in the tree.
     pub(super) fn jump_to_match(&mut self) {
         let Some(found) = self.matches.get(self.selected_match).cloned() else {
+            self.filter = None;
             return;
         };
         let path = found.parent.child(found.node.name.clone());
@@ -81,9 +84,9 @@ impl Explorer {
         self.filter = None;
     }
 
-    pub(super) fn handle_filter(&mut self, action: Action) {
+    pub(super) fn handle_filter(&mut self, action: Action) -> Option<Command> {
         let Some(filter) = &mut self.filter else {
-            return;
+            return None;
         };
         match action {
             Action::Input(c) => {
@@ -101,10 +104,25 @@ impl Explorer {
                 self.selected_match =
                     (self.selected_match + 1).min(self.matches.len().saturating_sub(1))
             }
-            Action::Confirm => self.jump_to_match(),
+            Action::Confirm => {
+                // A database the session can't browse: switch to it.
+                let switch = self.matches.get(self.selected_match).and_then(|m| {
+                    let node = &m.node;
+                    (node.kind == NodeKind::Database
+                        && node.name != self.active
+                        && !node.has_children)
+                        .then(|| node.name.clone())
+                });
+                if let Some(name) = switch {
+                    self.filter = None;
+                    return Some(Command::UseDatabase(name));
+                }
+                self.jump_to_match();
+            }
             Action::Back => self.filter = None,
             _ => {}
         }
+        None
     }
 }
 

@@ -185,6 +185,24 @@ fn filter_finds_and_jumps_to_an_object() {
 }
 
 #[test]
+fn filter_finds_a_database_and_switches_to_it() {
+    let mut harness = Harness::new();
+    let mut explorer = loaded(&mut harness, &["public"]);
+    objects(&mut explorer, &mut harness, "public");
+    explorer.handle(Action::Filter, &mut harness.ctx());
+    for c in "postg".chars() {
+        explorer.handle(Action::Input(c), &mut harness.ctx());
+    }
+    assert_eq!(explorer.matches[0].node.name, "postgres");
+    insta::assert_snapshot!(snapshot(&explorer, 6));
+    assert_eq!(
+        explorer.handle(Action::Confirm, &mut harness.ctx()),
+        Some(Command::UseDatabase("postgres".into()))
+    );
+    assert!(!explorer.wants_text());
+}
+
+#[test]
 fn escape_leaves_the_filter() {
     let mut harness = Harness::new();
     let mut explorer = loaded(&mut harness, &["public"]);

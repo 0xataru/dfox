@@ -349,10 +349,11 @@ fn render_matches(explorer: &Explorer, query: &str, f: &mut Frame, area: Rect, c
                 (true, Some(parent)) => format!("{parent}.{}", m.node.name),
                 _ => m.node.name.clone(),
             };
-            let icon = if m.node.kind.has_rows() {
-                ctx.icons.table
-            } else {
-                "ƒ"
+            let icon = match (m.node.kind, explorer.driver) {
+                (NodeKind::Database, Some(driver)) => ctx.icons.engine(driver),
+                (NodeKind::Database, None) => ctx.icons.database,
+                (kind, _) if kind.has_rows() => ctx.icons.table,
+                _ => "ƒ",
             };
             let line = Line::from(format!(
                 "{icon} {}",

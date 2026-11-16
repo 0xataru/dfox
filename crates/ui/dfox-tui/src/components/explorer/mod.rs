@@ -772,8 +772,7 @@ impl Explorer {
 impl Component for Explorer {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
         if self.filter.is_some() {
-            self.handle_filter(action);
-            return None;
+            return self.handle_filter(action);
         }
         let page = self.visible.get().max(1);
         let mut state = self.state.borrow_mut();
