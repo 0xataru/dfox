@@ -187,6 +187,9 @@ impl std::fmt::Debug for Checker {
 #[derive(Debug)]
 pub struct EditorPanel {
     pub checker: Checker,
+    /// Where the server said the last run failed, while the text is as it
+    /// was then: the buffer's version with it.
+    failure: Option<(u64, Problem)>,
     pub buffer: Buffer,
     dialect: Dialect,
     /// What it holds: SQL in `dialect`, or a database's own commands.
@@ -246,6 +249,7 @@ impl EditorPanel {
         Self {
             buffer: Buffer::default(),
             checker: Checker::default(),
+            failure: None,
             dialect,
             language: QueryLanguage::Sql(SqlDialect::Generic),
             focused: false,
@@ -311,6 +315,50 @@ impl EditorPanel {
             statement.start,
             statement.end,
         ))
+    }
+
+    /// Marks where the server said a run of `sent` failed, `at` characters
+    /// into it. `sent` is looked for in the text, the copy around the cursor
+    /// first; edited since, nothing is marked.
+    pub fn mark_failure(&mut self, sent: &str, at: usize, message: String) {
+        let text = self.buffer.text();
+        let lines = self.buffer.lines();
+        let cursor = sql::offset(lines, self.buffer.cursor());
+        let starts: Vec<usize> = text
+            .match_indices(sent)
+            .map(|(byte, _)| text[..byte].chars().count())
+            .collect();
+        let length = sent.chars().count();
+        let Some(start) = starts
+            .iter()
+            .find(|s| (**s..=*s + length).contains(&cursor))
+            .or(starts.first())
+        else {
+            return;
+        };
+        let begin = advance(lines, (0, 0), *start);
+        let end = advance(lines, begin, length);
+        self.failure = Some((
+            self.buffer.version(),
+            Problem {
+                statement: Stmt {
+                    start: begin,
+                    end,
+                    zone_end: end,
+                },
+                at: advance(lines, begin, at),
+                tail: end,
+                message,
+            },
+        ));
+    }
+
+    /// The server's failure, while the text is as it was.
+    fn failure(&self) -> Option<&Problem> {
+        self.failure
+            .as_ref()
+            .filter(|(version, _)| *version == self.buffer.version())
+            .map(|(_, problem)| problem)
     }
 
     /// True while the history search has the keys.

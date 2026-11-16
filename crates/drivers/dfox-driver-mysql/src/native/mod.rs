@@ -153,6 +153,35 @@ async fn connect(opts: OptsBuilder, tls: TlsMode) -> Result<(Conn, Opts), DbErro
     }
 }
 
+/// A syntax error placed by what MySQL quotes after `near`: the rest of the
+/// statement from where it stopped. Its `at line N` counts from somewhere
+/// else in a script of several, so only the text is used; an empty quote
+/// is the end of a script of one statement.
+fn located(err: DbError, text: &str) -> DbError {
+    let DbError::General(message) = err else {
+        return err;
+    };
+    let near = message
+        .split_once(" near '")
+        .and_then(|(_, rest)| rest.rsplit_once("' at line "))
+        .map(|(near, _)| near);
+    let at = match near {
+        Some("") => {
+            let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+            match dfox_sql::statements(text, dfox_sql::Dialect::MySql).as_slice() {
+                [one] => Some(dfox_sql::offset(&lines, one.end)),
+                _ => None,
+            }
+        }
+        Some(near) => text.find(near).map(|byte| text[..byte].chars().count()),
+        None => None,
+    };
+    match at {
+        Some(at) => DbError::At { message, at },
+        None => DbError::General(message),
+    }
+}
+
 /// A mysql_async error as a dfox error: the server's message as the `mysql`
 /// client prints it, and stopped statements as [`DbError::Cancelled`].
 pub(crate) fn db_error(err: mysql_async::Error) -> DbError {
@@ -213,8 +242,10 @@ impl Session for MySession {
         let empty = dfox_sql::statements(&request.text, dfox_sql::Dialect::MySql).is_empty();
         // `DELIMITER` lines are for the mysql client; the server reads the
         // script without them.
-        let sql = dfox_sql::without_delimiters(&request.text, dfox_sql::Dialect::MySql)
-            .unwrap_or(request.text);
+        let stripped = dfox_sql::without_delimiters(&request.text, dfox_sql::Dialect::MySql);
+        // Places in a script without its DELIMITER lines aren't the editor's.
+        let place = stripped.is_none().then(|| request.text.clone());
+        let sql = stripped.unwrap_or(request.text);
         let conn = self.conn.clone();
         let cancelled = self.cancelled.clone();
         let limit = request.row_limit.unwrap_or(usize::MAX);
@@ -228,6 +259,10 @@ impl Session for MySession {
                 let result = match conn.query_iter(sql).await {
                     Ok(result) => stream_result(result, limit, &tx).await,
                     Err(err) => Err(db_error(err)),
+                };
+                let result = match (result, &place) {
+                    (Err(err), Some(text)) => Err(located(err, text)),
+                    (result, _) => result,
                 };
                 if cancelled.swap(false, Ordering::SeqCst) {
                     return Err(DbError::Cancelled);
@@ -420,6 +455,29 @@ mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
 
     use super::*;
+
+    #[test]
+    fn syntax_errors_are_placed_by_what_mysql_quotes() {
+        let error = |near: &str| {
+            DbError::General(format!(
+                "ERROR 1064 (42000): You have an error in your SQL syntax; check the manual \
+                 that corresponds to your MySQL server version for the right syntax to use \
+                 near '{near}' at line 1"
+            ))
+        };
+        let script = "SELECT 1;\n\nSELECT\n  * FORM user";
+        let at = |err| match err {
+            DbError::At { at, .. } => Some(at),
+            _ => None,
+        };
+        assert_eq!(at(located(error("FORM user"), script)), Some(22));
+        assert_eq!(at(located(error(""), "SELECT * FROM t WHERE")), Some(21));
+        assert_eq!(at(located(error(""), script)), None);
+        assert_eq!(
+            at(located(DbError::General("Lost connection".into()), script)),
+            None
+        );
+    }
 
     #[test]
     fn a_tunnel_replaces_the_address_but_keeps_the_host_name_for_tls() {

@@ -398,3 +398,19 @@ async fn bulk_inserts_keep_awkward_text_whole() {
     );
     run(s.as_mut(), &format!("DROP TABLE {name}")).await;
 }
+
+#[tokio::test]
+async fn a_syntax_error_says_where_in_the_script() {
+    let Some(url) = server_url(URL) else { return };
+    let mut s = session(&params_from_url(&url)).await;
+    let script = "SELECT 'é';\n\n  SELECT *\n  FORM t";
+    let stream = s.run(Request::new(script)).await.expect("run");
+    let mut fetcher = Fetcher::new(stream, DEFAULT_BUDGET, Overflow::Stop);
+    match fetcher.fetch().await.expect_err("an error") {
+        dfox_core::errors::DbError::At { at, .. } => {
+            let rest: String = script.chars().skip(at).collect();
+            assert!(rest.starts_with("FORM"), "{at}: {rest}");
+        }
+        other => panic!("expected a place, got {other:?}"),
+    }
+}

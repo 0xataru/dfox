@@ -173,6 +173,30 @@ fn serve(conn: &Connection, queue: std_mpsc::Receiver<Job>) {
     }
 }
 
+/// A syntax error with the token SQLite points at, as a [`DbError::At`]
+/// into `script`: SQLite gives a byte offset into the rest of the script
+/// it was reading.
+fn located(err: rusqlite::Error, script: &str) -> DbError {
+    if let rusqlite::Error::SqlInputError {
+        msg, sql, offset, ..
+    } = &err
+    {
+        let byte = script
+            .len()
+            .checked_sub(sql.len())
+            .filter(|start| script.get(*start..) == Some(sql.as_str()))
+            .and_then(|start| Some(start + usize::try_from(*offset).ok()?))
+            .filter(|byte| script.is_char_boundary(*byte));
+        if let Some(byte) = byte {
+            return DbError::At {
+                message: msg.clone(),
+                at: script[..byte].chars().count(),
+            };
+        }
+    }
+    db_error(err)
+}
+
 /// A rusqlite error as a dfox error: SQLite's message, and interrupted
 /// statements as [`DbError::Cancelled`].
 pub(crate) fn db_error(err: rusqlite::Error) -> DbError {
@@ -194,7 +218,7 @@ fn run_script(conn: &Connection, sql: &str, limit: usize, tx: &FrameTx) -> Resul
     use rusqlite::fallible_iterator::FallibleIterator;
 
     let mut batch = rusqlite::Batch::new(conn, sql);
-    while let Some(mut stmt) = batch.next().map_err(db_error)? {
+    while let Some(mut stmt) = batch.next().map_err(|err| located(err, sql))? {
         run_statement(conn, &mut stmt, limit, tx)?;
     }
     Ok(())
@@ -341,5 +365,39 @@ impl Session for SqliteSession {
 
     fn apply(&mut self, changes: ChangeSet) -> BoxFuture<'_, Result<ApplyReport, DbError>> {
         Box::pin(self.catalog.apply(changes))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::fallible_iterator::FallibleIterator;
+
+    #[test]
+    fn syntax_errors_are_placed_in_the_script() {
+        let conn = Connection::open_in_memory().expect("open");
+        let script = "SELECT 1;\nSELECT é,\n  * FORM t";
+        let mut batch = rusqlite::Batch::new(&conn, script);
+        let mut err = None;
+        loop {
+            match batch.next() {
+                Ok(Some(_)) => {}
+                Ok(None) => break,
+                Err(e) => {
+                    err = Some(located(e, script));
+                    break;
+                }
+            }
+        }
+        match err {
+            Some(DbError::At { at, message }) => {
+                assert_eq!(
+                    &script.chars().skip(at).collect::<String>()[..4],
+                    "FORM",
+                    "{message}"
+                );
+            }
+            other => panic!("expected a place, got {other:?}"),
+        }
     }
 }

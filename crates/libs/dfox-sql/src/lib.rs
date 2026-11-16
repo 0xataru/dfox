@@ -485,6 +485,16 @@ pub fn statement_at(text: &str, cursor: Pos, dialect: Dialect) -> Option<Stmt> {
         .copied()
 }
 
+/// Characters into the text of `lines` where `pos` is.
+pub fn offset(lines: &[String], (line, col): Pos) -> usize {
+    lines
+        .iter()
+        .take(line)
+        .map(|l| l.chars().count() + 1)
+        .sum::<usize>()
+        + col
+}
+
 /// The text between two positions.
 pub fn slice(lines: &[String], start: Pos, end: Pos) -> String {
     let mut out = String::new();

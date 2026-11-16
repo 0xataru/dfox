@@ -183,7 +183,14 @@ pub(crate) fn db_error(err: tokio_postgres::Error) -> DbError {
     if let Some(hint) = db.hint() {
         message.push_str(&format!("\nHINT: {hint}"));
     }
-    DbError::General(message)
+    match db.position() {
+        // 1-based, in characters.
+        Some(tokio_postgres::error::ErrorPosition::Original(at)) => DbError::At {
+            message,
+            at: (*at as usize).saturating_sub(1),
+        },
+        _ => DbError::General(message),
+    }
 }
 
 /// A value's bytes, whatever its type: the decoder reads them.
@@ -232,11 +239,16 @@ impl Session for PgSession {
     }
 
     fn run(&mut self, request: Request) -> BoxFuture<'_, Result<ResultStream, DbError>> {
-        let statements: Vec<String> = {
+        let statements: Vec<(usize, String)> = {
             let lines: Vec<String> = request.text.split('\n').map(str::to_string).collect();
             dfox_sql::statements(&request.text, dfox_sql::Dialect::Postgres)
                 .into_iter()
-                .map(|s| dfox_sql::slice(&lines, s.start, s.end))
+                .map(|s| {
+                    (
+                        dfox_sql::offset(&lines, s.start),
+                        dfox_sql::slice(&lines, s.start, s.end),
+                    )
+                })
                 .collect()
         };
         let client = self.client.clone();
@@ -245,7 +257,8 @@ impl Session for PgSession {
         let each = self.read_only_each;
         Box::pin(async move {
             Ok(spawn_run(move |tx| async move {
-                for sql in statements {
+                for (start, sql) in statements {
+                    let start = start + sql.chars().take_while(|c| c.is_whitespace()).count();
                     let sql = sql.trim().trim_end_matches(';');
                     if each {
                         client
@@ -253,7 +266,9 @@ impl Session for PgSession {
                             .await
                             .map_err(db_error)?;
                     }
-                    let ran = execute(&client, sql, &[], limit, &tx).await;
+                    let ran = execute(&client, sql, &[], limit, &tx)
+                        .await
+                        .map_err(|err| err.shifted(start));
                     if each {
                         let end = if ran.is_ok() { "COMMIT" } else { "ROLLBACK" };
                         client.batch_execute(end).await.map_err(db_error)?;

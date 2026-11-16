@@ -624,6 +624,32 @@ fn a_statement_that_doesnt_parse_is_marked_before_it_runs() {
 }
 
 #[test]
+fn where_the_server_says_a_query_failed_is_marked_until_it_is_edited() {
+    let mut test = test_app("failed", Some("pw"), "");
+    test.open_prod();
+    test.app
+        .paste("SELECT 1;\nSELECT id\n  FROM customers\n  ORDER id");
+    test.key(KeyCode::F(5));
+    let id = match &test.sent()[..] {
+        [DbCommand::Run { id, sql, .. }] => {
+            assert_eq!(sql, "SELECT id\n  FROM customers\n  ORDER id");
+            *id
+        }
+        other => panic!("expected a run, got {other:?}"),
+    };
+    test.app.apply(EngineEvent::QueryDone {
+        id,
+        outcome: Err(DbError::At {
+            message: "ERROR: syntax error at or near \"id\"".into(),
+            at: 35,
+        }),
+    });
+    insta::assert_snapshot!(test.snapshot(100, 14));
+    test.typed(" ");
+    assert!(!test.snapshot(100, 14).contains("✗ ERROR"));
+}
+
+#[test]
 fn running_a_query_in_the_workspace() {
     let mut test = test_app("query", Some("pw"), "");
     test.open_prod();
