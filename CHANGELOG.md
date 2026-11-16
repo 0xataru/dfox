@@ -7,6 +7,13 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Changed
+
+- Highlighting: a Postgres function's or `DO` block's `$$` body is coloured as the SQL it is
+  (a body in another language, such as `plpython3u`, stays a string), and Redis options where
+  options go (`SET k v EX 10 NX`) are coloured as keywords, a key that happens to be called
+  `EX` is not.
+
 ### Added
 
 - **Alt+Shift+F** formats Mongo shell commands too: `{ a: 1 }` spacing as mongosh writes it,

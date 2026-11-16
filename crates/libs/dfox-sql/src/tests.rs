@@ -287,3 +287,35 @@ fn problems_are_found_where_the_statement_stops_parsing() {
         None
     );
 }
+
+#[test]
+fn function_bodies_are_coloured_as_sql() {
+    let lines: Vec<String> = [
+        "CREATE FUNCTION f() RETURNS int AS $body$",
+        "  SELECT 1 -- one",
+        "$body$ LANGUAGE sql",
+    ]
+    .map(String::from)
+    .to_vec();
+    let pieces = highlight(&lines, Dialect::Postgres);
+    let kinds = |line: usize| -> Vec<(usize, Kind)> {
+        pieces[line].iter().map(|p| (p.start, p.kind)).collect()
+    };
+    assert!(kinds(0).contains(&(35, Kind::String)), "{:?}", kinds(0));
+    assert_eq!(
+        kinds(1),
+        [(2, Kind::Keyword), (9, Kind::Number), (11, Kind::Comment)]
+    );
+    assert_eq!(kinds(2)[0], (0, Kind::String));
+    // Another language's body stays a string.
+    let python: Vec<String> =
+        ["CREATE FUNCTION f() RETURNS int AS $$ return 1 $$ LANGUAGE plpython3u"]
+            .map(String::from)
+            .to_vec();
+    let strings: Vec<Kind> = highlight(&python, Dialect::Postgres)[0]
+        .iter()
+        .filter(|p| p.start >= 35 && p.end <= 50)
+        .map(|p| p.kind)
+        .collect();
+    assert_eq!(strings, [Kind::String]);
+}

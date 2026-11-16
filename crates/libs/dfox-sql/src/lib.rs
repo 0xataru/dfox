@@ -210,7 +210,57 @@ pub(crate) fn end_of(text: &str) -> Pos {
 pub fn highlight(lines: &[String], dialect: Dialect) -> Vec<Vec<Piece>> {
     let text = lines.join("\n");
     let mut out = vec![Vec::new(); lines.len()];
-    for lexeme in lex(&text, dialect) {
+    let lexemes = lex(&text, dialect);
+    let words: Vec<Option<String>> = lexemes
+        .iter()
+        .filter(|l| !l.trivia)
+        .map(Lexeme::keyword)
+        .collect();
+    // A body in another language (`LANGUAGE plpython3u`) stays a string.
+    let sql_bodies = !words.windows(2).any(|w| {
+        w[0].as_deref() == Some("LANGUAGE")
+            && w[1]
+                .as_deref()
+                .is_some_and(|l| !matches!(l, "SQL" | "PLPGSQL"))
+    });
+    let mut previous: Option<String> = None;
+    for lexeme in &lexemes {
+        let after = previous.clone();
+        if !lexeme.trivia {
+            previous = lexeme.keyword();
+        }
+        // A function's or `DO` block's body, coloured as the SQL it is.
+        if let Token::DollarQuotedString(quoted) = &lexeme.token {
+            if sql_bodies && matches!(after.as_deref(), Some("AS" | "DO")) {
+                let open = quoted.tag.as_deref().map_or(0, str::len) + 2;
+                let (line, col) = lexeme.start;
+                let inner: Vec<String> = quoted.value.split('\n').map(str::to_string).collect();
+                let last = (line + inner.len() - 1).min(lines.len().saturating_sub(1));
+                out[line].push(Piece {
+                    start: col,
+                    end: col + open,
+                    kind: Kind::String,
+                });
+                for (i, pieces) in highlight(&inner, dialect).into_iter().enumerate() {
+                    let shift = if i == 0 { col + open } else { 0 };
+                    if let Some(row) = out.get_mut(line + i) {
+                        row.extend(pieces.into_iter().map(|p| Piece {
+                            start: p.start + shift,
+                            end: p.end + shift,
+                            kind: p.kind,
+                        }));
+                    }
+                }
+                if lexeme.end.0 == last {
+                    out[last].push(Piece {
+                        start: lexeme.end.1.saturating_sub(open),
+                        end: lexeme.end.1,
+                        kind: Kind::String,
+                    });
+                }
+                continue;
+            }
+        }
         if lexeme.kind == Kind::Plain {
             continue;
         }
