@@ -161,6 +161,8 @@ pub struct Workspace {
     database_spot: Cell<Rect>,
     /// The new layout's rail of the explorer, the query and the connections.
     rail: Cell<[Rect; 3]>,
+    /// The new layout's `+` after the query tabs.
+    plus: Cell<Rect>,
     /// The toolbar's buttons where they were drawn, and the one the mouse
     /// is over.
     toolbar: RefCell<Vec<(Rect, Button)>>,
@@ -213,6 +215,7 @@ impl Workspace {
             database_spot: Cell::new(Rect::default()),
             toolbar: RefCell::new(Vec::new()),
             rail: Cell::new([Rect::default(); 3]),
+            plus: Cell::new(Rect::default()),
             hovered: None,
             maximized: false,
             buttons: Cell::new([Rect::default(); 2]),
@@ -503,7 +506,7 @@ impl Workspace {
         let glyphs = match (ctx.icons.nerd, ctx.icons.ascii) {
             (true, _) => ["\u{f1bb}", "\u{f121}", "\u{f1c0}"],
             (_, true) => ["T", "Q", "C"],
-            _ => ["☰", "✎", "⇄"],
+            _ => ["▤", "✎", "◆"],
         };
         let explorer = self.focus.is(Panel::Explorer);
         let mut spots = [Rect::default(); 3];
@@ -549,6 +552,11 @@ impl Workspace {
             spans.push(Span::styled("│", theme.dim()));
             x += width + 5;
         }
+        spans.push(Span::raw(" "));
+        let hovered = self.hovered == Some(bar::NEW_TAB);
+        spans.push(Span::styled(" + ", bar::button_style(theme, hovered)));
+        self.plus
+            .set(Rect::new(x + 1, strip.y, 3, 1).intersection(strip));
         f.render_widget(Paragraph::new(Line::from(spans)).style(theme.base()), strip);
         self.tab_spots.replace(spots);
         self.closes.replace(closes);
@@ -1697,7 +1705,8 @@ impl Workspace {
             .borrow()
             .iter()
             .find(|(spot, _)| spot.contains(point))
-            .map(|(_, button)| *button);
+            .map(|(_, button)| *button)
+            .or_else(|| self.plus.get().contains(point).then_some(bar::NEW_TAB));
         if event.kind == MouseEventKind::Moved {
             self.hovered = button;
             return None;
@@ -1991,6 +2000,7 @@ impl Component for Workspace {
                 read_only: self.read_only,
                 in_transaction: self.in_transaction,
                 buttons: &buttons,
+                hovered: self.hovered,
             }
             .render(f, bar, ctx)
         } else {
@@ -2026,6 +2036,7 @@ impl Component for Workspace {
         } else {
             self.tab_spots.replace(self.tab_spots_in(editor));
             self.closes.replace(Vec::new());
+            self.plus.set(Rect::default());
             (0..self.tabs.len()).map(|i| self.label(i)).collect()
         };
         if !editor.is_empty() {

@@ -73,6 +73,11 @@ pub const HISTORY: Button = button(
     "Query history",
     ["\u{f1da}", "⟲", "H"],
 );
+pub const NEW_TAB: Button = button(
+    Click::Action(Action::NewTab),
+    "New query tab",
+    ["+", "+", "+"],
+);
 pub const HELP: Button = button(Click::Action(Action::Help), "Keys", ["\u{f059}", "?", "?"]);
 
 impl Button {
@@ -105,6 +110,8 @@ pub struct Bar<'a> {
     pub in_transaction: bool,
     /// The toolbar, most wanted first: the last ones go when it doesn't fit.
     pub buttons: &'a [Button],
+    /// The button under the mouse, lit up.
+    pub hovered: Option<Button>,
 }
 
 impl Bar<'_> {
@@ -154,26 +161,39 @@ impl Bar<'_> {
         let database =
             Rect::new(area.x + before as u16, area.y, width as u16, 1).intersection(area);
 
+        // Each button a block of its own, a column apart.
         let mut room = (area.width as usize).saturating_sub(used + 2);
         let fit: Vec<(Button, String)> = self
             .buttons
             .iter()
             .map(|b| (*b, format!(" {} ", b.glyph(ctx))))
             .take_while(|(_, text)| {
-                let fits = text.width() <= room;
-                room = room.saturating_sub(text.width());
+                let fits = text.width() < room;
+                room = room.saturating_sub(text.width() + 1);
                 fits
             })
             .collect();
-        let total: usize = fit.iter().map(|(_, text)| text.width()).sum();
-        let mut x = area.right().saturating_sub(total as u16 + 1);
+        let total: usize = fit.iter().map(|(_, text)| text.width() + 1).sum();
+        let mut x = area.right().saturating_sub(total as u16);
         let mut spots = Vec::new();
         for (button, text) in fit {
             let spot = Rect::new(x, area.y, text.width() as u16, 1);
-            f.render_widget(Span::styled(text, theme.key()), spot);
+            f.render_widget(
+                Span::styled(text, button_style(theme, self.hovered == Some(button))),
+                spot,
+            );
             spots.push((spot, button));
-            x += spot.width;
+            x += spot.width + 1;
         }
         (database, spots)
+    }
+}
+
+/// A button: accent on a raised block, the other way round under the mouse.
+pub fn button_style(theme: &crate::theme::Theme, hovered: bool) -> Style {
+    if hovered {
+        Style::default().fg(theme.bg).bg(theme.accent)
+    } else {
+        Style::default().fg(theme.accent).bg(theme.surface_alt)
     }
 }

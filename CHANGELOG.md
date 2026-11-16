@@ -16,7 +16,7 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   results.
 - **Ctrl+G** makes the focused editor or results fill the workspace, and back.
 - The new layout puts the query tabs in a row of their own above the editor: a click
-  switches, **×** closes, asking first when the tab holds a query.
+  switches, **×** closes, asking first when the tab holds a query, **+** opens another.
 - The new layout shows the connection in a bar under the query tabs, with its colour tag,
   read-only and an open transaction, instead of in the status bar.
 - The new layout has **Data | Messages** over the results (**m** or a click): Messages lists

@@ -286,7 +286,7 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - **Classic / new layout** in the command palette (**Ctrl+P**) switches to the redesigned
   workspace and back, and keeps the choice in `config.toml`. The new layout has:
   - the query tabs in a row of their own (a click switches, **×** closes, asking first
-    when the tab holds a query)
+    when the tab holds a query, **+** opens another, as **Ctrl+N** does)
   - the connection in a bar under them instead of in the status bar
   - no explorer column: a click on the database in the bar, **Ctrl+B** or the explorer
     icon on the rail at the left drops the explorer down under the database, with its

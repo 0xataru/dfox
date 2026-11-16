@@ -418,6 +418,24 @@ fn the_new_layout_has_the_query_tabs_on_top() {
     insta::assert_snapshot!(screen);
     let click = |x: u16| mouse(MouseEventKind::Down(MouseButton::Left), x, 0);
 
+    // `+` opens another, and says its key.
+    let plus = w.plus.get();
+    w.mouse(
+        mouse(MouseEventKind::Moved, plus.x + 1, plus.y),
+        &mut harness.ctx(),
+    );
+    assert_eq!(
+        w.tooltip(&test.keymap).as_deref(),
+        Some("New query tab · Ctrl+N")
+    );
+    let open = mouse(MouseEventKind::Down(MouseButton::Left), plus.x + 1, plus.y);
+    let command = w.mouse(open, &mut harness.ctx());
+    assert_eq!(command, Some(Command::Dispatch(Action::NewTab)));
+    w.handle(Action::NewTab, &mut harness.ctx());
+    assert_eq!(w.tab_count(), 4);
+    w.handle(Action::CloseTab, &mut harness.ctx());
+    render(&test, 100, 12, |f, area, ctx| w.render(f, area, ctx));
+
     let first = w.tab_spots.borrow()[0].0;
     w.mouse(click(first), &mut harness.ctx());
     assert_eq!(w.active_tab(), 0);
