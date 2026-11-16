@@ -70,6 +70,8 @@ pub enum Action {
     Export,
     Palette,
     Connections,
+    /// The explorer, and back to the query.
+    Explorer,
     /// Which Kubernetes clusters' databases the list shows.
     Clusters,
     Debug,
@@ -142,6 +144,7 @@ impl Action {
         Action::Delete,
         Action::Save,
         Action::Connections,
+        Action::Explorer,
         Action::Clusters,
         Action::NextTheme,
         Action::SwitchLayout,
@@ -223,6 +226,7 @@ impl Action {
             Action::Export => "export",
             Action::Palette => "palette",
             Action::Connections => "connections",
+            Action::Explorer => "explorer",
             Action::Clusters => "clusters",
             Action::New => "new",
             Action::Edit => "edit",
@@ -309,6 +313,7 @@ impl Action {
             Action::Export => "Export rows to a file",
             Action::Palette => "Command palette",
             Action::Connections => "Connection list",
+            Action::Explorer => "Explorer / the query",
             Action::Clusters => "Kubernetes clusters",
             Action::New => "New connection",
             Action::Edit => "Edit / definition",

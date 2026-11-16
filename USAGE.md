@@ -284,18 +284,24 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   first when it is destructive). Postgres and MySQL, plain explain on SQLite
 - **Ctrl+G** - The focused editor or results fill the workspace, and back
 - **Classic / new layout** in the command palette (**Ctrl+P**) switches to the redesigned
-  workspace and back, and keeps the choice in `config.toml`. The new layout shows the
-  query tabs in a row of their own above the editor (a click switches, **×** closes and
-  asks first when the tab holds a query), the connection in a bar under them instead of
-  the status bar (a click on the database lists the server's databases to switch to, as
-  Enter on one in the explorer does), **Data | Messages** over the results (**m** or a
-  click switches: Messages lists how each query of the tab went, its rows or error and
-  time, with the server's notices, which then don't pop up), a maximize button on the
-  editor and the results, a toolbar at the right of the connection bar (run, stop, commit
-  and rollback while a transaction is open, run the script, explain, explain analyze,
-  format, history, keys: the mouse over one says what it does and its key, and the last
-  ones go on a narrow terminal),
-  and a centred note while there are no results yet
+  workspace and back, and keeps the choice in `config.toml`. The new layout has:
+  - the query tabs in a row of their own (a click switches, **×** closes, asking first
+    when the tab holds a query, **+** opens another, as **Ctrl+N** does)
+  - the connection in a bar under them instead of in the status bar
+  - no explorer column: a click on the database in the bar, **Ctrl+B** or the explorer
+    icon on the rail at the left drops the explorer down under the database, with its
+    search (**/**) and Enter on a database to switch to it, which keeps it open.
+    Choosing what to do with a table closes it, as do Esc, Ctrl+B and a second click.
+    Tab passes it by
+  - a toolbar at the right of the bar: run, stop, commit and rollback while a
+    transaction is open, run the script, explain, explain analyze, format, history,
+    keys. The mouse over one says what it does and its key, the last ones go on a
+    narrow terminal
+  - **Data | Messages** over the results (**m** or a click): Messages lists how each query
+    of the tab went, its rows or error and time, with the server's notices, which then
+    don't pop up
+  - a maximize button on the editor and the results, and a centred note while there are
+    no results yet
 - **F12** - Event log
 - **Esc**, **q** or **Ctrl+Q** - Quit (asks first while connected)
 
@@ -418,6 +424,7 @@ action without a key. The actions and their default keys:
 | `delete` | Delete | `d`, `delete` |
 | `save` | Save | `ctrl+s` |
 | `connections` | Connection list | `f1` |
+| `explorer` | Explorer / the query | `ctrl+b` |
 | `next_theme` | Next theme | `ctrl+t` |
 | `switch_layout` | Classic / new layout | |
 | `maximize` | Maximize the panel | `ctrl+g` |

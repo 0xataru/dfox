@@ -5,8 +5,8 @@ expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, &help, 
 ---
                  ╭ Keys ───────────────────────────────────────╮
                  │                                             │
-                 │ Ctrl+S            Save                      │
                  │ F1                Connection list           │
+                 │ Ctrl+B            Explorer / the query      │
                  │ K                 Kubernetes clusters       │
                  │ Ctrl+T            Next theme                │
                  │ –                 Classic / new layout      │

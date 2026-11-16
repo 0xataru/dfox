@@ -21,12 +21,12 @@ use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::Modifier,
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
 use super::{
-    bar::{self, Bar, Button, Click, DatabasePicker, Picked},
+    bar::{self, Bar, Button, Click},
     card::{CardEvent, ColumnCard, TableCard},
     copy::CopyDialog,
     editor::{Checker, EditorPanel, TabLabel},
@@ -159,8 +159,10 @@ pub struct Workspace {
     tag: Tag,
     /// Where the bar shows the database, for clicks.
     database_spot: Cell<Rect>,
-    /// The list of databases the bar opened.
-    picker: Option<DatabasePicker>,
+    /// The new layout's rail of the explorer, the query and the connections.
+    rail: Cell<[Rect; 3]>,
+    /// The new layout's `+` after the query tabs.
+    plus: Cell<Rect>,
     /// The toolbar's buttons where they were drawn, and the one the mouse
     /// is over.
     toolbar: RefCell<Vec<(Rect, Button)>>,
@@ -211,8 +213,9 @@ impl Workspace {
             closes: RefCell::new(Vec::new()),
             tag: Tag::None,
             database_spot: Cell::new(Rect::default()),
-            picker: None,
             toolbar: RefCell::new(Vec::new()),
+            rail: Cell::new([Rect::default(); 3]),
+            plus: Cell::new(Rect::default()),
             hovered: None,
             maximized: false,
             buttons: Cell::new([Rect::default(); 2]),
@@ -275,17 +278,6 @@ impl Workspace {
     pub fn with_tag(mut self, tag: Tag) -> Self {
         self.tag = tag;
         self
-    }
-
-    /// What a choice in the list of databases does.
-    fn picked(&mut self, picked: Picked) -> Option<Command> {
-        self.picker = None;
-        match picked {
-            Picked::Database(name) if name != self.explorer.active => {
-                Some(Command::UseDatabase(name))
-            }
-            _ => None,
-        }
     }
 
     pub fn with_read_only(mut self, read_only: bool) -> Self {
@@ -502,6 +494,37 @@ impl Workspace {
         })
     }
 
+    /// Draws the new layout's rail: the explorer, the query, the
+    /// connections, the one in use marked.
+    fn render_rail(&self, f: &mut Frame, rail: Rect, ctx: &RenderCtx) {
+        if rail.is_empty() {
+            self.rail.set([Rect::default(); 3]);
+            return;
+        }
+        let theme = ctx.theme;
+        f.render_widget(Paragraph::new("").style(theme.surface()), rail);
+        let glyphs = match (ctx.icons.nerd, ctx.icons.ascii) {
+            (true, _) => ["\u{f1bb}", "\u{f121}", "\u{f1c0}"],
+            (_, true) => ["T", "Q", "C"],
+            _ => ["▤", "✎", "◆"],
+        };
+        let explorer = self.focus.is(Panel::Explorer);
+        let mut spots = [Rect::default(); 3];
+        for (i, glyph) in glyphs.into_iter().enumerate() {
+            let spot =
+                Rect::new(rail.x, rail.y + 1 + 2 * i as u16, rail.width, 1).intersection(rail);
+            let active = (i == 0 && explorer) || (i == 1 && !explorer);
+            let style = if active {
+                theme.selection()
+            } else {
+                theme.dim().bg(theme.surface)
+            };
+            f.render_widget(Paragraph::new(glyph).centered().style(style), spot);
+            spots[i] = spot;
+        }
+        self.rail.set(spots);
+    }
+
     /// Draws the new layout's row of query tabs, keeping where each landed.
     fn render_strip(&self, f: &mut Frame, strip: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
@@ -529,6 +552,11 @@ impl Workspace {
             spans.push(Span::styled("│", theme.dim()));
             x += width + 5;
         }
+        spans.push(Span::raw(" "));
+        let hovered = self.hovered == Some(bar::NEW_TAB);
+        spans.push(Span::styled(" + ", bar::button_style(theme, hovered)));
+        self.plus
+            .set(Rect::new(x + 1, strip.y, 3, 1).intersection(strip));
         f.render_widget(Paragraph::new(Line::from(spans)).style(theme.base()), strip);
         self.tab_spots.replace(spots);
         self.closes.replace(closes);
@@ -1459,7 +1487,14 @@ impl Workspace {
         let menu = self.menu.take()?;
         match event {
             MenuEvent::Close => None,
-            MenuEvent::Pick(choice) => self.choose(menu.table, menu.kind, menu.name, choice, ctx),
+            MenuEvent::Pick(choice) => {
+                let command = self.choose(menu.table, menu.kind, menu.name, choice, ctx);
+                // The new layout's explorer closes once a table is chosen.
+                if ctx.config.layout == LayoutStyle::Workspace && self.focus.is(Panel::Explorer) {
+                    self.set_focus(Panel::Editor);
+                }
+                command
+            }
         }
     }
 
@@ -1615,7 +1650,6 @@ impl Workspace {
             || self.menu.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
-            || self.picker.is_some()
         {
             return true;
         }
@@ -1655,19 +1689,24 @@ impl Workspace {
         let sideways = event.modifiers.contains(KeyModifiers::SHIFT);
         let [editor_button, results_button] = self.buttons.get();
         let strip = self.strip.get();
-        if let Some(picker) = &self.picker {
-            if matches!(event.kind, MouseEventKind::Down(_)) {
-                let picked = picker.click(event.column, event.row);
-                return self.picked(picked);
+        if event.kind == MouseEventKind::Down(MouseButton::Left) && !self.modal() {
+            match self.rail.get().iter().position(|r| r.contains(point)) {
+                Some(0) => return Component::handle(self, Action::Explorer, ctx),
+                Some(1) => {
+                    self.set_focus(Panel::Editor);
+                    return None;
+                }
+                Some(_) => return Some(Command::Dispatch(Action::Connections)),
+                None => {}
             }
-            return None;
         }
         let button = self
             .toolbar
             .borrow()
             .iter()
             .find(|(spot, _)| spot.contains(point))
-            .map(|(_, button)| *button);
+            .map(|(_, button)| *button)
+            .or_else(|| self.plus.get().contains(point).then_some(bar::NEW_TAB));
         if event.kind == MouseEventKind::Moved {
             self.hovered = button;
             return None;
@@ -1685,14 +1724,16 @@ impl Workspace {
                 Click::Sql(sql) => self.run(Some(sql.to_string()), ctx),
             };
         }
+        // The database opens the explorer under it, and closes it.
         if event.kind == MouseEventKind::Down(MouseButton::Left)
-            && !self.modal()
             && self.database_spot.get().contains(point)
         {
-            self.picker = Some(DatabasePicker::new(
-                self.explorer.databases(),
-                &self.explorer.active,
-            ));
+            let to = if self.focus.is(Panel::Explorer) {
+                Panel::Editor
+            } else {
+                Panel::Explorer
+            };
+            self.set_focus(to);
             return None;
         }
         let closing = (strip.contains(point) && !self.modal())
@@ -1787,9 +1828,6 @@ impl Workspace {
 
 impl Component for Workspace {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
-        if let Some(picker) = &mut self.picker {
-            return picker.handle(action).and_then(|p| self.picked(p));
-        }
         if let Some(dialog) = &mut self.export_dialog {
             match dialog.handle(action) {
                 Some(DialogEvent::Export(file)) => {
@@ -1828,12 +1866,19 @@ impl Component for Workspace {
             self.editor_mut().close_completion();
         }
         match action {
-            Action::NextFocus => {
-                self.focus.next();
-                self.sync_focus();
-            }
-            Action::PrevFocus => {
-                self.focus.prev();
+            Action::NextFocus | Action::PrevFocus => {
+                // The new layout's explorer opens from the bar, not by Tab.
+                let skip = ctx.config.layout == LayoutStyle::Workspace;
+                loop {
+                    if action == Action::NextFocus {
+                        self.focus.next();
+                    } else {
+                        self.focus.prev();
+                    }
+                    if !(skip && self.focus.is(Panel::Explorer)) {
+                        break;
+                    }
+                }
                 self.sync_focus();
             }
             Action::Execute => {
@@ -1868,6 +1913,15 @@ impl Component for Workspace {
                 self.set_focus(Panel::Editor);
             }
             Action::CloseTab => self.close_tab(ctx),
+            Action::Explorer if self.focus.is(Panel::Explorer) => self.set_focus(Panel::Editor),
+            Action::Explorer => self.set_focus(Panel::Explorer),
+            // The new layout's explorer slides back.
+            Action::Back
+                if self.focus.is(Panel::Explorer)
+                    && ctx.config.layout == LayoutStyle::Workspace =>
+            {
+                self.set_focus(Panel::Editor)
+            }
             Action::Maximize => {
                 if self.focus.is(Panel::Explorer) {
                     self.set_focus(Panel::Editor);
@@ -1915,8 +1969,13 @@ impl Component for Workspace {
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let none = Rect::default();
         let workspace = ctx.layout == LayoutStyle::Workspace;
+        let [rail, area] = if workspace {
+            Layout::horizontal([Constraint::Length(3), Constraint::Fill(1)]).areas(area)
+        } else {
+            [none, area]
+        };
         let shown = Some(self.focus.get()).filter(|p| self.maximized && *p != Panel::Explorer);
-        let [left, right] = if shown.is_some() {
+        let [left, right] = if workspace || shown.is_some() {
             [none, area]
         } else {
             Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)]).areas(area)
@@ -1941,6 +2000,7 @@ impl Component for Workspace {
                 read_only: self.read_only,
                 in_transaction: self.in_transaction,
                 buttons: &buttons,
+                hovered: self.hovered,
             }
             .render(f, bar, ctx)
         } else {
@@ -1955,6 +2015,19 @@ impl Component for Workspace {
                 Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right)
             }
         };
+        // The new layout's explorer drops down from the database while
+        // focused.
+        let left = if workspace && self.focus.is(Panel::Explorer) {
+            let width = (right.width * 2 / 5).max(40).min(right.width);
+            let height = (right.height * 2 / 3).max(12).min(right.height);
+            let x = spot
+                .x
+                .saturating_sub(1)
+                .clamp(right.x, right.right().saturating_sub(width));
+            Rect::new(x, right.y, width, height)
+        } else {
+            left
+        };
         self.areas.set([left, editor, results]);
         self.strip.set(strip);
         let labels: Vec<TabLabel> = if workspace {
@@ -1963,11 +2036,9 @@ impl Component for Workspace {
         } else {
             self.tab_spots.replace(self.tab_spots_in(editor));
             self.closes.replace(Vec::new());
+            self.plus.set(Rect::default());
             (0..self.tabs.len()).map(|i| self.label(i)).collect()
         };
-        if !left.is_empty() {
-            self.explorer.render(f, left, ctx);
-        }
         if !editor.is_empty() {
             self.editor().render_with(f, editor, ctx, &labels);
         }
@@ -1984,6 +2055,11 @@ impl Component for Workspace {
             spot
         };
         self.buttons.set([button(editor), button(results)]);
+        if !left.is_empty() {
+            f.render_widget(Clear, left);
+            self.explorer.render(f, left, ctx);
+        }
+        self.render_rail(f, rail, ctx);
         self.editor().render_overlay(f, area, ctx);
         if let Some(menu) = &self.menu {
             menu.render(f, left, ctx);
@@ -1996,9 +2072,6 @@ impl Component for Workspace {
         }
         if let Some(dialog) = &self.export_dialog {
             dialog.render(f, area, ctx);
-        }
-        if let Some(picker) = &self.picker {
-            picker.render(f, spot, area, ctx);
         }
     }
 
@@ -2016,7 +2089,6 @@ impl Component for Workspace {
             || self.menu.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
-            || self.picker.is_some()
         {
             return true;
         }

@@ -418,6 +418,24 @@ fn the_new_layout_has_the_query_tabs_on_top() {
     insta::assert_snapshot!(screen);
     let click = |x: u16| mouse(MouseEventKind::Down(MouseButton::Left), x, 0);
 
+    // `+` opens another, and says its key.
+    let plus = w.plus.get();
+    w.mouse(
+        mouse(MouseEventKind::Moved, plus.x + 1, plus.y),
+        &mut harness.ctx(),
+    );
+    assert_eq!(
+        w.tooltip(&test.keymap).as_deref(),
+        Some("New query tab · Ctrl+N")
+    );
+    let open = mouse(MouseEventKind::Down(MouseButton::Left), plus.x + 1, plus.y);
+    let command = w.mouse(open, &mut harness.ctx());
+    assert_eq!(command, Some(Command::Dispatch(Action::NewTab)));
+    w.handle(Action::NewTab, &mut harness.ctx());
+    assert_eq!(w.tab_count(), 4);
+    w.handle(Action::CloseTab, &mut harness.ctx());
+    render(&test, 100, 12, |f, area, ctx| w.render(f, area, ctx));
+
     let first = w.tab_spots.borrow()[0].0;
     w.mouse(click(first), &mut harness.ctx());
     assert_eq!(w.active_tab(), 0);
@@ -441,32 +459,59 @@ fn the_new_layout_has_the_query_tabs_on_top() {
 }
 
 #[test]
-fn the_connection_bar_switches_the_database() {
+fn the_database_opens_the_explorer_under_it() {
     let mut test = TestCtx::new();
     test.layout = LayoutStyle::Workspace;
     let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
     let mut w = workspace().with_tag(Tag::Red).with_read_only(true);
     answer_catalog(&mut w, &mut harness);
-    render(&test, 100, 16, |f, area, ctx| w.render(f, area, ctx));
+    render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx));
     let spot = w.database_spot.get();
-    w.mouse(
-        mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
-        &mut harness.ctx(),
+    let click = mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y);
+    w.mouse(click, &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Explorer);
+    insta::assert_snapshot!(render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx)));
+    let explorer = w.area(Panel::Explorer);
+    assert_eq!(
+        (explorer.x, explorer.y),
+        (spot.x - 1, spot.y + 1),
+        "under the database"
     );
-    insta::assert_snapshot!(render(&test, 100, 16, |f, area, ctx| w.render(f, area, ctx)));
 
-    // The keys move in the list, and picking the database in use changes nothing.
-    assert_eq!(w.handle(Action::Confirm, &mut harness.ctx()), None);
-    assert!(w.picker.is_none());
-    w.mouse(
-        mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
-        &mut harness.ctx(),
-    );
-    w.handle(Action::Up, &mut harness.ctx());
+    // Enter on another database switches to it, as in the explorer.
+    w.handle(Action::Home, &mut harness.ctx());
     assert_eq!(
         w.handle(Action::Confirm, &mut harness.ctx()),
         Some(Command::UseDatabase("postgres".into()))
     );
+    // A second click closes it.
+    w.mouse(click, &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Editor);
+
+    // Tab skips it.
+    for _ in 0..3 {
+        w.handle(Action::NextFocus, &mut harness.ctx());
+        assert_ne!(w.focused(), Panel::Explorer);
+    }
+    w.handle(Action::PrevFocus, &mut harness.ctx());
+    assert_ne!(w.focused(), Panel::Explorer);
+
+    // Choosing what to do with a table closes it.
+    w.handle(Action::Explorer, &mut harness.ctx());
+    w.handle(Action::Home, &mut harness.ctx());
+    w.handle(Action::Down, &mut harness.ctx());
+    w.handle(Action::Down, &mut harness.ctx());
+    w.handle(Action::Down, &mut harness.ctx());
+    let command = w.handle(Action::Confirm, &mut harness.ctx());
+    if let Some(command) = command {
+        w.explorer_command(command, &mut harness.ctx());
+    }
+    assert!(w.menu.is_some(), "Enter on a table offers its menu");
+    assert_eq!(w.focused(), Panel::Explorer, "open while choosing");
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(w.menu.is_none());
+    assert_eq!(w.focused(), Panel::Editor);
 }
 
 #[test]
@@ -558,7 +603,7 @@ fn the_toolbar_fits_the_width_and_its_buttons_work() {
         w.buttons().len(),
         "all fit at 160"
     );
-    render(&test, 60, 8, |f, area, ctx| w.render(f, area, ctx));
+    render(&test, 44, 8, |f, area, ctx| w.render(f, area, ctx));
     let shown: Vec<Button> = w.toolbar.borrow().iter().map(|(_, b)| *b).collect();
     assert!(
         shown.len() < w.buttons().len() && shown[0] == bar::RUN,
@@ -597,6 +642,37 @@ fn the_toolbar_fits_the_width_and_its_buttons_work() {
 }
 
 #[test]
+fn the_rail_and_ctrl_b_open_the_explorer() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
+    let mut w = workspace();
+    answer_catalog(&mut w, &mut harness);
+    render(&test, 100, 14, |f, area, ctx| w.render(f, area, ctx));
+    assert!(w.area(Panel::Explorer).is_empty(), "closed at first");
+
+    w.handle(Action::Explorer, &mut harness.ctx());
+    let screen = render(&test, 100, 14, |f, area, ctx| w.render(f, area, ctx));
+    insta::assert_snapshot!(screen);
+    assert_eq!(w.focused(), Panel::Explorer);
+    assert!(w.area(Panel::Explorer).intersects(w.area(Panel::Editor)));
+    w.handle(Action::Back, &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Editor);
+
+    let click = |spot: Rect| mouse(MouseEventKind::Down(MouseButton::Left), spot.x + 1, spot.y);
+    let [explorer, query, connections] = w.rail.get();
+    w.mouse(click(explorer), &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Explorer);
+    w.mouse(click(query), &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Editor);
+    assert_eq!(
+        w.mouse(click(connections), &mut harness.ctx()),
+        Some(Command::Dispatch(Action::Connections))
+    );
+}
+
+#[test]
 fn maximize_fills_the_workspace_and_back() {
     let mut test = TestCtx::new();
     let mut harness = Harness::new();
@@ -629,7 +705,7 @@ fn maximize_fills_the_workspace_and_back() {
         button.y,
     );
     w.mouse(click, &mut harness.ctx());
-    let under_the_tabs = Rect::new(0, 2, 100, 28);
+    let under_the_tabs = Rect::new(3, 2, 97, 28);
     assert_eq!(
         draw(&w, &test),
         [Rect::default(), Rect::default(), under_the_tabs]
@@ -641,7 +717,12 @@ fn maximize_fills_the_workspace_and_back() {
         button.y,
     );
     w.mouse(click, &mut harness.ctx());
-    assert_eq!(draw(&w, &test)[0], explorer);
+    let [explorer, editor, results] = draw(&w, &test);
+    assert!(
+        explorer.is_empty(),
+        "the new layout's explorer slides out instead"
+    );
+    assert!(!editor.is_empty() && results != under_the_tabs);
 }
 
 #[test]
