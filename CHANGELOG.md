@@ -17,6 +17,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - **Ctrl+G** makes the focused editor or results fill the workspace, and back.
 - The new layout puts the query tabs in a row of their own above the editor: a click
   switches, **×** closes, asking first when the tab holds a query.
+- The new layout shows the connection in a bar under the query tabs, with its colour tag,
+  read-only and an open transaction, instead of in the status bar. A click on the database
+  lists the server's databases to switch to.
 
 ## [0.5.40] - 2026-11-16
 

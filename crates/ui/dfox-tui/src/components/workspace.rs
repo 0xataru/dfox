@@ -26,6 +26,7 @@ use ratatui::{
 };
 
 use super::{
+    bar::{Bar, DatabasePicker, Picked},
     card::{CardEvent, ColumnCard, TableCard},
     copy::CopyDialog,
     editor::{Checker, EditorPanel, TabLabel},
@@ -40,6 +41,7 @@ use crate::{
     command::Command,
     component::{Component, Ctx, Focus, RenderCtx},
     config::LayoutStyle,
+    connections::Tag,
     history::Entry,
     sql::{self, guard, Dialect},
     widgets::{throbber::spinner, toast::Level},
@@ -153,6 +155,12 @@ pub struct Workspace {
     /// The new layout's row of query tabs, and the column of each tab's ×.
     strip: Cell<Rect>,
     closes: RefCell<Vec<u16>>,
+    /// The connection's colour, for the new layout's connection bar.
+    tag: Tag,
+    /// Where the bar shows the database, for clicks.
+    database_spot: Cell<Rect>,
+    /// The list of databases the bar opened.
+    picker: Option<DatabasePicker>,
     /// The focused editor or results fill the workspace.
     maximized: bool,
     /// Where the maximize buttons of the editor and the results were drawn.
@@ -197,6 +205,9 @@ impl Workspace {
             tab_spots: RefCell::new(Vec::new()),
             strip: Cell::new(Rect::default()),
             closes: RefCell::new(Vec::new()),
+            tag: Tag::None,
+            database_spot: Cell::new(Rect::default()),
+            picker: None,
             maximized: false,
             buttons: Cell::new([Rect::default(); 2]),
             card: None,
@@ -253,6 +264,22 @@ impl Workspace {
             tab.editor.checker = self.checker.clone();
         }
         self
+    }
+
+    pub fn with_tag(mut self, tag: Tag) -> Self {
+        self.tag = tag;
+        self
+    }
+
+    /// What a choice in the list of databases does.
+    fn picked(&mut self, picked: Picked) -> Option<Command> {
+        self.picker = None;
+        match picked {
+            Picked::Database(name) if name != self.explorer.active => {
+                Some(Command::UseDatabase(name))
+            }
+            _ => None,
+        }
     }
 
     pub fn with_read_only(mut self, read_only: bool) -> Self {
@@ -1512,6 +1539,7 @@ impl Workspace {
             || self.menu.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
+            || self.picker.is_some()
         {
             return true;
         }
@@ -1551,6 +1579,23 @@ impl Workspace {
         let sideways = event.modifiers.contains(KeyModifiers::SHIFT);
         let [editor_button, results_button] = self.buttons.get();
         let strip = self.strip.get();
+        if let Some(picker) = &self.picker {
+            if matches!(event.kind, MouseEventKind::Down(_)) {
+                let picked = picker.click(event.column, event.row);
+                return self.picked(picked);
+            }
+            return None;
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && !self.modal()
+            && self.database_spot.get().contains(point)
+        {
+            self.picker = Some(DatabasePicker::new(
+                self.explorer.databases(),
+                &self.explorer.active,
+            ));
+            return None;
+        }
         let closing = (strip.contains(point) && !self.modal())
             .then(|| self.closes.borrow().iter().position(|x| *x == event.column))
             .flatten();
@@ -1643,6 +1688,9 @@ impl Workspace {
 
 impl Component for Workspace {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if let Some(picker) = &mut self.picker {
+            return picker.handle(action).and_then(|p| self.picked(p));
+        }
         if let Some(dialog) = &mut self.export_dialog {
             match dialog.handle(action) {
                 Some(DialogEvent::Export(file)) => {
@@ -1772,11 +1820,30 @@ impl Component for Workspace {
         } else {
             Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)]).areas(area)
         };
-        let [strip, right] = if workspace {
-            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(right)
+        let [strip, bar, right] = if workspace {
+            Layout::vertical([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Fill(1),
+            ])
+            .areas(right)
         } else {
-            [none, right]
+            [none, none, right]
         };
+        let spot = if workspace {
+            Bar {
+                tag: self.tag,
+                driver: self.explorer.driver,
+                connection: &self.connection,
+                database: &self.explorer.active,
+                read_only: self.read_only,
+                in_transaction: self.in_transaction,
+            }
+            .render(f, bar, ctx)
+        } else {
+            none
+        };
+        self.database_spot.set(spot);
         let [editor, results] = match shown {
             Some(Panel::Editor) => [right, none],
             Some(_) => [none, right],
@@ -1826,6 +1893,9 @@ impl Component for Workspace {
         if let Some(dialog) = &self.export_dialog {
             dialog.render(f, area, ctx);
         }
+        if let Some(picker) = &self.picker {
+            picker.render(f, spot, area, ctx);
+        }
     }
 
     fn is_animating(&self) -> bool {
@@ -1842,6 +1912,7 @@ impl Component for Workspace {
             || self.menu.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
+            || self.picker.is_some()
         {
             return true;
         }

@@ -441,6 +441,35 @@ fn the_new_layout_has_the_query_tabs_on_top() {
 }
 
 #[test]
+fn the_connection_bar_switches_the_database() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    let mut w = workspace().with_tag(Tag::Red).with_read_only(true);
+    answer_catalog(&mut w, &mut harness);
+    render(&test, 100, 16, |f, area, ctx| w.render(f, area, ctx));
+    let spot = w.database_spot.get();
+    w.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
+        &mut harness.ctx(),
+    );
+    insta::assert_snapshot!(render(&test, 100, 16, |f, area, ctx| w.render(f, area, ctx)));
+
+    // The keys move in the list, and picking the database in use changes nothing.
+    assert_eq!(w.handle(Action::Confirm, &mut harness.ctx()), None);
+    assert!(w.picker.is_none());
+    w.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
+        &mut harness.ctx(),
+    );
+    w.handle(Action::Up, &mut harness.ctx());
+    assert_eq!(
+        w.handle(Action::Confirm, &mut harness.ctx()),
+        Some(Command::UseDatabase("postgres".into()))
+    );
+}
+
+#[test]
 fn maximize_fills_the_workspace_and_back() {
     let mut test = TestCtx::new();
     let mut harness = Harness::new();
@@ -473,7 +502,7 @@ fn maximize_fills_the_workspace_and_back() {
         button.y,
     );
     w.mouse(click, &mut harness.ctx());
-    let under_the_tabs = Rect::new(0, 1, 100, 29);
+    let under_the_tabs = Rect::new(0, 2, 100, 28);
     assert_eq!(
         draw(&w, &test),
         [Rect::default(), Rect::default(), under_the_tabs]
