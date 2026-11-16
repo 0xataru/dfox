@@ -16,3 +16,5 @@ pub mod models;
 pub mod result;
 #[deny(missing_docs)]
 pub mod session;
+#[cfg(feature = "tls")]
+pub mod tls;

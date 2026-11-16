@@ -21,6 +21,12 @@ arrow-select = "60.0.0"
 # Snappy only: the other codecs build C libraries.
 parquet = { version = "60.0.0", default-features = false, features = ["arrow", "snap"] }
 bitflags = "2.13.2"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"], optional = true }
+rustls-native-certs = { version = "0.8.5", optional = true }
+
+[features]
+# rustls set up for drivers that encrypt with it.
+tls = ["dep:rustls", "dep:rustls-native-certs"]
 
 
 [lints]

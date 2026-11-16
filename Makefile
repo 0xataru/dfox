@@ -33,11 +33,13 @@ test: ## Run the test suite (Postgres/MySQL integration tests skip themselves)
 test-it: ## Run the test suite against real Postgres, MySQL, MongoDB, ScyllaDB and an SSH jump host (needs Docker)
 	docker compose -f docker-compose.test.yml up -d --wait
 	./scripts/tls-postgres.sh
+	./scripts/tls-scylla.sh
 	./scripts/ssh-server.sh
 	DFOX_IT_REQUIRED=1 \
 	DFOX_TEST_SSH_DIR=$(CURDIR)/target/ssh \
 	DFOX_TEST_POSTGRES_TLS_URL=postgres://postgres:dfox@localhost:15433/postgres \
 	DFOX_TEST_POSTGRES_CA=$(CURDIR)/target/tls/ca.pem \
+	DFOX_TEST_CASSANDRA_TLS_URL=cassandra://127.0.0.1:19043 \
 	DFOX_TEST_POSTGRES_URL=postgres://postgres:dfox@127.0.0.1:15432/postgres \
 	DFOX_TEST_MYSQL_URL=mysql://root:dfox@127.0.0.1:13306/dfox \
 	DFOX_TEST_MONGO_URL=mongodb://root:dfox@127.0.0.1:17017 \
@@ -48,6 +50,7 @@ test-it: ## Run the test suite against real Postgres, MySQL, MongoDB, ScyllaDB a
 test-it-down: ## Stop the integration-test databases
 	docker compose -f docker-compose.test.yml down
 	./scripts/tls-postgres.sh down
+	./scripts/tls-scylla.sh down
 	./scripts/ssh-server.sh down
 
 bench: ## Benchmarks; Postgres and MySQL ones run against `make test-it`'s databases

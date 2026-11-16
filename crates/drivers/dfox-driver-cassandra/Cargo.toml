@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dfox-core = { path = "../../core/dfox-core" }
+dfox-core = { path = "../../core/dfox-core", features = ["tls"] }
 dfox-sql = { path = "../../libs/dfox-sql" }
 futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
 log = "0.4.21"
@@ -15,7 +15,7 @@ tokio = { version = "1.40.0", features = ["full"] }
 # No TLS yet: scylla's rustls feature brings rustls's default crypto
 # provider, aws-lc-rs, which clashes with the ring provider the other
 # drivers use.
-scylla = "1.9.0"
+scylla = { version = "1.9.0", features = ["rustls-023"] }
 arrow-array = "60.0.0"
 arrow-schema = "60.0.0"
 serde_json = "1"
