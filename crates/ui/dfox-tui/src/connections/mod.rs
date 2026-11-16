@@ -16,6 +16,7 @@ pub mod pgpass;
 pub mod ports;
 pub mod secrets;
 pub mod sqlite;
+pub mod ssh_config;
 pub mod url;
 
 use std::path::{Path, PathBuf};

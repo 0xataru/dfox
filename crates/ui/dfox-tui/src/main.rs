@@ -290,6 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let var = |name: &str| env::var(name).ok();
         detected.extend(connections::local::find(&cwd, &var));
         detected.extend(connections::frameworks::find(&cwd, &var));
+        detected.extend(connections::ssh_config::find());
     }
 
     let mouse = config.mouse;

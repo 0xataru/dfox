@@ -125,6 +125,8 @@ fn group(found: &Detected) -> (u8, String) {
         || source.starts_with("port ")
     {
         (4, "Local ports".to_string())
+    } else if source.starts_with("~/.ssh/config") {
+        (4, "SSH hosts".to_string())
     } else if source.starts_with("a SQLite file") {
         (5, "SQLite files".to_string())
     } else {
