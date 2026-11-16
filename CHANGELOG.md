@@ -64,6 +64,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   the Kubernetes clusters picked, SQLite files, the environment), that it keeps looking, and
   what to do: `n` to add a connection, `K` to pick clusters, or a URL on the command line,
   under the fox where the terminal is tall enough.
+- The connection list finds hosts of `~/.ssh/config` with a `LocalForward` to a database's port
+  and offers the database through that host with dfox's own SSH tunnel, with the host's
+  `HostName`, `User`, `Port` and `IdentityFile`, under "SSH hosts". `Include`, `Match` and
+  wildcard hosts are left out.
 - The connection manager lists databases running in local Docker or Podman containers:
   Postgres, MySQL, MariaDB, MongoDB, Redis, Valkey, Cassandra and ScyllaDB images that publish
   their port, with the user, password and database from the container's environment. They
