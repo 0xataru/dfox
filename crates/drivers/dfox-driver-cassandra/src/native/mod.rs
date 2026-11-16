@@ -118,13 +118,11 @@ pub async fn open(params: &ConnectionParams) -> Result<Box<dyn Session>, DbError
     if !params.username.is_empty() {
         builder = builder.user(&params.username, &params.password);
     }
-    // Cassandra doesn't negotiate TLS, so `prefer` connects plain. The
-    // driver connects by IP address: the certificate is checked against
-    // the host as typed.
+    // Cassandra doesn't negotiate TLS, so `prefer` connects plain.
     if matches!(params.tls, TlsMode::Require | TlsMode::VerifyFull) {
-        if let Some(config) = dfox_core::tls::client_config(params, Some(&params.host))? {
-            builder = builder.tls_context(Some(Arc::new(config)));
-        }
+        return Err(DbError::Config(
+            "dfox can't encrypt Cassandra connections yet: set TLS to prefer or disable".into(),
+        ));
     }
     let session = builder
         .build()

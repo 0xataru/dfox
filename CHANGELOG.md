@@ -13,9 +13,6 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   types each value by its column (text into a uuid or a timestamp, a list into a set,
   decimals exact). A Cassandra table isn't created by the copy: its primary key is yours to
   choose.
-- TLS for Cassandra and ScyllaDB: `require` encrypts, `verify` checks the certificate
-  against the system's roots and the CA file, and the host as typed, since the driver
-  connects by IP address.
 - `mongodb+srv://` addresses, and **SRV** in the connection form for MongoDB: the servers,
   replica set and auth database come from DNS, with TLS on unless turned off.
 - **o** in the connection list opens any SQLite file by its path.

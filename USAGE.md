@@ -111,8 +111,8 @@ write). **TLS**
 can be `prefer` (the default), `require`, `verify` (the server's certificate
 and name are checked against the system's roots and an optional **CA file**)
 or turned off, and a coloured **tag** marks it in the list and the status bar.
-Cassandra doesn't negotiate TLS, so there `prefer` connects plain; `verify`
-checks the certificate against the host as typed. A MongoDB **SRV** connection
+Cassandra connections aren't encrypted yet: there `prefer` connects plain. A
+MongoDB **SRV** connection
 (`mongodb+srv://`, or **SRV** in the form) takes its servers, replica set and
 auth database from the host's DNS records, with TLS on unless turned off; it
 isn't pinged in the list.

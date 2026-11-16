@@ -329,49 +329,6 @@ async fn one_replica_is_enough_to_read() {
     assert!(out.is_ok(), "{:?}", out.err());
 }
 
-/// TLS against a ScyllaDB that only takes encrypted clients, with a
-/// certificate for "localhost" from a test CA (`scripts/tls-scylla.sh`). The
-/// driver connects by IP address: `verify-full` checks the host as typed.
-#[tokio::test]
-async fn tls_checks_the_certificate_against_the_host_typed() {
-    use dfox_core::models::connections::TlsMode;
-
-    let Some(url) = server_url("DFOX_TEST_CASSANDRA_TLS_URL") else {
-        return;
-    };
-    // The test CA scripts/tls-postgres.sh made, shared by both servers.
-    let Some(ca) = server_url("DFOX_TEST_POSTGRES_CA") else {
-        return;
-    };
-    let base = params_from_url(&url);
-    let with = |host: &str, tls, ca_file: Option<&str>| ConnectionParams {
-        host: host.to_string(),
-        tls,
-        ca_file: ca_file.map(str::to_string),
-        ..base.clone()
-    };
-    let mut s = CassandraDriver
-        .open(&with("localhost", TlsMode::VerifyFull, Some(&ca)))
-        .await
-        .expect("verified");
-    let out = run(s.as_mut(), "SELECT key FROM system.local", 1)
-        .await
-        .expect("a query over TLS");
-    assert_eq!(scalar(&out), Some("local"));
-    CassandraDriver
-        .open(&with("127.0.0.1", TlsMode::Require, None))
-        .await
-        .expect("encrypted without a check");
-    for (host, tls, ca_file) in [
-        ("localhost", TlsMode::VerifyFull, None),
-        ("127.0.0.1", TlsMode::VerifyFull, Some(ca.as_str())),
-        ("localhost", TlsMode::Disable, None),
-    ] {
-        let refused = CassandraDriver.open(&with(host, tls, ca_file)).await;
-        assert!(refused.is_err(), "{host} {tls:?} {ca_file:?}");
-    }
-}
-
 /// What an import or a copy sends: rows the server types by their columns.
 #[tokio::test]
 async fn rows_are_added_as_their_columns_type_them() {

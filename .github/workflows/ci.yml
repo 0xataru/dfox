@@ -99,7 +99,6 @@ jobs:
       DFOX_TEST_POSTGRES_URL: postgres://postgres:dfox@127.0.0.1:15432/postgres
       DFOX_TEST_MYSQL_URL: mysql://root:dfox@127.0.0.1:13306/dfox
       DFOX_TEST_POSTGRES_TLS_URL: postgres://postgres:dfox@localhost:15433/postgres
-      DFOX_TEST_CASSANDRA_TLS_URL: cassandra://127.0.0.1:19043
       DFOX_TEST_POSTGRES_CA: ${{ github.workspace }}/target/tls/ca.pem
       DFOX_TEST_SSH_DIR: ${{ github.workspace }}/target/ssh
     steps:
@@ -119,10 +118,6 @@ jobs:
       # A second Postgres with TLS and a test CA, for the verify-full tests.
       - name: TLS Postgres
         run: ./scripts/tls-postgres.sh
-
-      # ScyllaDB taking only TLS clients, with the same certificate.
-      - name: TLS ScyllaDB
-        run: ./scripts/tls-scylla.sh
 
       # An SSH jump host in front of the test Postgres, for the tunnel tests.
       - name: SSH jump host
