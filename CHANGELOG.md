@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.38] - 2026-11-16
+
 ### Added
 
 - A connection can go through a Kubernetes service: dfox runs `kubectl port-forward` to it on
