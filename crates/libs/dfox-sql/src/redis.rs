@@ -194,6 +194,7 @@ pub fn highlight(lines: &[String]) -> Vec<Vec<Piece>> {
                 .first()
                 .map(|w| w.text.to_uppercase())
                 .unwrap_or_default();
+            let syntax = Syntax::of(&command);
             words
                 .iter()
                 .enumerate()
@@ -205,9 +206,16 @@ pub fn highlight(lines: &[String]) -> Vec<Vec<Piece>> {
                                 .text
                                 .chars()
                                 .all(|c| c.is_ascii_alphabetic() || c == '-'));
+                    // An option where options go: `SET k v EX 10`, not a key named `EX`.
+                    let option = !word.quoted
+                        && i > 0
+                        && syntax.is_some_and(|s| {
+                            i > s.required()
+                                && s.options.iter().any(|o| o.eq_ignore_ascii_case(&word.text))
+                        });
                     let kind = if word.quoted {
                         Kind::String
-                    } else if name {
+                    } else if name || option {
                         Kind::Keyword
                     } else if word.text.parse::<f64>().is_ok() {
                         Kind::Number
@@ -958,6 +966,22 @@ impl Syntax {
 #[cfg(test)]
 mod syntax_tests {
     use super::*;
+
+    #[test]
+    fn options_are_coloured_where_options_go() {
+        let kinds = |line: &str| -> Vec<Kind> {
+            highlight(&[line.to_string()])[0]
+                .iter()
+                .map(|p| p.kind)
+                .collect()
+        };
+        assert_eq!(
+            kinds("SET k v EX 10 NX"),
+            [Kind::Keyword, Kind::Keyword, Kind::Number, Kind::Keyword]
+        );
+        // A key called EX is a key.
+        assert_eq!(kinds("GET EX"), [Kind::Keyword]);
+    }
 
     #[test]
     fn the_argument_under_the_cursor() {
