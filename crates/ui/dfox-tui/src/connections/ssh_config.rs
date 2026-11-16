@@ -3,9 +3,7 @@
 //! connection through that host with dfox's own tunnel, its user, port and
 //! key as the config has them. `Include` and `Match` are left as they are.
 
-use dfox_core::models::connections::DbType;
-
-use super::{Connection, Ssh, SshLogin};
+use super::{engines, Connection, Ssh, SshLogin};
 use crate::components::manager::Detected;
 
 pub fn find() -> Vec<Detected> {
@@ -28,19 +26,6 @@ struct Block {
     identity: Option<String>,
     /// `LocalForward` targets: host and port as seen from the SSH host.
     forwards: Vec<(String, u16)>,
-}
-
-/// The engine whose usual port `port` is.
-fn engine(port: u16) -> Option<DbType> {
-    [
-        DbType::Postgres,
-        DbType::MySql,
-        DbType::Mongo,
-        DbType::Redis,
-        DbType::Cassandra,
-    ]
-    .into_iter()
-    .find(|d| Connection::default_port(*d) == port)
 }
 
 pub fn parse(text: &str) -> Vec<Detected> {
@@ -93,7 +78,7 @@ pub fn parse(text: &str) -> Vec<Detected> {
             continue;
         };
         for (target, port) in &block.forwards {
-            let Some(driver) = engine(*port) else {
+            let Some(driver) = engines::by_port(*port) else {
                 continue;
             };
             let mut connection = Connection::new(&format!("{alias} → {target}:{port}"), driver);
@@ -124,6 +109,7 @@ pub fn parse(text: &str) -> Vec<Detected> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dfox_core::models::connections::DbType;
 
     #[test]
     fn local_forwards_to_database_ports_become_connections() {

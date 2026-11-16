@@ -4,7 +4,7 @@
 use dfox_core::models::connections::{DbType, TlsMode};
 use percent_encoding::percent_decode_str;
 
-use super::Connection;
+use super::{engines, Connection};
 
 /// The connection a URL describes, and its password if it has one.
 pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), String> {
@@ -27,18 +27,14 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
     }
 
     let url = url::Url::parse(text).map_err(|err| format!("{text:?}: {err}"))?;
-    let driver = match url.scheme() {
-        "postgres" | "postgresql" => DbType::Postgres,
-        "mysql" | "mariadb" => DbType::MySql,
-        "mongodb" => DbType::Mongo,
-        "cassandra" | "scylla" | "scylladb" => DbType::Cassandra,
-        "redis" | "rediss" | "valkey" | "valkeys" => DbType::Redis,
-        "mongodb+srv" => {
+    let driver = match engines::find(|e| e.schemes, |w| w == url.scheme()) {
+        Some(driver) => driver,
+        None if url.scheme() == "mongodb+srv" => {
             return Err(
                 "mongodb+srv addresses aren't supported yet: use mongodb://host:port".into(),
             )
         }
-        scheme => return Err(format!("unsupported database {scheme:?}")),
+        None => return Err(format!("unsupported database {:?}", url.scheme())),
     };
     let decode = |s: &str| percent_decode_str(s).decode_utf8_lossy().into_owned();
     let database = url.path().trim_start_matches('/');

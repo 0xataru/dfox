@@ -357,11 +357,7 @@ impl App {
     ) {
         // A found connection may not know its user (a port forward); Postgres
         // and MySQL won't do without one.
-        let default_user = match connection.driver {
-            DbType::Postgres => Some("postgres"),
-            DbType::MySql => Some("root"),
-            _ => None,
-        };
+        let default_user = crate::connections::engines::of(connection.driver).user;
         if let (true, Some(user)) = (connection.user.is_empty(), default_user) {
             self.overlay = Some(Overlay::Password {
                 connection,

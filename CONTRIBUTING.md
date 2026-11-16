@@ -62,6 +62,10 @@ New database support is a new driver crate implementing `Driver` (with
 `open` returning a `Session`), a test that runs
 `dfox_testkit::conformance::check` against the database, and a feature in
 `dfox`. The TUI should not need to know which database it is talking to.
+What dfox needs to find its databases (port, image names, URL schemes and
+the like) is the engine's row in `crates/ui/dfox-tui/src/connections/engines.rs`:
+a new `DbType` doesn't build until that row and the port probe in
+`ports.rs` are filled.
 
 ## Workflow
 

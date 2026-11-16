@@ -7,6 +7,7 @@
 pub mod compose;
 pub mod containers;
 pub mod discover;
+pub mod engines;
 pub mod frameworks;
 pub mod kube_secret;
 pub mod kubernetes;
@@ -195,13 +196,7 @@ impl Connection {
     }
 
     pub fn default_port(driver: DbType) -> u16 {
-        match driver {
-            DbType::MySql => 3306,
-            DbType::Mongo => 27017,
-            DbType::Cassandra => 9042,
-            DbType::Redis => 6379,
-            _ => 5432,
-        }
+        engines::of(driver).port.unwrap_or_default()
     }
 
     /// The database opened when none is set: one every server has.
@@ -211,16 +206,7 @@ impl Connection {
 
     /// The database a `driver` connection opens when none is set.
     pub fn default_database_of(driver: DbType) -> &'static str {
-        match driver {
-            DbType::MySql => "mysql",
-            // As in mongosh.
-            DbType::Mongo => "test",
-            // Every cluster has it.
-            DbType::Cassandra => "system",
-            // Redis numbers its databases.
-            DbType::Redis => "0",
-            _ => "postgres",
-        }
+        engines::of(driver).database
     }
 
     /// True when connecting needs an SSH password that may not be saved.

@@ -17,7 +17,7 @@ use tokio::{
     net::TcpStream,
 };
 
-use super::Connection;
+use super::{engines, Connection};
 use crate::components::manager::Detected;
 
 /// How long one probe waits for an answer.
@@ -209,20 +209,18 @@ pub async fn identify(port: u16) -> Option<DbType> {
         // MySQL's handshake: a packet whose payload starts with protocol 10.
         return (greeting.len() > 5 && greeting[4] == 10).then_some(DbType::MySql);
     }
-    let mut order = [
-        DbType::Postgres,
-        DbType::Redis,
-        DbType::Mongo,
-        DbType::Cassandra,
-    ];
+    let mut order: Vec<(DbType, Vec<u8>)> = engines::ALL
+        .into_iter()
+        .filter_map(|d| Some((d, request(d)?)))
+        .collect();
     if let Some(i) = order
         .iter()
-        .position(|d| Connection::default_port(*d) == port)
+        .position(|(d, _)| engines::of(*d).port == Some(port))
     {
         order[..=i].rotate_right(1);
     }
-    for driver in order {
-        let answer = exchange(port, &request(driver)).await;
+    for (driver, request) in order {
+        let answer = exchange(port, &request).await;
         if answer.is_some_and(|a| answers(driver, &a)) {
             return Some(driver);
         }
@@ -231,17 +229,17 @@ pub async fn identify(port: u16) -> Option<DbType> {
 }
 
 /// What `driver` is asked: something every server of it answers before
-/// any login.
-fn request(driver: DbType) -> Vec<u8> {
-    match driver {
+/// any login. None for MySQL, which speaks first, and files.
+fn request(driver: DbType) -> Option<Vec<u8>> {
+    Some(match driver {
         // SSLRequest: answered with one byte, `S` or `N`.
         DbType::Postgres => vec![0, 0, 0, 8, 0x04, 0xd2, 0x16, 0x2f],
         DbType::Redis => b"PING\r\n".to_vec(),
         // OPTIONS, protocol 4, stream 0.
         DbType::Cassandra => vec![0x04, 0, 0, 0, 0x05, 0, 0, 0, 0],
         DbType::Mongo => mongo_hello(),
-        _ => Vec::new(),
-    }
+        DbType::MySql | DbType::Sqlite => return None,
+    })
 }
 
 /// An `OP_MSG` with `{ hello: 1, $db: "admin" }`.
@@ -275,7 +273,7 @@ fn answers(driver: DbType, answer: &[u8]) -> bool {
         }
         DbType::Cassandra => answer.len() >= 5 && answer[0] & 0x80 != 0 && answer[4] == 0x06,
         DbType::Mongo => answer.len() >= 16 && answer[12..16] == 2013i32.to_le_bytes(),
-        _ => false,
+        DbType::MySql | DbType::Sqlite => false,
     }
 }
 

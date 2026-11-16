@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, time::Duration};
 use dfox_core::models::connections::{DbType, KubeParams};
 use serde::Deserialize;
 
-use super::{Connection, Tag};
+use super::{engines, Connection, Tag};
 use crate::components::manager::Detected;
 
 /// Logging in to a cloud cluster can take a few seconds.
@@ -187,28 +187,7 @@ struct Port {
 /// The engine a service port speaks, by its name or else its number.
 fn engine(port: &Port) -> Option<DbType> {
     let name = port.name.as_deref().unwrap_or_default().to_lowercase();
-    let named = [
-        (DbType::Postgres, ["postgres", "pg"].as_slice()),
-        (DbType::MySql, &["mysql", "mariadb"]),
-        (DbType::Mongo, &["mongo"]),
-        (DbType::Redis, &["redis", "valkey"]),
-        (DbType::Cassandra, &["cql", "cassandra", "scylla"]),
-    ];
-    if let Some((driver, _)) = named
-        .iter()
-        .find(|(_, words)| words.iter().any(|w| name.contains(w)))
-    {
-        return Some(*driver);
-    }
-    [
-        DbType::Postgres,
-        DbType::MySql,
-        DbType::Mongo,
-        DbType::Redis,
-        DbType::Cassandra,
-    ]
-    .into_iter()
-    .find(|d| Connection::default_port(*d) == port.port)
+    engines::find(|e| e.port_names, |w| name.contains(w)).or_else(|| engines::by_port(port.port))
 }
 
 pub fn parse(json: &str, context: &str) -> Vec<Detected> {

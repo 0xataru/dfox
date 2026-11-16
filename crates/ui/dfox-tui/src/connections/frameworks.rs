@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, path::Path};
 
 use dfox_core::models::connections::DbType;
 
-use super::{url, Connection};
+use super::{engines, url, Connection};
 use crate::components::manager::Detected;
 
 pub fn find(dir: &Path, var: &dyn Fn(&str) -> Option<String>) -> Vec<Detected> {
@@ -163,12 +163,8 @@ fn rails(text: &str, dir: &Path, var: &dyn Fn(&str) -> Option<String>) -> Option
             source,
         });
     }
-    let driver = match get("adapter")?.as_str() {
-        "postgresql" | "postgis" => DbType::Postgres,
-        "mysql2" | "trilogy" => DbType::MySql,
-        "sqlite3" => DbType::Sqlite,
-        _ => return None,
-    };
+    let adapter = get("adapter")?;
+    let driver = engines::find(|e| e.adapters, |w| w == adapter)?;
     let mut connection = Connection::new("rails development", driver);
     if driver == DbType::Sqlite {
         connection.database = Some(dir.join(get("database")?).display().to_string());
