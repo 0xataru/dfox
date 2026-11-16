@@ -36,6 +36,7 @@ use crate::{
     action::Action,
     command::Command,
     component::{Component, Ctx, RenderCtx},
+    config::LayoutStyle,
     sql::{self, Dialect},
     theme::ColorDepth,
     widgets::{fox::Fox, progress::ProgressBar, throbber::spinner, toast::Level},
@@ -846,6 +847,12 @@ impl Component for ResultsPanel {
                         theme.dim(),
                     ),
                 ]),
+                None if ctx.layout == LayoutStyle::Workspace && self.message.is_none() => {
+                    Line::from(vec![
+                        Span::styled(format!("{} ", ctx.icons.info), theme.key()),
+                        Span::styled("No data output. Run a query to get output.", theme.dim()),
+                    ])
+                }
                 None => Line::styled(
                     self.message
                         .as_deref()
@@ -882,6 +889,12 @@ impl Component for ResultsPanel {
                     depth: ColorDepth::of(theme.bg),
                 };
                 f.render_widget(fox, fox_area);
+                f.render_widget(Paragraph::new(status).centered(), line);
+            } else if ctx.layout == LayoutStyle::Workspace {
+                f.render_widget(block, area);
+                let [line] = Layout::vertical([Constraint::Length(1)])
+                    .flex(Flex::Center)
+                    .areas(room);
                 f.render_widget(Paragraph::new(status).centered(), line);
             } else {
                 f.render_widget(Paragraph::new(status).block(block), area);

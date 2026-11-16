@@ -7,6 +7,15 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- A redesigned workspace beside the classic one: `layout = "workspace"` in `config.toml`, or
+  **Classic / new layout** in the command palette, which switches at once and keeps the
+  choice. The classic layout stays the default and as it was. The new one starts with a
+  maximize button on the editor and the results and a centred note while there are no
+  results.
+- **Ctrl+G** makes the focused editor or results fill the workspace, and back.
+
 ## [0.5.40] - 2026-11-16
 
 ### Added

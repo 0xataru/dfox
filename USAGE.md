@@ -280,6 +280,11 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 ### Interface Controls
 - **F1** - Back to the connections
 - **Ctrl+T** - Next theme
+- **Ctrl+G** - The focused editor or results fill the workspace, and back
+- **Classic / new layout** in the command palette (**Ctrl+P**) switches to the redesigned
+  workspace and back, and keeps the choice in `config.toml`. The new layout shows a
+  maximize button on the editor and the results, and a centred note while there are no
+  results yet
 - **F12** - Event log
 - **Esc**, **q** or **Ctrl+Q** - Quit (asks first while connected)
 
@@ -344,6 +349,7 @@ setting is optional:
 ```toml
 theme = "dfox"        # dfox, tokyo-night, catppuccin-mocha, catppuccin-latte,
                       # gruvbox, nord, high-contrast, or a file in themes/
+layout = "classic"    # or "workspace": the redesigned workspace
 keymap = "standard"   # or "vim": hjkl, g/G, Ctrl+D/Ctrl+U outside text fields
 animations = true     # false: no splash, transitions or spinners (or --reduced-motion, NO_COLOR)
 icons = "auto"        # "nerd": Nerd Font glyphs, a logo per database; "ascii": plain text
@@ -400,6 +406,8 @@ action without a key. The actions and their default keys:
 | `save` | Save | `ctrl+s` |
 | `connections` | Connection list | `f1` |
 | `next_theme` | Next theme | `ctrl+t` |
+| `switch_layout` | Classic / new layout | |
+| `maximize` | Maximize the panel | `ctrl+g` |
 | `debug` | Event log | `f12` |
 | `menu` | Command menu | `space` |
 | `help` | Show keys | `?`, `f2` |

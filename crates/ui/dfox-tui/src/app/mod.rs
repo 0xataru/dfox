@@ -888,6 +888,7 @@ impl App {
                 self.overlay = Some(Overlay::Menu)
             }
             Action::NextTheme => self.next_theme(),
+            Action::SwitchLayout => self.switch_layout(),
             Action::Quit if self.session.is_some() => self.apply_command(Command::ConfirmQuit),
             Action::Quit => self.should_quit = true,
             action => {
@@ -961,6 +962,23 @@ impl App {
         self.toasts.push(level, text, Instant::now());
     }
 
+    fn switch_layout(&mut self) {
+        let layout = self.config.layout.other();
+        self.config.layout = layout;
+        let saved = match &self.config_dir {
+            Some(dir) => Config::save_layout(dir, layout),
+            None => Err("no config folder to keep it in".to_string()),
+        };
+        let (level, text) = match saved {
+            Ok(()) => (Level::Info, format!("Layout: {} · saved", layout.name())),
+            Err(err) => (
+                Level::Warning,
+                format!("Layout: {} · not saved: {err}", layout.name()),
+            ),
+        };
+        self.toasts.push(level, text, Instant::now());
+    }
+
     fn next_theme(&mut self) {
         let names: Vec<&str> = theme::BUILTIN.iter().map(|(name, _)| *name).collect();
         let next = names
@@ -996,6 +1014,7 @@ impl App {
             now,
             frame: self.frame,
             animations: self.config.animations,
+            layout: self.config.layout,
         };
         self.draw(f, &ctx);
         if let Some(logo) = self.splash_logo.take() {

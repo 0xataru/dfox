@@ -1,15 +1,16 @@
 ---
-source: dfox-tui/src/widgets/help.rs
+source: crates/ui/dfox-tui/src/widgets/help.rs
+assertion_line: 203
 expression: "render(&test, 80, 24, |f, area, ctx| super::render(f, area, &help, ctx))"
 ---
                  ╭ Keys ───────────────────────────────────────╮
                  │                                             │
-                 │ e                 Edit / definition         │
-                 │ Delete d          Delete                    │
                  │ Ctrl+S            Save                      │
                  │ F1                Connection list           │
                  │ K                 Kubernetes clusters       │
                  │ Ctrl+T            Next theme                │
+                 │ –                 Classic / new layout      │
+                 │ Ctrl+G            Maximize the panel        │
                  │ F12               Event log                 │
                  │ Space             Command menu              │
                  │ ? F2              Show keys                 │

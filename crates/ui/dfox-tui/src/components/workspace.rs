@@ -19,6 +19,7 @@ use dfox_core::{
 };
 use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
+    text::Span,
     Frame,
 };
 
@@ -36,6 +37,7 @@ use crate::{
     catalog::Catalog,
     command::Command,
     component::{Component, Ctx, Focus, RenderCtx},
+    config::LayoutStyle,
     history::Entry,
     sql::{self, guard, Dialect},
     widgets::toast::Level,
@@ -146,6 +148,10 @@ pub struct Workspace {
     /// The columns each tab's name was drawn across, on the editor's top
     /// border, for clicks.
     tab_spots: RefCell<Vec<(u16, u16)>>,
+    /// The focused editor or results fill the workspace.
+    maximized: bool,
+    /// Where the maximize buttons of the editor and the results were drawn.
+    buttons: Cell<[Rect; 2]>,
     /// The column card, over everything while it is open.
     card: Option<ColumnCard>,
     /// What Enter on a table offers, while it is open.
@@ -184,6 +190,8 @@ impl Workspace {
             catalog: Catalog::default(),
             areas: Cell::new([Rect::default(); 3]),
             tab_spots: RefCell::new(Vec::new()),
+            maximized: false,
+            buttons: Cell::new([Rect::default(); 2]),
             card: None,
             menu: None,
             properties: None,
@@ -524,7 +532,7 @@ impl Workspace {
     /// corner and a space, ` │ ` between them, a spinner before a running
     /// one.
     fn tab_spots_in(&self, editor: Rect) -> Vec<(u16, u16)> {
-        if self.tabs.len() < 2 {
+        if self.tabs.len() < 2 || editor.is_empty() {
             return Vec::new();
         }
         let mut x = editor.x + 2;
@@ -1476,7 +1484,20 @@ impl Workspace {
             None
         };
         let sideways = event.modifiers.contains(KeyModifiers::SHIFT);
+        let [editor_button, results_button] = self.buttons.get();
         match event.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if !self.modal()
+                    && (editor_button.contains(point) || results_button.contains(point)) =>
+            {
+                let panel = if editor_button.contains(point) {
+                    Panel::Editor
+                } else {
+                    Panel::Results
+                };
+                self.maximized = !(self.maximized && self.focus.is(panel));
+                self.set_focus(panel);
+            }
             MouseEventKind::Down(MouseButton::Left)
                 if !self.modal() && self.tab_at(event.column, event.row).is_some() =>
             {
@@ -1626,6 +1647,14 @@ impl Component for Workspace {
                 self.set_focus(Panel::Editor);
             }
             Action::CloseTab => self.close_tab(ctx),
+            Action::Maximize => {
+                if self.focus.is(Panel::Explorer) {
+                    self.set_focus(Panel::Editor);
+                    self.maximized = true;
+                } else {
+                    self.maximized = !self.maximized;
+                }
+            }
             Action::NextTab => self.switch_tab(true),
             Action::PrevTab => self.switch_tab(false),
             Action::History => {
@@ -1663,16 +1692,42 @@ impl Component for Workspace {
     }
 
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
-        let [left, right] =
-            Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)]).areas(area);
-        let [editor, results] =
-            Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right);
+        let none = Rect::default();
+        let [left, editor, results] = match self.focus.get() {
+            Panel::Editor if self.maximized => [none, area, none],
+            Panel::Results if self.maximized => [none, none, area],
+            _ => {
+                let [left, right] =
+                    Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)])
+                        .areas(area);
+                let [editor, results] =
+                    Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)])
+                        .areas(right);
+                [left, editor, results]
+            }
+        };
         self.areas.set([left, editor, results]);
         self.tab_spots.replace(self.tab_spots_in(editor));
         let labels: Vec<TabLabel> = (0..self.tabs.len()).map(|i| self.label(i)).collect();
-        self.explorer.render(f, left, ctx);
-        self.editor().render_with(f, editor, ctx, &labels);
-        self.results().render(f, results, ctx);
+        if !left.is_empty() {
+            self.explorer.render(f, left, ctx);
+        }
+        if !editor.is_empty() {
+            self.editor().render_with(f, editor, ctx, &labels);
+        }
+        if !results.is_empty() {
+            self.results().render(f, results, ctx);
+        }
+        let mut button = |panel: Rect| {
+            if ctx.layout != LayoutStyle::Workspace || panel.width < 12 {
+                return none;
+            }
+            let spot = Rect::new(panel.right() - 4, panel.y, 3, 1);
+            let text = format!(" {} ", ctx.icons.maximize);
+            f.render_widget(Span::styled(text, ctx.theme.dim()), spot);
+            spot
+        };
+        self.buttons.set([button(editor), button(results)]);
         self.editor().render_overlay(f, area, ctx);
         if let Some(menu) = &self.menu {
             menu.render(f, left, ctx);
