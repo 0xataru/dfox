@@ -38,6 +38,8 @@ pub struct JsonView {
     /// The lines of each open document, its own line first.
     lines: BTreeMap<usize, Vec<Entry>>,
     top: Shared<usize>,
+    /// Where it was last drawn, for the mouse.
+    area: Shared<Rect>,
 }
 
 /// One line of an open document.
@@ -297,6 +299,31 @@ impl JsonView {
         true
     }
 
+    /// A click on a line selects it; on the selected line, opens or closes
+    /// it. False when the click isn't on a line.
+    pub fn click(&mut self, column: u16, row: u16, result: &impl ResultSet) -> bool {
+        let area = self.area.get();
+        if !area.contains(ratatui::layout::Position::new(column, row)) {
+            return false;
+        }
+        let line = self.top.get() + (row - area.y) as usize;
+        if line >= self.total(result) {
+            return false;
+        }
+        if line == self.cursor {
+            self.handle(Action::Confirm, result, 0);
+        } else {
+            self.cursor = line;
+        }
+        true
+    }
+
+    /// The wheel: the cursor moves `lines` on, the view with it.
+    pub fn scroll_by(&mut self, lines: isize, result: &impl ResultSet) {
+        let last = self.total(result).saturating_sub(1);
+        self.cursor = self.cursor.saturating_add_signed(lines).min(last);
+    }
+
     /// Opens `path` of `row` when closed, closes it when open.
     fn toggle(&mut self, result: &impl ResultSet, row: usize, path: Path) {
         let opened = self.opened.entry(row).or_default();
@@ -318,6 +345,7 @@ impl JsonView {
         ctx: &RenderCtx,
     ) {
         let theme = ctx.theme;
+        self.area.set(area);
         let total = self.total(result);
         let height = area.height as usize;
         let cursor = self.cursor.min(total.saturating_sub(1));
