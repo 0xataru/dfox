@@ -29,11 +29,6 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
     let url = url::Url::parse(text).map_err(|err| format!("{text:?}: {err}"))?;
     let driver = match engines::find(|e| e.schemes, |w| w == url.scheme()) {
         Some(driver) => driver,
-        None if url.scheme() == "mongodb+srv" => {
-            return Err(
-                "mongodb+srv addresses aren't supported yet: use mongodb://host:port".into(),
-            )
-        }
         None => return Err(format!("unsupported database {:?}", url.scheme())),
     };
     let decode = |s: &str| percent_decode_str(s).decode_utf8_lossy().into_owned();
@@ -45,6 +40,11 @@ pub fn parse(name: &str, text: &str) -> Result<(Connection, Option<String>), Str
         user: decode(url.username()),
         ..Connection::new(name, driver)
     };
+    // A seed list: the servers and their ports come from DNS.
+    if url.scheme() == "mongodb+srv" {
+        connection.srv = true;
+        connection.port = None;
+    }
     // `rediss://` and `valkeys://` are Redis over TLS.
     if matches!(url.scheme(), "rediss" | "valkeys") {
         connection.tls = TlsMode::VerifyFull;
@@ -128,9 +128,19 @@ mod tests {
         let (c, _) = parse("env", "mongodb://localhost").expect("parse");
         assert_eq!(c.target().database.as_deref(), Some("test"));
         assert_eq!(c.target().port, 27017);
-        assert!(parse("x", "mongodb+srv://cluster.example.net")
-            .unwrap_err()
-            .contains("aren't supported yet"));
+        let (c, password) =
+            parse("x", "mongodb+srv://app:pw@cluster0.abc.mongodb.net/shop").expect("parse");
+        assert_eq!(
+            (c.driver, c.srv, c.host.as_str(), c.database.as_deref()),
+            (
+                DbType::Mongo,
+                true,
+                "cluster0.abc.mongodb.net",
+                Some("shop")
+            )
+        );
+        assert_eq!(password.as_deref(), Some("pw"));
+        assert_eq!(c.address(), "app@cluster0.abc.mongodb.net/shop (SRV)");
     }
 
     #[test]

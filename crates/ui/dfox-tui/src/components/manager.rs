@@ -341,6 +341,9 @@ impl Manager {
             .iter()
             .chain(self.detected.iter().map(|d| &d.connection))
             .filter(|c| !only_new || !self.health.contains_key(&c.name))
+            // shortcut: a seed list's servers come from DNS SRV records, which
+            // the ping can't read; resolve them in the ping if people ask.
+            .filter(|c| !c.srv)
             .cloned()
             .collect();
         for connection in connections {

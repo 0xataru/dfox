@@ -18,6 +18,10 @@ pub enum DbType {
 pub struct ConnectionParams {
     pub host: String,
     pub port: u16,
+    /// `host` names a DNS seed list (`mongodb+srv://`): the servers, their
+    /// ports and options come from its SRV and TXT records.
+    #[serde(default)]
+    pub srv: bool,
     pub username: String,
     pub password: String,
     pub database: Option<String>,
