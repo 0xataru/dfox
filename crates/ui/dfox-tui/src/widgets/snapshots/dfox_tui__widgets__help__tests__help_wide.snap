@@ -4,10 +4,9 @@ assertion_line: 176
 expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &super::Help::default(), ctx))"
 ---
 
-
                ╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮
                │                                                                                        │
-               │ Ctrl+P            Command palette          J                 Results as JSON / grid    │
+               │ Ctrl+P            Command palette          m                 Data / messages           │
                │ F5 Ctrl+E         Run statement/selection  o                 Add a row / open a file   │
                │ Shift+F5          Run the whole script     x                 Export rows to a file     │
                │ Ctrl+Space        Suggest names            >                 Widen column              │
@@ -40,5 +39,6 @@ expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &supe
                │ y                 Copy as CSV, JSON, …     PgDn              Page down                 │
                │ V                 Select whole rows        Home              First row / line start    │
                │ i                 Inspect / insert name    End               Last row / line end       │
+               │ J                 Results as JSON / grid                                               │
                │                                                                                        │
                ╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯

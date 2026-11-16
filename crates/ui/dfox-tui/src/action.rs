@@ -59,6 +59,8 @@ pub enum Action {
     Inspect,
     /// Results as a JSON tree instead of a grid, and back.
     JsonView,
+    /// The new layout's Messages instead of the rows, and back.
+    Messages,
     /// A new row in the table being edited.
     AddRow,
     /// The rows to a file.
@@ -120,6 +122,7 @@ impl Action {
         Action::SelectRow,
         Action::Inspect,
         Action::JsonView,
+        Action::Messages,
         Action::AddRow,
         Action::Export,
         Action::Wider,
@@ -208,6 +211,7 @@ impl Action {
             Action::Complete => "complete",
             Action::Inspect => "inspect",
             Action::JsonView => "json_view",
+            Action::Messages => "messages",
             Action::AddRow => "add_row",
             Action::Export => "export",
             Action::Palette => "palette",
@@ -291,6 +295,7 @@ impl Action {
             Action::Complete => "Suggest names",
             Action::Inspect => "Inspect / insert name",
             Action::JsonView => "Results as JSON / grid",
+            Action::Messages => "Data / messages",
             Action::AddRow => "Add a row / open a file",
             Action::Export => "Export rows to a file",
             Action::Palette => "Command palette",

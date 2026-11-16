@@ -5,7 +5,7 @@ expression: "test.snapshot(120, 32)"
 ---
 ╭ Connections 1╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮──────────────╮
 │ Saved        │                                                                                        │              │
-│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          J                 Results as JSON / grid    │              │
+│ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          m                 Data / messages           │              │
 │              │ F5 Ctrl+E         Run statement/selection  o                 Add a row / open a file   │              │
 │              │ Shift+F5          Run the whole script     x                 Export rows to a file     │              │
 │              │ Ctrl+Space        Suggest names            >                 Widen column              │              │

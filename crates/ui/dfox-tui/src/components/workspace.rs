@@ -802,8 +802,11 @@ impl Workspace {
                 }
             }
             EngineEvent::Notice { id, message } => {
-                if self.results_for(id).is_some() {
-                    ctx.toast(Level::Info, message);
+                let workspace = ctx.config.layout == LayoutStyle::Workspace;
+                match self.results_for(id) {
+                    Some(results) if workspace => results.messages.notice(message),
+                    Some(_) => ctx.toast(Level::Info, message),
+                    None => {}
                 }
             }
             EngineEvent::QueryDone { id, outcome } => {
