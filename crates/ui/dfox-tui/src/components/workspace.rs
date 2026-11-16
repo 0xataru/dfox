@@ -1,13 +1,17 @@
 //! The main screen once a database is open: the explorer, and query tabs of
 //! an editor with its results. Tab moves focus between the panels.
 
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    sync::Arc,
+};
 
 use unicode_width::UnicodeWidthStr;
 
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use dfox_core::{
     catalog::{EntityInfo, Node, NodeKind, NodePath},
+    driver::Driver,
     engine::{Command as DbCommand, EngineEvent, QueryId},
     errors::DbError,
     models::connections::DbType,
@@ -21,7 +25,7 @@ use ratatui::{
 use super::{
     card::{CardEvent, ColumnCard, TableCard},
     copy::CopyDialog,
-    editor::{EditorPanel, TabLabel},
+    editor::{Checker, EditorPanel, TabLabel},
     explorer::Explorer,
     export::{DialogEvent, ExportDialog},
     results::{self, ResultsPanel},
@@ -125,6 +129,7 @@ pub struct Workspace {
     dialect: Dialect,
     /// What the session speaks: SQL, or mongo shell commands and the like.
     language: QueryLanguage,
+    checker: Checker,
     connection: String,
     next_query: QueryId,
     next_tab: usize,
@@ -169,6 +174,7 @@ impl Workspace {
             active: 0,
             dialect: sql::dialect(driver),
             language: sql::language(driver),
+            checker: Checker::default(),
             connection: connection.to_string(),
             next_query: 0,
             next_tab: 0,
@@ -222,6 +228,15 @@ impl Workspace {
         self.next_tab = 0;
         self.new_tab();
         self.set_focus(Panel::Editor);
+        self
+    }
+
+    /// The session's driver, which checks the editors' statements.
+    pub fn with_checker(mut self, driver: Option<Arc<dyn Driver>>) -> Self {
+        self.checker = Checker(driver);
+        for tab in &mut self.tabs {
+            tab.editor.checker = self.checker.clone();
+        }
         self
     }
 
@@ -387,8 +402,10 @@ impl Workspace {
 
     fn new_tab(&mut self) {
         self.next_tab += 1;
+        let mut editor = EditorPanel::new(self.dialect).with_language(self.language);
+        editor.checker = self.checker.clone();
         self.tabs.push(Tab {
-            editor: EditorPanel::new(self.dialect).with_language(self.language),
+            editor,
             results: ResultsPanel::new(self.dialect),
             number: self.next_tab,
             source: None,

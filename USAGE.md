@@ -287,10 +287,11 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - Brackets and quotes close themselves, wrap a selection, and are stepped over when typed
   again; Backspace in an empty pair removes both. The bracket matching the one at the cursor
   is underlined
-- A query or data change that doesn't parse (Postgres, MySQL, SQLite) has the place it stops
-  underlined in red and the reason on the editor's bottom border while the cursor is in it.
-  A statement still being typed isn't marked, utility commands (`VACUUM`, `PRAGMA`…) and CQL
-  aren't checked, and running is never blocked
+- A statement that doesn't parse has the place it stops underlined in red and the reason on
+  the editor's bottom border while the cursor is in it: Postgres, MySQL and SQLite queries and
+  data changes, Mongo shell commands as dfox runs them, and Redis quotes left open. A statement
+  still being typed isn't marked, utility commands (`VACUUM`, `PRAGMA`…) and CQL aren't
+  checked, and running is never blocked
 - **Ctrl+/** (or **Cmd+/**) comments the line or the selected lines out, and back in:
   `--` in SQL and CQL, `//` in Mongo, `#` in Redis. Terminals without the kitty keyboard
   protocol send it as **Ctrl+7**, which works too

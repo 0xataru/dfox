@@ -16,6 +16,10 @@ use futures_util::future::BoxFuture;
 pub struct RedisDriver;
 
 impl Driver for RedisDriver {
+    fn check(&self, statement: &str) -> Option<(usize, String)> {
+        dfox_sql::redis::problem(statement)
+    }
+
     fn info(&self) -> DriverInfo {
         DriverInfo {
             id: "redis",

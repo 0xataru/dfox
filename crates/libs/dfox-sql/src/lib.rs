@@ -671,9 +671,10 @@ const RESERVED: &[&str] = &[
 /// good ones.
 const CHECKED: &[&str] = &["SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "VALUES"];
 
-/// Where `sql`, one statement, stops parsing and why. None when it parses,
-/// and for what isn't checked: CQL and statements outside [`CHECKED`].
-pub fn problem(sql: &str, dialect: Dialect) -> Option<(Pos, String)> {
+/// Where `sql`, one statement, stops parsing, in characters, and why. None
+/// when it parses, and for what isn't checked: CQL and statements outside
+/// [`CHECKED`].
+pub fn problem(sql: &str, dialect: Dialect) -> Option<(usize, String)> {
     if dialect == Dialect::Cql {
         return None;
     }
@@ -703,11 +704,16 @@ pub fn problem(sql: &str, dialect: Dialect) -> Option<(Pos, String)> {
         .rev()
         .find(|l| !l.semicolon)
         .map_or((0, 0), |l| l.start);
-    let at = match at {
+    let (line, col) = match at {
         Some(at) if !message.ends_with("found: EOF") => at,
         _ => last,
     };
-    Some((at, message.to_string()))
+    let before: usize = sql
+        .split('\n')
+        .take(line)
+        .map(|l| l.chars().count() + 1)
+        .sum();
+    Some((before + col, message.to_string()))
 }
 
 /// The table a query reads, when it reads exactly one: `SELECT … FROM t`.

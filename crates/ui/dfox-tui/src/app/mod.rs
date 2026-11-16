@@ -192,6 +192,9 @@ pub struct App {
     discovery: Option<crate::connections::discover::Discovery>,
     /// `kubectl` is installed: the manager hints at the cluster picker.
     pub kubectl: bool,
+    /// The drivers this build has: an editor checks its statements with its
+    /// session's.
+    pub drivers: dfox_core::driver::Drivers,
     /// Where passwords read from Kubernetes Secrets arrive, while running.
     secrets_tx: Option<mpsc::UnboundedSender<SecretAnswer>>,
     /// A found connection being connected to, saved once its login works.
@@ -277,6 +280,7 @@ impl App {
             secrets_tx: None,
             discovery: None,
             kubectl: false,
+            drivers: Default::default(),
             session: None,
             toasts: Toasts::default(),
             log: EventLog::default(),

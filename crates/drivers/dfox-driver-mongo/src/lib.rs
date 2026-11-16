@@ -16,6 +16,12 @@ use futures_util::future::BoxFuture;
 pub struct MongoDriver;
 
 impl Driver for MongoDriver {
+    fn check(&self, statement: &str) -> Option<(usize, String)> {
+        native::shell::parse(statement)
+            .err()
+            .map(|err| (err.at, err.message))
+    }
+
     fn info(&self) -> DriverInfo {
         DriverInfo {
             id: "mongodb",

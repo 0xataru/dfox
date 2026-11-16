@@ -3,6 +3,7 @@ use crate::{
     history::Entry,
     testing::{render, Harness, TestCtx},
 };
+use dfox_core::models::connections::DbType;
 
 fn editor(text: &str) -> EditorPanel {
     let mut editor = EditorPanel::new(Dialect::Postgres);
@@ -381,14 +382,52 @@ fn ctrl_slash_comments_in_the_editors_language() {
     assert_eq!(e.text(), "// db.users.find()");
 }
 
+/// An editor for `driver`'s language that checks with it.
+fn checked(driver: DbType, text: &str) -> EditorPanel {
+    let mut e = EditorPanel::new(sql::dialect(driver)).with_language(sql::language(driver));
+    e.checker = Checker(
+        dfox_core::driver::Drivers::new(crate::drivers())
+            .get(driver)
+            .cloned(),
+    );
+    e.set_text(text);
+    e
+}
+
+fn problems_of(e: &EditorPanel) -> Vec<(Pos, String)> {
+    e.refresh_cache();
+    let cache = e.cache.borrow();
+    cache
+        .problems
+        .iter()
+        .map(|p| (p.at, p.message.clone()))
+        .collect()
+}
+
 #[test]
 fn a_statement_still_being_typed_isnt_marked() {
-    let e = editor("SELECT a FROM t WHERE");
+    let e = checked(DbType::Postgres, "SELECT 1;\nSELECT a FROM t WHERE");
     e.refresh_cache();
     let cache = e.cache.borrow();
     let [problem] = cache.problems.as_slice() else {
         panic!("one problem expected, got {:?}", cache.problems);
     };
+    assert_eq!(problem.at, (1, 16));
     assert!(problem.typing(e.buffer.cursor()));
-    assert!(!problem.typing((0, 3)));
+    assert!(!problem.typing((1, 3)));
+}
+
+#[test]
+fn each_language_is_checked_by_its_driver() {
+    let mongo = checked(DbType::Mongo, "db.users.find({})\ndb.users.find({a: )");
+    let found = problems_of(&mongo);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0 .0, 1);
+    let redis = checked(DbType::Redis, "GET k\nSET k 'v");
+    assert_eq!(
+        problems_of(&redis),
+        [((1, 6), "a ' quote isn't closed".to_string())]
+    );
+    // Without a driver nothing is checked.
+    assert!(problems_of(&editor("SELECT FROM WHERE")).is_empty());
 }

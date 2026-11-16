@@ -67,6 +67,7 @@ fn test_app(name: &str, password: Option<&str>, pgpass_text: &str) -> Test {
         },
     );
     let mut test = Test { app, rx, dir };
+    test.app.drivers = dfox_core::driver::Drivers::new(crate::drivers());
     test.sent();
     test
 }
