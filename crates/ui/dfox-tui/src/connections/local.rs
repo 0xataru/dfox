@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use dfox_core::models::connections::DbType;
 
-use super::{url, Connection};
+use super::{engines, url, Connection};
 use crate::components::manager::Detected;
 
 /// Variables holding a whole URL, as frameworks and hosts name them.
@@ -124,15 +124,11 @@ fn environment(var: &dyn Fn(&str) -> Option<String>) -> Vec<Detected> {
     if let Some(host) = var("DB_HOST") {
         let port: Option<u16> = var("DB_PORT").and_then(|p| p.parse().ok());
         let named = var("DB_CONNECTION").or_else(|| var("DB_DRIVER"));
-        let driver = match named.as_deref().map(str::to_lowercase).as_deref() {
-            Some("pgsql" | "postgres" | "postgresql") => Some(DbType::Postgres),
-            Some("mysql" | "mariadb") => Some(DbType::MySql),
-            Some("mongodb") => Some(DbType::Mongo),
-            Some(_) => None,
-            None => [DbType::Postgres, DbType::MySql, DbType::Mongo]
-                .into_iter()
-                .find(|d| port == Some(Connection::default_port(*d))),
-        };
+        let driver = match named.map(|n| n.to_lowercase()) {
+            Some(named) => engines::find(|e| e.adapters, |w| w == named),
+            None => port.and_then(engines::by_port),
+        }
+        .filter(|d| engines::of(*d).port.is_some());
         if let Some(driver) = driver {
             let mut connection = Connection::new("DB_HOST", driver);
             connection.host = host;

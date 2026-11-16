@@ -9,7 +9,7 @@ use std::time::Duration;
 use dfox_core::models::connections::DbType;
 use serde::Deserialize;
 
-use super::Connection;
+use super::{engines, Connection};
 use crate::components::manager::Detected;
 
 /// How long the container CLI may take, all calls together.
@@ -87,20 +87,7 @@ struct Binding {
 /// The engine an image runs, by its name without registry, owner and tag.
 fn engine(image: &str) -> Option<DbType> {
     let name = image.rsplit('/').next()?.split([':', '@']).next()?;
-    let has = |words: &[&str]| words.iter().any(|w| name.contains(w));
-    if has(&["postgres", "postgis", "timescale"]) {
-        Some(DbType::Postgres)
-    } else if has(&["mysql", "mariadb", "percona"]) {
-        Some(DbType::MySql)
-    } else if has(&["mongo"]) {
-        Some(DbType::Mongo)
-    } else if has(&["redis", "valkey", "keydb", "dragonfly"]) {
-        Some(DbType::Redis)
-    } else if has(&["cassandra", "scylla"]) {
-        Some(DbType::Cassandra)
-    } else {
-        None
-    }
+    engines::find(|e| e.images, |w| name.contains(w))
 }
 
 /// The databases among `inspect`'s containers.
@@ -185,7 +172,7 @@ pub fn database(
             var(&["MONGO_INITDB_DATABASE"]),
         ),
         DbType::Redis => (String::new(), var(&["REDIS_PASSWORD"]), None),
-        _ => (String::new(), None, None),
+        DbType::Cassandra | DbType::Sqlite => (String::new(), None, None),
     };
     let host = match host_ip {
         "" | "0.0.0.0" | "::" => "127.0.0.1".to_string(),

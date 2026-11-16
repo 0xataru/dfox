@@ -56,14 +56,6 @@ impl Field {
     }
 }
 
-const DRIVERS: [DbType; 6] = [
-    DbType::Postgres,
-    DbType::MySql,
-    DbType::Mongo,
-    DbType::Cassandra,
-    DbType::Redis,
-    DbType::Sqlite,
-];
 const TLS: [TlsMode; 4] = [
     TlsMode::Prefer,
     TlsMode::Require,
@@ -281,7 +273,9 @@ impl ConnectionForm {
             all[next % all.len()]
         }
         match self.current() {
-            Field::Driver => self.driver = step(&DRIVERS, self.driver, forward),
+            Field::Driver => {
+                self.driver = step(&crate::connections::engines::ALL, self.driver, forward)
+            }
             Field::Tls => self.tls = step(&TLS, self.tls, forward),
             Field::Ssh => self.ssh = step(&SSH, self.ssh, forward),
             Field::Kube => self.kube = !self.kube,
