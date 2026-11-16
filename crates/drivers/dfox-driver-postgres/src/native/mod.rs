@@ -42,23 +42,66 @@ const BATCH_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Connects a native session with `params`.
 pub async fn open(params: &ConnectionParams) -> Result<Box<dyn Session>, DbError> {
+    Ok(Box::new(connect(params, false).await?))
+}
+
+/// Connects; `each` makes every statement run read-only on its own, as when
+/// the server didn't take read-only for the session.
+async fn connect(params: &ConnectionParams, each: bool) -> Result<PgSession, DbError> {
     let tls = Tls::new(params)?;
-    let config = config(params);
+    let mut config = config(params);
     let notices = Arc::new(Mutex::new(Vec::new()));
-    let client = tls.connect(&config, Some(notices.clone())).await?;
+    let client = match tls.connect(&config, Some(notices.clone())).await {
+        // A pooler such as pgbouncer may refuse the startup `options` that
+        // make the session read-only: then without, read-only per statement.
+        Err(err)
+            if params.read_only && err.to_string().contains("unsupported startup parameter") =>
+        {
+            config = self::config(&ConnectionParams {
+                read_only: false,
+                ..params.clone()
+            });
+            tls.connect(&config, Some(notices.clone())).await?
+        }
+        other => other?,
+    };
     let meta = tls.connect(&config, None).await?;
+    // A pooler may also drop the setting without a word: ask the server.
+    let read_only_each = each || (params.read_only && !session_read_only(&client).await);
+    if read_only_each {
+        lock(&notices).push(
+            "Read-only is enforced statement by statement: the server, or a pooler such as \
+             pgbouncer, didn't take it for the session"
+                .to_string(),
+        );
+    }
     let cancel = client.cancel_token();
     let database = params
         .database
         .clone()
         .unwrap_or_else(|| params.username.clone());
-    Ok(Box::new(PgSession {
+    Ok(PgSession {
         client: Arc::new(client),
         catalog: PgCatalog::new(Arc::new(meta), database),
         cancel,
         tls,
         notices,
-    }))
+        read_only_each,
+    })
+}
+
+/// Whether the server holds the session read-only.
+async fn session_read_only(client: &Client) -> bool {
+    let Ok(messages) = client
+        .simple_query("SHOW default_transaction_read_only")
+        .await
+    else {
+        return false;
+    };
+    messages.iter().any(|m| match m {
+        tokio_postgres::SimpleQueryMessage::Row(row) => row.get(0) == Some("on"),
+        _ => false,
+    })
 }
 
 fn config(params: &ConnectionParams) -> Config {
@@ -163,6 +206,10 @@ pub struct PgSession {
     cancel: CancelToken,
     tls: Tls,
     notices: Arc<Mutex<Vec<String>>>,
+    /// Read-only but not held so by the server: each statement runs in a
+    /// read-only transaction of its own, which a pooler keeps on one server
+    /// connection, so the server refuses writes all the same.
+    read_only_each: bool,
 }
 
 impl Session for PgSession {
@@ -195,11 +242,23 @@ impl Session for PgSession {
         let client = self.client.clone();
         let notices = self.notices.clone();
         let limit = request.row_limit.unwrap_or(usize::MAX);
+        let each = self.read_only_each;
         Box::pin(async move {
             Ok(spawn_run(move |tx| async move {
                 for sql in statements {
                     let sql = sql.trim().trim_end_matches(';');
-                    execute(&client, sql, &[], limit, &tx).await?;
+                    if each {
+                        client
+                            .batch_execute("BEGIN READ ONLY")
+                            .await
+                            .map_err(db_error)?;
+                    }
+                    let ran = execute(&client, sql, &[], limit, &tx).await;
+                    if each {
+                        let end = if ran.is_ok() { "COMMIT" } else { "ROLLBACK" };
+                        client.batch_execute(end).await.map_err(db_error)?;
+                    }
+                    ran?;
                     send_notices(&notices, &tx).await?;
                 }
                 Ok(())
@@ -359,5 +418,30 @@ mod tests {
         assert_eq!(through.get_ports(), [40000]);
         assert_eq!(through.get_hostaddrs(), [IpAddr::from(Ipv4Addr::LOCALHOST)]);
         assert!(matches!(through.get_hosts(), [Host::Tcp(host)] if host == "db.internal"));
+    }
+
+    /// Against the test server, as when a pooler dropped the session
+    /// setting: writes are refused by the server, reads run.
+    #[tokio::test]
+    async fn read_only_each_statement_is_held_by_the_server() {
+        let Some(url) = dfox_testkit::server_url("DFOX_TEST_POSTGRES_URL") else {
+            return;
+        };
+        let params = dfox_testkit::params_from_url(&url);
+        let mut session: Box<dyn Session> =
+            Box::new(connect(&params, true).await.expect("connect"));
+        let table = dfox_testkit::unique("dfox_ro_each");
+        let write = dfox_testkit::run(
+            session.as_mut(),
+            &format!("CREATE TABLE {table} (id int)"),
+            10,
+        )
+        .await;
+        let err = write.expect_err("refused").to_string();
+        assert!(err.contains("read-only"), "{err}");
+        let read = dfox_testkit::run(session.as_mut(), "SELECT 1 AS one", 10)
+            .await
+            .expect("read");
+        assert_eq!(read.rows, [[Some("1".to_string())]]);
     }
 }
