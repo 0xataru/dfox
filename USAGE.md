@@ -284,7 +284,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   first when it is destructive). Postgres and MySQL, plain explain on SQLite
 - **Ctrl+G** - The focused editor or results fill the workspace, and back
 - **Classic / new layout** in the command palette (**Ctrl+P**) switches to the redesigned
-  workspace and back, and keeps the choice in `config.toml`. The new layout shows the
+  workspace and back, and keeps the choice in `config.toml`. The new layout has no
+  explorer column: a rail of icons on the left (explorer, query, connections), and
+  **Ctrl+B** or the explorer icon slides the explorer out over the editor, Esc or Ctrl+B
+  slides it back. It shows the
   query tabs in a row of their own above the editor (a click switches, **×** closes and
   asks first when the tab holds a query), the connection in a bar under them instead of
   the status bar (a click on the database lists the server's databases to switch to, as
@@ -418,6 +421,7 @@ action without a key. The actions and their default keys:
 | `delete` | Delete | `d`, `delete` |
 | `save` | Save | `ctrl+s` |
 | `connections` | Connection list | `f1` |
+| `explorer` | Explorer / the query | `ctrl+b` |
 | `next_theme` | Next theme | `ctrl+t` |
 | `switch_layout` | Classic / new layout | |
 | `maximize` | Maximize the panel | `ctrl+g` |

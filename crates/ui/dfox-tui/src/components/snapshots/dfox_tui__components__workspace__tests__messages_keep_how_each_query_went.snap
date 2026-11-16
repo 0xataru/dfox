@@ -3,19 +3,19 @@ source: crates/ui/dfox-tui/src/components/workspace_tests.rs
 assertion_line: 501
 expression: "render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx))"
 ---
-╭ Explorer ──────────╮ Query 1 × │
-│                    │ ◆ local · shop ▾                 ▶  »  Ex  Ex+  ≡  ⟲  ?
-│                    │╭ Query ────────────────────────────────────────────── ⤢ ╮
-│                    ││  1 create table if not exists t (id int)               │
-│                    ││                                                        │
-│                    ││                                                        │
-│                    │╰────────────────────────────────────────────────────────╯
-│                    │╭ Data │ Messages ──────────────────────────────────── ⤢ ╮
-│                    ││ ✔ create table if not exists t (id int)                │
-│                    ││   NOTICE: relation "t" already exists, skipping        │
-│                    ││   done · 0 ms                                          │
-│                    ││                                                        │
-│                    ││                                                        │
-│                    ││                                                        │
-│                    ││                                                        │
-╰────────────────────╯╰────────────────────────────────────────────────────────╯
+    Query 1 × │
+☰   ◆ local · shop ▾                                    ▶  »  Ex  Ex+  ≡  ⟲  ?
+   ╭ Query ───────────────────────────────────────────────────────────────── ⤢ ╮
+ ✎ │  1 create table if not exists t (id int)                                  │
+   │                                                                           │
+ ⇄ │                                                                           │
+   ╰───────────────────────────────────────────────────────────────────────────╯
+   ╭ Data │ Messages ─────────────────────────────────────────────────────── ⤢ ╮
+   │ ✔ create table if not exists t (id int)                                   │
+   │   NOTICE: relation "t" already exists, skipping                           │
+   │   done · 0 ms                                                             │
+   │                                                                           │
+   │                                                                           │
+   │                                                                           │
+   │                                                                           │
+   ╰───────────────────────────────────────────────────────────────────────────╯

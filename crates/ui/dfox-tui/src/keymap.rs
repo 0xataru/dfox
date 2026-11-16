@@ -315,6 +315,7 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["alt+shift+f"], Action::Format),
         bind(&["alt+backspace", "ctrl+backspace"], Action::DeleteWord),
         bind(&["f1"], Action::Connections),
+        bind(&["ctrl+b"], Action::Explorer),
         bind(&["K"], Action::Clusters),
         bind(&["n"], Action::New),
         bind(&["e"], Action::Edit),

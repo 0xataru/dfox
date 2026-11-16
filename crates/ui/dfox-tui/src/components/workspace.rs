@@ -21,7 +21,7 @@ use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::Modifier,
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Clear, Paragraph},
     Frame,
 };
 
@@ -161,6 +161,8 @@ pub struct Workspace {
     database_spot: Cell<Rect>,
     /// The list of databases the bar opened.
     picker: Option<DatabasePicker>,
+    /// The new layout's rail of the explorer, the query and the connections.
+    rail: Cell<[Rect; 3]>,
     /// The toolbar's buttons where they were drawn, and the one the mouse
     /// is over.
     toolbar: RefCell<Vec<(Rect, Button)>>,
@@ -213,6 +215,7 @@ impl Workspace {
             database_spot: Cell::new(Rect::default()),
             picker: None,
             toolbar: RefCell::new(Vec::new()),
+            rail: Cell::new([Rect::default(); 3]),
             hovered: None,
             maximized: false,
             buttons: Cell::new([Rect::default(); 2]),
@@ -500,6 +503,37 @@ impl Workspace {
             tab: i,
             title: self.title(i),
         })
+    }
+
+    /// Draws the new layout's rail: the explorer, the query, the
+    /// connections, the one in use marked.
+    fn render_rail(&self, f: &mut Frame, rail: Rect, ctx: &RenderCtx) {
+        if rail.is_empty() {
+            self.rail.set([Rect::default(); 3]);
+            return;
+        }
+        let theme = ctx.theme;
+        f.render_widget(Paragraph::new("").style(theme.surface()), rail);
+        let glyphs = match (ctx.icons.nerd, ctx.icons.ascii) {
+            (true, _) => ["\u{f1bb}", "\u{f121}", "\u{f1c0}"],
+            (_, true) => ["T", "Q", "C"],
+            _ => ["☰", "✎", "⇄"],
+        };
+        let explorer = self.focus.is(Panel::Explorer);
+        let mut spots = [Rect::default(); 3];
+        for (i, glyph) in glyphs.into_iter().enumerate() {
+            let spot =
+                Rect::new(rail.x, rail.y + 1 + 2 * i as u16, rail.width, 1).intersection(rail);
+            let active = (i == 0 && explorer) || (i == 1 && !explorer);
+            let style = if active {
+                theme.selection()
+            } else {
+                theme.dim().bg(theme.surface)
+            };
+            f.render_widget(Paragraph::new(glyph).centered().style(style), spot);
+            spots[i] = spot;
+        }
+        self.rail.set(spots);
     }
 
     /// Draws the new layout's row of query tabs, keeping where each landed.
@@ -1655,6 +1689,17 @@ impl Workspace {
         let sideways = event.modifiers.contains(KeyModifiers::SHIFT);
         let [editor_button, results_button] = self.buttons.get();
         let strip = self.strip.get();
+        if event.kind == MouseEventKind::Down(MouseButton::Left) && !self.modal() {
+            match self.rail.get().iter().position(|r| r.contains(point)) {
+                Some(0) => return Component::handle(self, Action::Explorer, ctx),
+                Some(1) => {
+                    self.set_focus(Panel::Editor);
+                    return None;
+                }
+                Some(_) => return Some(Command::Dispatch(Action::Connections)),
+                None => {}
+            }
+        }
         if let Some(picker) = &self.picker {
             if matches!(event.kind, MouseEventKind::Down(_)) {
                 let picked = picker.click(event.column, event.row);
@@ -1868,6 +1913,15 @@ impl Component for Workspace {
                 self.set_focus(Panel::Editor);
             }
             Action::CloseTab => self.close_tab(ctx),
+            Action::Explorer if self.focus.is(Panel::Explorer) => self.set_focus(Panel::Editor),
+            Action::Explorer => self.set_focus(Panel::Explorer),
+            // The new layout's explorer slides back.
+            Action::Back
+                if self.focus.is(Panel::Explorer)
+                    && ctx.config.layout == LayoutStyle::Workspace =>
+            {
+                self.set_focus(Panel::Editor)
+            }
             Action::Maximize => {
                 if self.focus.is(Panel::Explorer) {
                     self.set_focus(Panel::Editor);
@@ -1915,8 +1969,13 @@ impl Component for Workspace {
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let none = Rect::default();
         let workspace = ctx.layout == LayoutStyle::Workspace;
+        let [rail, area] = if workspace {
+            Layout::horizontal([Constraint::Length(3), Constraint::Fill(1)]).areas(area)
+        } else {
+            [none, area]
+        };
         let shown = Some(self.focus.get()).filter(|p| self.maximized && *p != Panel::Explorer);
-        let [left, right] = if shown.is_some() {
+        let [left, right] = if workspace || shown.is_some() {
             [none, area]
         } else {
             Layout::horizontal([Constraint::Percentage(28), Constraint::Fill(1)]).areas(area)
@@ -1955,6 +2014,13 @@ impl Component for Workspace {
                 Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right)
             }
         };
+        // The new layout's explorer slides out over the rest while focused.
+        let left = if workspace && self.focus.is(Panel::Explorer) {
+            let width = (right.width * 2 / 5).max(32).min(right.width);
+            Rect { width, ..right }
+        } else {
+            left
+        };
         self.areas.set([left, editor, results]);
         self.strip.set(strip);
         let labels: Vec<TabLabel> = if workspace {
@@ -1965,9 +2031,6 @@ impl Component for Workspace {
             self.closes.replace(Vec::new());
             (0..self.tabs.len()).map(|i| self.label(i)).collect()
         };
-        if !left.is_empty() {
-            self.explorer.render(f, left, ctx);
-        }
         if !editor.is_empty() {
             self.editor().render_with(f, editor, ctx, &labels);
         }
@@ -1984,6 +2047,11 @@ impl Component for Workspace {
             spot
         };
         self.buttons.set([button(editor), button(results)]);
+        if !left.is_empty() {
+            f.render_widget(Clear, left);
+            self.explorer.render(f, left, ctx);
+        }
+        self.render_rail(f, rail, ctx);
         self.editor().render_overlay(f, area, ctx);
         if let Some(menu) = &self.menu {
             menu.render(f, left, ctx);

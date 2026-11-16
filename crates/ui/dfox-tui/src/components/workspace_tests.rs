@@ -558,7 +558,7 @@ fn the_toolbar_fits_the_width_and_its_buttons_work() {
         w.buttons().len(),
         "all fit at 160"
     );
-    render(&test, 60, 8, |f, area, ctx| w.render(f, area, ctx));
+    render(&test, 44, 8, |f, area, ctx| w.render(f, area, ctx));
     let shown: Vec<Button> = w.toolbar.borrow().iter().map(|(_, b)| *b).collect();
     assert!(
         shown.len() < w.buttons().len() && shown[0] == bar::RUN,
@@ -597,6 +597,37 @@ fn the_toolbar_fits_the_width_and_its_buttons_work() {
 }
 
 #[test]
+fn the_explorer_slides_out_from_the_rail() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
+    let mut w = workspace();
+    answer_catalog(&mut w, &mut harness);
+    render(&test, 100, 14, |f, area, ctx| w.render(f, area, ctx));
+    assert!(w.area(Panel::Explorer).is_empty(), "closed at first");
+
+    w.handle(Action::Explorer, &mut harness.ctx());
+    let screen = render(&test, 100, 14, |f, area, ctx| w.render(f, area, ctx));
+    insta::assert_snapshot!(screen);
+    assert_eq!(w.focused(), Panel::Explorer);
+    assert!(w.area(Panel::Explorer).intersects(w.area(Panel::Editor)));
+    w.handle(Action::Back, &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Editor);
+
+    let click = |spot: Rect| mouse(MouseEventKind::Down(MouseButton::Left), spot.x + 1, spot.y);
+    let [explorer, query, connections] = w.rail.get();
+    w.mouse(click(explorer), &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Explorer);
+    w.mouse(click(query), &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Editor);
+    assert_eq!(
+        w.mouse(click(connections), &mut harness.ctx()),
+        Some(Command::Dispatch(Action::Connections))
+    );
+}
+
+#[test]
 fn maximize_fills_the_workspace_and_back() {
     let mut test = TestCtx::new();
     let mut harness = Harness::new();
@@ -629,7 +660,7 @@ fn maximize_fills_the_workspace_and_back() {
         button.y,
     );
     w.mouse(click, &mut harness.ctx());
-    let under_the_tabs = Rect::new(0, 2, 100, 28);
+    let under_the_tabs = Rect::new(3, 2, 97, 28);
     assert_eq!(
         draw(&w, &test),
         [Rect::default(), Rect::default(), under_the_tabs]
@@ -641,7 +672,12 @@ fn maximize_fills_the_workspace_and_back() {
         button.y,
     );
     w.mouse(click, &mut harness.ctx());
-    assert_eq!(draw(&w, &test)[0], explorer);
+    let [explorer, editor, results] = draw(&w, &test);
+    assert!(
+        explorer.is_empty(),
+        "the new layout's explorer slides out instead"
+    );
+    assert!(!editor.is_empty() && results != under_the_tabs);
 }
 
 #[test]
