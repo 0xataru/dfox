@@ -294,6 +294,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   checked, and running is never blocked
 - When the server says where a statement failed (Postgres, MySQL, SQLite, Cassandra), that
   place is underlined the same way, with the server's message, until the text is edited
+- **Alt+Shift+F** formats the statement under the cursor, or the selection: each clause on a
+  line of its own, subqueries indented, keywords upper-case (table names are left as typed).
+  Only whitespace and keyword case change: when anything else would, the text stays as it is.
+  SQL and CQL for now
 - **Ctrl+/** (or **Cmd+/**) comments the line or the selected lines out, and back in:
   `--` in SQL and CQL, `//` in Mongo, `#` in Redis. Terminals without the kitty keyboard
   protocol send it as **Ctrl+7**, which works too

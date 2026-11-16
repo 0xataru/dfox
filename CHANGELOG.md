@@ -9,6 +9,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- **Alt+Shift+F** formats the SQL or CQL statement under the cursor, or the selection: clauses
+  on their own lines, subqueries indented, keywords upper-case, comments kept. Only whitespace
+  and keyword case change, and the text is left as it is when anything else would; one undo
+  step brings it back.
 - When a Postgres, MySQL, SQLite or Cassandra statement fails and the server says where, the
   editor underlines that place, with the server's message on its bottom border, until the
   text is edited. In a script of several statements it is the one that failed.

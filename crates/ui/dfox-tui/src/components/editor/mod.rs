@@ -317,6 +317,34 @@ impl EditorPanel {
         ))
     }
 
+    /// Lays out the selection, or the statement under the cursor, in one
+    /// undo step. SQL and CQL only for now.
+    fn format(&mut self, ctx: &mut Ctx) {
+        let skipped = match self.language {
+            QueryLanguage::Sql(_) | QueryLanguage::Cql => None,
+            QueryLanguage::MongoShell => Some("Mongo commands aren't formatted yet"),
+            QueryLanguage::RedisCmd => Some("Redis commands are left as they are"),
+        };
+        if let Some(skipped) = skipped {
+            ctx.toast(crate::widgets::toast::Level::Info, skipped);
+            return;
+        }
+        let range = self.buffer.selection().or_else(|| {
+            let statement = self.statement_at(&self.buffer.text(), self.buffer.cursor())?;
+            Some((statement.start, statement.end))
+        });
+        let Some((start, end)) = range else {
+            return;
+        };
+        let text = sql::slice(self.buffer.lines(), start, end);
+        let formatted = sql::format::format(&text, self.dialect);
+        if formatted != text {
+            self.buffer.set_cursor(start, false);
+            self.buffer.set_cursor(end, true);
+            self.buffer.insert_str(&formatted);
+        }
+    }
+
     /// Marks where the server said a run of `sent` failed, `at` characters
     /// into it. `sent` is looked for in the text, the copy around the cursor
     /// first; edited since, nothing is marked.
@@ -668,6 +696,7 @@ impl Component for EditorPanel {
         }
         match action {
             Action::Input(c) => b.type_char(c),
+            Action::Format => self.format(ctx),
             Action::Comment => {
                 let prefix = match self.language {
                     QueryLanguage::Sql(_) | QueryLanguage::Cql => "--",
