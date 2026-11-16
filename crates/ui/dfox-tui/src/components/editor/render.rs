@@ -47,7 +47,23 @@ impl EditorPanel {
             }
         }
         let (line, col) = self.buffer.cursor();
+        self.refresh_cache();
+        let cache = self.cache.borrow();
+        let problems: Vec<&super::Problem> = cache
+            .problems
+            .iter()
+            .filter(|p| !p.typing((line, col)))
+            .collect();
         let mut block = panel(title, self.focused, ctx);
+        let here = problems
+            .iter()
+            .find(|p| p.statement.start <= (line, col) && (line, col) <= p.statement.zone_end);
+        if let (true, Some(problem)) = (self.focused, here) {
+            block = block.title_bottom(Line::from(Span::styled(
+                format!(" ✗ {} ", problem.message),
+                theme.danger(),
+            )));
+        }
         if self.focused {
             block = block.title_bottom(
                 Line::from(Span::styled(
@@ -63,8 +79,6 @@ impl EditorPanel {
         if text_area.is_empty() {
             return;
         }
-        self.refresh_cache();
-        let cache = self.cache.borrow();
         let lines = self.buffer.lines();
         let number_width = lines.len().to_string().len() as u16;
         // A statement marker, the line number and a space.
@@ -124,7 +138,10 @@ impl EditorPanel {
                     left,
                     &cache.highlight[n],
                     selection,
-                    cache.brackets,
+                    Marks {
+                        brackets: cache.brackets,
+                        problems: &problems,
+                    },
                     ctx,
                 ));
                 Line::from(spans)
@@ -192,6 +209,12 @@ pub(super) fn horizontal_scroll(line: &str, col: usize, left: usize, width: usiz
     }
 }
 
+/// The matching brackets and the problems to draw over the colours.
+struct Marks<'a> {
+    brackets: Option<[Pos; 2]>,
+    problems: &'a [&'a super::Problem],
+}
+
 /// One line of text from column `left`, coloured, with the selection shown.
 fn styled_line<'a>(
     text: &'a str,
@@ -199,9 +222,26 @@ fn styled_line<'a>(
     left: usize,
     pieces: &[Piece],
     selection: Option<(Pos, Pos)>,
-    brackets: Option<[Pos; 2]>,
+    Marks { brackets, problems }: Marks,
     ctx: &RenderCtx,
 ) -> Vec<Span<'a>> {
+    let chars: Vec<char> = text.chars().collect();
+    // The word a problem is at, or its one character.
+    let wrong = |col: usize| {
+        problems.iter().any(|p| {
+            p.at.0 == line && {
+                let word = |c: &char| c.is_alphanumeric() || *c == '_';
+                let start = p.at.1;
+                let end = match chars.get(start) {
+                    Some(c) if word(c) => {
+                        start + chars[start..].iter().take_while(|c| word(c)).count()
+                    }
+                    _ => start + 1,
+                };
+                start <= col && col < end
+            }
+        })
+    };
     let theme = ctx.theme;
     let base = theme.syntax(sql::Kind::Plain);
     let selected = |col: usize| {
@@ -215,6 +255,11 @@ fn styled_line<'a>(
             .iter()
             .find(|p| p.start <= col && col < p.end)
             .map_or(base, |p| theme.syntax(p.kind));
+        let style = if wrong(col) {
+            theme.danger().add_modifier(Modifier::UNDERLINED)
+        } else {
+            style
+        };
         let style = if brackets.is_some_and(|b| b.contains(&(line, col))) {
             style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
         } else {

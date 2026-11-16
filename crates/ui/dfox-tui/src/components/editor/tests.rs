@@ -380,3 +380,15 @@ fn ctrl_slash_comments_in_the_editors_language() {
     press(&mut e, &mut harness, &[Action::Comment]);
     assert_eq!(e.text(), "// db.users.find()");
 }
+
+#[test]
+fn a_statement_still_being_typed_isnt_marked() {
+    let e = editor("SELECT a FROM t WHERE");
+    e.refresh_cache();
+    let cache = e.cache.borrow();
+    let [problem] = cache.problems.as_slice() else {
+        panic!("one problem expected, got {:?}", cache.problems);
+    };
+    assert!(problem.typing(e.buffer.cursor()));
+    assert!(!problem.typing((0, 3)));
+}

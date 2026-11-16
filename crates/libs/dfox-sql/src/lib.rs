@@ -666,6 +666,50 @@ const RESERVED: &[&str] = &[
     "write",
 ];
 
+/// Statements sqlparser reads in full in every dialect. Utility commands
+/// (`VACUUM`, `PRAGMA`, `OPTIMIZE`…) are left alone: it rejects too many
+/// good ones.
+const CHECKED: &[&str] = &["SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "VALUES"];
+
+/// Where `sql`, one statement, stops parsing and why. None when it parses,
+/// and for what isn't checked: CQL and statements outside [`CHECKED`].
+pub fn problem(sql: &str, dialect: Dialect) -> Option<(Pos, String)> {
+    if dialect == Dialect::Cql {
+        return None;
+    }
+    let tokens: Vec<Lexeme> = lex(sql, dialect)
+        .into_iter()
+        .filter(|l| !l.trivia)
+        .collect();
+    let first = tokens.first()?.keyword()?;
+    if !CHECKED.contains(&first.as_str()) {
+        return None;
+    }
+    let error = Parser::parse_sql(parser_dialect(dialect).as_ref(), sql)
+        .err()?
+        .to_string();
+    let error = error.strip_prefix("sql parser error: ").unwrap_or(&error);
+    let (message, at) = error.rsplit_once(" at Line: ").unwrap_or((error, ""));
+    let at = at.split_once(", Column: ").and_then(|(line, col)| {
+        Some((
+            line.parse::<usize>().ok()?.checked_sub(1)?,
+            col.trim().parse::<usize>().ok()?.checked_sub(1)?,
+        ))
+    });
+    // Running out of text has no place of its own: the last token stands
+    // for it.
+    let last = tokens
+        .iter()
+        .rev()
+        .find(|l| !l.semicolon)
+        .map_or((0, 0), |l| l.start);
+    let at = match at {
+        Some(at) if !message.ends_with("found: EOF") => at,
+        _ => last,
+    };
+    Some((at, message.to_string()))
+}
+
 /// The table a query reads, when it reads exactly one: `SELECT … FROM t`.
 pub fn single_table(sql: &str, dialect: Dialect) -> Option<String> {
     let dialect = parser_dialect(dialect);
