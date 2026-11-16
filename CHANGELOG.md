@@ -9,6 +9,12 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- **Alt+Shift+F** formats Mongo shell commands too: `{ a: 1 }` spacing as mongosh writes it,
+  and documents or arrays that don't fit a line laid out a field a line. Only whitespace
+  changes; commands with comments are left as they are.
+
+### Added
+
 - **Alt+Shift+F** formats the SQL or CQL statement under the cursor, or the selection: clauses
   on their own lines, subqueries indented, keywords upper-case, comments kept. Only whitespace
   and keyword case change, and the text is left as it is when anything else would; one undo

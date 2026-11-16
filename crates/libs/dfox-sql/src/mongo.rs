@@ -696,9 +696,176 @@ fn keys(words: &[&str]) -> Want {
     }
 }
 
+/// Width a document is kept on one line within.
+const WIDTH: usize = 72;
+
+/// A token, or a bracketed group of them.
+enum Node<'a> {
+    Leaf(&'a Token),
+    Group(&'a Token, Vec<Node<'a>>, Option<&'a Token>),
+}
+
+impl Node<'_> {
+    fn first(&self) -> &str {
+        match self {
+            Node::Leaf(t) | Node::Group(t, ..) => &t.text,
+        }
+    }
+
+    fn last(&self) -> &str {
+        match self {
+            Node::Leaf(t) | Node::Group(_, _, Some(t)) => &t.text,
+            Node::Group(t, _, None) => &t.text,
+        }
+    }
+}
+
+fn tree<'a>(tokens: &mut std::slice::Iter<'a, Token>) -> (Vec<Node<'a>>, Option<&'a Token>) {
+    let mut nodes = Vec::new();
+    while let Some(token) = tokens.next() {
+        match token.text.as_str() {
+            "(" | "[" | "{" if token.kind == Tok::Punct => {
+                let (inner, close) = tree(tokens);
+                nodes.push(Node::Group(token, inner, close));
+            }
+            ")" | "]" | "}" if token.kind == Tok::Punct => return (nodes, Some(token)),
+            _ => nodes.push(Node::Leaf(token)),
+        }
+    }
+    (nodes, None)
+}
+
+/// Whether a space goes between two neighbours on a line.
+fn spaced(before: &Node, after: &Node, sign: bool) -> bool {
+    let call = matches!(after, Node::Group(t, ..) if t.text == "(")
+        && matches!(before, Node::Leaf(t) if t.kind == Tok::Word)
+        || before.last() == ")" && after.first() == "(";
+    !(sign || call || matches!(after.first(), "," | ":" | "." | ";") || before.last() == ".")
+}
+
+/// Nodes one after another, groups laid out at `indent`.
+fn line(nodes: &[Node], indent: usize) -> String {
+    let mut out = String::new();
+    for (i, node) in nodes.iter().enumerate() {
+        if i > 0 {
+            // `-1` where a value starts.
+            let sign = i >= 1
+                && matches!(nodes[i - 1].first(), "-" | "+")
+                && (i == 1 || matches!(nodes[i - 2].last(), ":" | "," | "("));
+            if spaced(&nodes[i - 1], node, sign) {
+                out.push(' ');
+            }
+        }
+        match node {
+            Node::Leaf(t) => out.push_str(&t.text),
+            Node::Group(open, inner, close) => out.push_str(&group(open, inner, *close, indent)),
+        }
+    }
+    out
+}
+
+fn group(open: &Token, inner: &[Node], close: Option<&Token>, indent: usize) -> String {
+    let close = close.map_or("", |t| t.text.as_str());
+    let flat = line(inner, indent);
+    if open.text == "(" {
+        return format!("({flat}{close}");
+    }
+    let padded = if open.text == "{" && !inner.is_empty() {
+        format!("{{ {flat} {close}")
+    } else {
+        format!("{}{flat}{close}", open.text)
+    };
+    if !padded.contains('\n') && indent * 2 + padded.chars().count() <= WIDTH {
+        return padded;
+    }
+    let pad = "  ".repeat(indent + 1);
+    let items: Vec<String> = inner
+        .split(|n| matches!(n, Node::Leaf(t) if t.text == ","))
+        .filter(|item| !item.is_empty())
+        .map(|item| format!("{pad}{}", line(item, indent + 1)))
+        .collect();
+    format!(
+        "{}\n{}\n{}{close}",
+        open.text,
+        items.join(",\n"),
+        "  ".repeat(indent)
+    )
+}
+
+/// Shell commands laid out: documents and arrays that don't fit a line
+/// get a line a field, indented. Only whitespace changes: when anything
+/// else would, the text is left as it is.
+pub fn format(text: &str) -> String {
+    let all = tokens(text);
+    // shortcut: text with comments is left as it is, lay them out too if
+    // people ask for it.
+    if all.iter().any(|t| t.kind == Tok::Comment) {
+        return text.to_string();
+    }
+    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let out: Vec<String> = statements(text)
+        .iter()
+        .map(|s| {
+            let command = tokens(&slice(&lines, s.start, s.end));
+            let kept: Vec<Token> = command
+                .into_iter()
+                .filter(|t| t.kind != Tok::Newline)
+                .collect();
+            let (nodes, _) = tree(&mut kept.iter());
+            line(&nodes, 0)
+        })
+        .collect();
+    let out = out.join("\n") + if text.ends_with('\n') { "\n" } else { "" };
+    let words = |text: &str| -> Vec<(Tok, String)> {
+        tokens(text)
+            .into_iter()
+            .filter(|t| t.kind != Tok::Newline)
+            .map(|t| (t.kind, t.text))
+            .collect()
+    };
+    if words(&out) == words(text) {
+        out
+    } else {
+        text.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn documents_that_dont_fit_get_a_line_a_field() {
+        assert_eq!(
+            format("db.users.find({age:{$gt:-1}},{name:1}).sort({ age : -1 }).limit(5)"),
+            "db.users.find({ age: { $gt: -1 } }, { name: 1 }).sort({ age: -1 }).limit(5)"
+        );
+        assert_eq!(
+            format("db.orders.aggregate([{$match:{status:'paid',total:{$gte:100}}},{$group:{_id:'$customer',sum:{$sum:'$total'}}}])"),
+            "db.orders.aggregate([\n  { $match: { status: 'paid', total: { $gte: 100 } } },\n  { $group: { _id: '$customer', sum: { $sum: '$total' } } }\n])"
+        );
+    }
+
+    #[test]
+    fn formatting_never_changes_what_runs() {
+        for text in [
+            "db.a.find({x: /a,b/i, d: new Date('2024-01-01'), s: \"it's: {}\"})\nshow dbs",
+            "db.a.insertMany([{a: 1}, {b: [1, 2, 3]}]);",
+            "db.a.find({a: 1}) // why",
+            "db.a.find({",
+        ] {
+            let formatted = format(text);
+            let words = |t: &str| -> Vec<String> {
+                tokens(t)
+                    .into_iter()
+                    .filter(|t| t.kind != Tok::Newline)
+                    .map(|t| t.text)
+                    .collect()
+            };
+            assert_eq!(words(&formatted), words(text), "{formatted}");
+            assert_eq!(format(&formatted), formatted, "stable: {formatted}");
+        }
+    }
 
     fn lines(text: &str) -> Vec<String> {
         text.split('\n').map(str::to_string).collect()
