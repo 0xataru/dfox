@@ -37,7 +37,7 @@ pub struct CopyDialog {
 
 /// Databases whose sessions can add rows.
 pub fn takes_rows(driver: DbType) -> bool {
-    !matches!(driver, DbType::Cassandra | DbType::Redis)
+    driver != DbType::Redis
 }
 
 /// The path, in `connection`'s catalog, of the table named `name` there:

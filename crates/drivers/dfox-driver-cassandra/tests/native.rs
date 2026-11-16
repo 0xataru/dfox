@@ -371,3 +371,74 @@ async fn tls_checks_the_certificate_against_the_host_typed() {
         assert!(refused.is_err(), "{host} {tls:?} {ca_file:?}");
     }
 }
+
+/// What an import or a copy sends: rows the server types by their columns.
+#[tokio::test]
+async fn rows_are_added_as_their_columns_type_them() {
+    use dfox_core::{
+        catalog::NodePath,
+        result::OwnedCell,
+        session::{Change, ChangeSet},
+    };
+
+    let Some((keyspace, _, mut s)) = keyspace("dfox_add").await else {
+        return;
+    };
+    execute(
+        s.as_mut(),
+        "CREATE TABLE t (id uuid PRIMARY KEY, at timestamp, n int, tags set<text>, \
+         price decimal, raw blob, note text)",
+    )
+    .await;
+    let row = |id: &str, n: i64| {
+        Change::Insert(vec![
+            ("id".into(), OwnedCell::Text(id.into())),
+            (
+                "at".into(),
+                OwnedCell::Text("2024-05-01 10:00:00+0000".into()),
+            ),
+            ("n".into(), OwnedCell::Int(n)),
+            ("tags".into(), OwnedCell::Json(r#"["a", "b"]"#.into())),
+            ("price".into(), OwnedCell::Decimal("12.50".into())),
+            ("raw".into(), OwnedCell::Bytes(vec![0xca, 0xfe].into())),
+            ("note".into(), OwnedCell::Null),
+        ])
+    };
+    let table: NodePath = [keyspace.as_str(), "t"].into_iter().collect();
+    let report = s
+        .apply(ChangeSet {
+            table: table.clone(),
+            key: vec!["id".into()],
+            changes: vec![
+                row("6f1c6b3e-5d4a-4f3b-9c2e-1a2b3c4d5e6f", 1),
+                row("7a2d7c4f-6e5b-4a4c-8d3f-2b3c4d5e6f70", 2),
+            ],
+        })
+        .await
+        .expect("added");
+    assert_eq!(report.inserted, 2);
+    let out = run(
+        s.as_mut(),
+        "SELECT n, tags, price, raw FROM t WHERE id = 6f1c6b3e-5d4a-4f3b-9c2e-1a2b3c4d5e6f",
+        1,
+    )
+    .await
+    .expect("read back");
+    let row = only_row(&out);
+    assert_eq!(row[0], Some("1"));
+    assert!(
+        row[1].is_some_and(|tags| tags.contains('a') && tags.contains('b')),
+        "{row:?}"
+    );
+    assert_eq!(row[2], Some("12.50"));
+    assert!(row[3].is_some_and(|raw| raw.contains("cafe")), "{row:?}");
+    let edit = s
+        .apply(ChangeSet {
+            table,
+            key: vec!["id".into()],
+            changes: vec![Change::Delete(vec![OwnedCell::Int(1)])],
+        })
+        .await;
+    assert!(edit.is_err());
+    drop_keyspace(s.as_mut(), &keyspace).await;
+}
