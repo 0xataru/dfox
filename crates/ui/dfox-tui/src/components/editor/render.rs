@@ -124,6 +124,7 @@ impl EditorPanel {
                     left,
                     &cache.highlight[n],
                     selection,
+                    cache.brackets,
                     ctx,
                 ));
                 Line::from(spans)
@@ -198,6 +199,7 @@ fn styled_line<'a>(
     left: usize,
     pieces: &[Piece],
     selection: Option<(Pos, Pos)>,
+    brackets: Option<[Pos; 2]>,
     ctx: &RenderCtx,
 ) -> Vec<Span<'a>> {
     let theme = ctx.theme;
@@ -213,6 +215,11 @@ fn styled_line<'a>(
             .iter()
             .find(|p| p.start <= col && col < p.end)
             .map_or(base, |p| theme.syntax(p.kind));
+        let style = if brackets.is_some_and(|b| b.contains(&(line, col))) {
+            style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            style
+        };
         if selected(col) {
             style.bg(theme.selection)
         } else {

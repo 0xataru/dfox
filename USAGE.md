@@ -284,6 +284,12 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   their own selection)
 - **Ctrl+C** / **Ctrl+X** / **Ctrl+V** - Copy / cut / paste (without a selection, copy takes the line and cut removes it)
 - **Ctrl+←/→** or **Alt+←/→** - Move by word; **Alt+Backspace** deletes a word
+- Brackets and quotes close themselves, wrap a selection, and are stepped over when typed
+  again; Backspace in an empty pair removes both. The bracket matching the one at the cursor
+  is underlined
+- **Ctrl+/** (or **Cmd+/**) comments the line or the selected lines out, and back in:
+  `--` in SQL and CQL, `//` in Mongo, `#` in Redis. Terminals without the kitty keyboard
+  protocol send it as **Ctrl+7**, which works too
 - On macOS, **Cmd** works as **Ctrl** where the terminal reports it (Ghostty, kitty, WezTerm,
   iTerm2 with "Report keys using CSI u"): **Cmd+C**, **Cmd+Z**, **Cmd+R** and so on
   that the terminal leaves to the program. Ghostty keeps Cmd+C, A, Z and Shift+Z for itself;

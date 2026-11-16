@@ -7,6 +7,14 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- In the editor, brackets and quotes close themselves, wrap the selection, and are stepped
+  over when typed again; Backspace in an empty pair removes both. The bracket matching the one
+  at the cursor is underlined, strings and comments left out.
+- **Ctrl+/** comments the line or the selected lines out, and back in, with the language's
+  own comment: `--` in SQL and CQL, `//` in Mongo, `#` in Redis.
+
 ## [0.5.38] - 2026-11-16
 
 ### Added

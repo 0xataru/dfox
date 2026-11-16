@@ -28,9 +28,9 @@ expression: "test.snapshot(120, 32)"
 │              │ Alt+Shift+←       Select previous word     q Ctrl+Q          Quit                      │              │
 │              │ Alt+Shift+→       Select next word         Enter             Select / new line         │              │
 │              │ Ctrl+L            Select the line          ↑                 Up                        │              │
-│              │ Alt+B Alt+←       Previous word            ↓                 Down                      │              │
-│              │ Alt+F Alt+→       Next word                ←                 Left / previous column    │              │
-│              │ Backspace         Delete back              →                 Right / next column       │              │
+│              │ Ctrl+/ Ctrl+7     Comment lines out or in  ↓                 Down                      │              │
+│              │ Alt+B Alt+←       Previous word            ←                 Left / previous column    │              │
+│              │ Alt+F Alt+→       Next word                →                 Right / next column       │              │
 │              │                                                                                        │              │
 ╰──────────────╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯──────────────╯
  dfox 0.0.0                                                                        Enter connect  n new  e edit  ? keys

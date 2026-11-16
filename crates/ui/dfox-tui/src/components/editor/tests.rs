@@ -361,3 +361,22 @@ fn mongo_methods_show_their_arguments() {
         })
     );
 }
+
+#[test]
+fn the_bracket_at_the_cursor_finds_its_match_outside_strings() {
+    let lines: Vec<String> = ["select f(a, ')'", ", (b))"].map(String::from).to_vec();
+    let highlight = sql::highlight(&lines, Dialect::Postgres);
+    assert_eq!(matching(&lines, &highlight, (0, 8)), Some([(0, 8), (1, 5)]));
+    assert_eq!(matching(&lines, &highlight, (1, 6)), Some([(1, 5), (0, 8)]));
+    assert_eq!(matching(&lines, &highlight, (0, 13)), None);
+    assert_eq!(matching(&lines, &highlight, (0, 2)), None);
+}
+
+#[test]
+fn ctrl_slash_comments_in_the_editors_language() {
+    let mut harness = Harness::new();
+    let mut e = EditorPanel::new(Dialect::Postgres).with_language(QueryLanguage::MongoShell);
+    e.set_text("db.users.find()");
+    press(&mut e, &mut harness, &[Action::Comment]);
+    assert_eq!(e.text(), "// db.users.find()");
+}
