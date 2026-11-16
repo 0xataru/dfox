@@ -290,8 +290,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   - the connection in a bar under them instead of in the status bar
   - no explorer column: a click on the database in the bar, **Ctrl+B** or the explorer
     icon on the rail at the left drops the explorer down under the database, with its
-    search (**/**) and Enter on a database to switch to it. Esc, Ctrl+B or a second
-    click closes it
+    search (**/**) and Enter on a database to switch to it, which keeps it open.
+    Choosing what to do with a table closes it, as do Esc, Ctrl+B and a second click.
+    Tab passes it by
   - a toolbar at the right of the bar: run, stop, commit and rollback while a
     transaction is open, run the script, explain, explain analyze, format, history,
     keys. The mouse over one says what it does and its key, the last ones go on a

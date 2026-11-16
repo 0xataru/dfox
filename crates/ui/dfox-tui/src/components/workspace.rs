@@ -1479,7 +1479,14 @@ impl Workspace {
         let menu = self.menu.take()?;
         match event {
             MenuEvent::Close => None,
-            MenuEvent::Pick(choice) => self.choose(menu.table, menu.kind, menu.name, choice, ctx),
+            MenuEvent::Pick(choice) => {
+                let command = self.choose(menu.table, menu.kind, menu.name, choice, ctx);
+                // The new layout's explorer closes once a table is chosen.
+                if ctx.config.layout == LayoutStyle::Workspace && self.focus.is(Panel::Explorer) {
+                    self.set_focus(Panel::Editor);
+                }
+                command
+            }
         }
     }
 
@@ -1850,12 +1857,19 @@ impl Component for Workspace {
             self.editor_mut().close_completion();
         }
         match action {
-            Action::NextFocus => {
-                self.focus.next();
-                self.sync_focus();
-            }
-            Action::PrevFocus => {
-                self.focus.prev();
+            Action::NextFocus | Action::PrevFocus => {
+                // The new layout's explorer opens from the bar, not by Tab.
+                let skip = ctx.config.layout == LayoutStyle::Workspace;
+                loop {
+                    if action == Action::NextFocus {
+                        self.focus.next();
+                    } else {
+                        self.focus.prev();
+                    }
+                    if !(skip && self.focus.is(Panel::Explorer)) {
+                        break;
+                    }
+                }
                 self.sync_focus();
             }
             Action::Execute => {

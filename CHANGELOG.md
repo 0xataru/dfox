@@ -24,7 +24,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   instead of as pop-ups.
 - The new layout has no explorer column. A click on the database in the connection bar,
   **Ctrl+B** or the explorer icon on a rail at the left drops the explorer down under the
-  database, search and all. Esc, Ctrl+B or a second click closes it. In the classic layout
+  database, search and all. Switching the database keeps it open, choosing what to do with a
+  table closes it, as do Esc, Ctrl+B and a second click. Tab passes it by. In the classic layout
   Ctrl+B moves to the explorer and back.
 - **F7** explains the statement under the cursor, **Shift+F7** explains analyze it, which runs
   it: a destructive one asks first. Postgres and MySQL, plain explain on SQLite.

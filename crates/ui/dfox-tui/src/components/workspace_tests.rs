@@ -470,6 +470,30 @@ fn the_database_opens_the_explorer_under_it() {
     // A second click closes it.
     w.mouse(click, &mut harness.ctx());
     assert_eq!(w.focused(), Panel::Editor);
+
+    // Tab skips it.
+    for _ in 0..3 {
+        w.handle(Action::NextFocus, &mut harness.ctx());
+        assert_ne!(w.focused(), Panel::Explorer);
+    }
+    w.handle(Action::PrevFocus, &mut harness.ctx());
+    assert_ne!(w.focused(), Panel::Explorer);
+
+    // Choosing what to do with a table closes it.
+    w.handle(Action::Explorer, &mut harness.ctx());
+    w.handle(Action::Home, &mut harness.ctx());
+    w.handle(Action::Down, &mut harness.ctx());
+    w.handle(Action::Down, &mut harness.ctx());
+    w.handle(Action::Down, &mut harness.ctx());
+    let command = w.handle(Action::Confirm, &mut harness.ctx());
+    if let Some(command) = command {
+        w.explorer_command(command, &mut harness.ctx());
+    }
+    assert!(w.menu.is_some(), "Enter on a table offers its menu");
+    assert_eq!(w.focused(), Panel::Explorer, "open while choosing");
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert!(w.menu.is_none());
+    assert_eq!(w.focused(), Panel::Editor);
 }
 
 #[test]
