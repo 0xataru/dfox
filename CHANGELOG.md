@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.39] - 2026-11-16
+
 ### Added
 
 - The editor marks a Postgres, MySQL or SQLite query or data change that doesn't parse before
