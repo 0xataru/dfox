@@ -50,6 +50,63 @@ struct Cache {
     /// The statement under `cursor`.
     cursor: Pos,
     statement: Option<Stmt>,
+    /// The bracket at the cursor and its match.
+    brackets: Option<[Pos; 2]>,
+}
+
+/// Lines looked through for a bracket's match.
+const MATCH_REACH: usize = 500;
+
+/// The bracket at or just before `cursor` and the one matching it, out of
+/// strings and comments.
+fn matching(lines: &[String], highlight: &[Vec<Piece>], (line, col): Pos) -> Option<[Pos; 2]> {
+    let code = |(line, col): Pos| {
+        !highlight.get(line).is_some_and(|pieces| {
+            pieces.iter().any(|p| {
+                p.start <= col
+                    && col < p.end
+                    && matches!(p.kind, sql::Kind::String | sql::Kind::Comment)
+            })
+        })
+    };
+    let at = |pos: Pos| lines[pos.0].chars().nth(pos.1);
+    let bracket = |c: char| {
+        [('(', ')'), ('[', ']'), ('{', '}')]
+            .into_iter()
+            .find(|(o, c2)| *o == c || *c2 == c)
+    };
+    let from = [Some(col), col.checked_sub(1)]
+        .into_iter()
+        .flatten()
+        .map(|col| (line, col))
+        .find(|pos| at(*pos).and_then(bracket).is_some() && code(*pos))?;
+    let c = at(from)?;
+    let (open, close) = bracket(c)?;
+    let rows = from.0.saturating_sub(MATCH_REACH)..lines.len().min(from.0 + MATCH_REACH);
+    let chars: Vec<(Pos, char)> = rows
+        .flat_map(|row| {
+            lines[row]
+                .chars()
+                .enumerate()
+                .map(move |(col, ch)| ((row, col), ch))
+        })
+        .filter(|(pos, ch)| (*ch == open || *ch == close) && code(*pos))
+        .collect();
+    let i = chars.iter().position(|(pos, _)| *pos == from)?;
+    let mut depth = 0usize;
+    let mut step = |&(pos, ch): &(Pos, char)| {
+        if ch == c {
+            depth += 1;
+            return None;
+        }
+        depth -= 1;
+        (depth == 0).then_some([from, pos])
+    };
+    if c == open {
+        chars[i..].iter().find_map(&mut step)
+    } else {
+        chars[..=i].iter().rev().find_map(&mut step)
+    }
 }
 
 #[derive(Debug)]
@@ -428,6 +485,7 @@ impl EditorPanel {
             } else {
                 None
             };
+            cache.brackets = matching(self.buffer.lines(), &cache.highlight, cursor);
             cache.cursor = cursor;
         }
     }
@@ -476,7 +534,15 @@ impl Component for EditorPanel {
             return None;
         }
         match action {
-            Action::Input(c) => b.insert_char(c),
+            Action::Input(c) => b.type_char(c),
+            Action::Comment => {
+                let prefix = match self.language {
+                    QueryLanguage::Sql(_) | QueryLanguage::Cql => "--",
+                    QueryLanguage::MongoShell => "//",
+                    QueryLanguage::RedisCmd => "#",
+                };
+                b.toggle_comment(prefix);
+            }
             Action::Confirm => b.newline(),
             Action::Backspace => b.backspace(),
             Action::Delete => b.delete(),

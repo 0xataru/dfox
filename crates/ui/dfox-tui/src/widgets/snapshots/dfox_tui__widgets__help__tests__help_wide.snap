@@ -4,7 +4,6 @@ expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &supe
 ---
 
 
-
                ╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮
                │                                                                                        │
                │ Ctrl+P            Command palette          J                 Results as JSON / grid    │
@@ -31,12 +30,13 @@ expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &supe
                │ Alt+Shift+←       Select previous word     q Ctrl+Q          Quit                      │
                │ Alt+Shift+→       Select next word         Enter             Select / new line         │
                │ Ctrl+L            Select the line          ↑                 Up                        │
-               │ Alt+B Alt+←       Previous word            ↓                 Down                      │
-               │ Alt+F Alt+→       Next word                ←                 Left / previous column    │
-               │ Backspace         Delete back              →                 Right / next column       │
-               │ Alt+Backspace     Delete a word            PgUp              Page up                   │
-               │ y                 Copy as CSV, JSON, …     PgDn              Page down                 │
-               │ V                 Select whole rows        Home              First row / line start    │
-               │ i                 Inspect / insert name    End               Last row / line end       │
+               │ Ctrl+/ Ctrl+7     Comment lines out or in  ↓                 Down                      │
+               │ Alt+B Alt+←       Previous word            ←                 Left / previous column    │
+               │ Alt+F Alt+→       Next word                →                 Right / next column       │
+               │ Backspace         Delete back              PgUp              Page up                   │
+               │ Alt+Backspace     Delete a word            PgDn              Page down                 │
+               │ y                 Copy as CSV, JSON, …     Home              First row / line start    │
+               │ V                 Select whole rows        End               Last row / line end       │
+               │ i                 Inspect / insert name                                                │
                │                                                                                        │
                ╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯

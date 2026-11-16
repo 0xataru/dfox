@@ -237,3 +237,77 @@ fn a_paste_replaces_the_selection_keeps_its_indentation_and_undoes_at_once() {
     assert!(b.undo());
     assert_eq!(b.text(), "    select x");
 }
+
+#[test]
+fn brackets_and_quotes_close_themselves() {
+    let mut b = buffer("");
+    for c in "count(".chars() {
+        b.type_char(c);
+    }
+    assert_eq!((b.text().as_str(), b.cursor()), ("count()", (0, 6)));
+    b.type_char('*');
+    b.type_char(')');
+    assert_eq!((b.text().as_str(), b.cursor()), ("count(*)", (0, 8)));
+    // Undone in one step with what was typed.
+    b.undo();
+    assert_eq!(b.text(), "");
+
+    let mut b = buffer("");
+    for c in "where name = 'x".chars() {
+        b.type_char(c);
+    }
+    b.type_char('\'');
+    assert_eq!(b.text(), "where name = 'x'");
+    // Not after a word, nor before one.
+    let mut b = buffer("it");
+    b.set_cursor((0, 2), false);
+    b.type_char('\'');
+    assert_eq!(b.text(), "it'");
+    let mut b = buffer("x");
+    b.set_cursor((0, 0), false);
+    b.type_char('(');
+    assert_eq!(b.text(), "(x");
+}
+
+#[test]
+fn backspace_takes_an_empty_pair() {
+    let mut b = buffer("");
+    b.type_char('[');
+    b.backspace();
+    assert_eq!(b.text(), "");
+    let mut b = buffer("(a)");
+    b.set_cursor((0, 1), false);
+    b.backspace();
+    assert_eq!(b.text(), "a)");
+}
+
+#[test]
+fn a_bracket_wraps_the_selection() {
+    let mut b = buffer("select a from t");
+    b.set_cursor((0, 7), false);
+    b.set_cursor((0, 8), true);
+    b.type_char('"');
+    assert_eq!(b.text(), "select \"a\" from t");
+    assert_eq!(b.selected_text().as_deref(), Some("a"));
+}
+
+#[test]
+fn lines_are_commented_out_and_back_in() {
+    let mut b = buffer("  select 1\n\n    from t\nwhere x");
+    b.set_cursor((0, 2), false);
+    b.set_cursor((3, 0), true);
+    b.toggle_comment("--");
+    assert_eq!(b.text(), "  -- select 1\n\n  --   from t\nwhere x");
+    assert_eq!(
+        b.selected_text().as_deref(),
+        Some("select 1\n\n  --   from t\n")
+    );
+    b.toggle_comment("--");
+    assert_eq!(b.text(), "  select 1\n\n    from t\nwhere x");
+    // The cursor's line alone, with Redis's prefix.
+    let mut b = buffer("GET k");
+    b.toggle_comment("#");
+    assert_eq!((b.text().as_str(), b.cursor()), ("# GET k", (0, 7)));
+    b.undo();
+    assert_eq!(b.text(), "GET k");
+}

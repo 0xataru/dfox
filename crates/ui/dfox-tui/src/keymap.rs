@@ -307,6 +307,8 @@ fn standard() -> Vec<(Key, Action)> {
             Action::SelectWordRight,
         ),
         bind(&["ctrl+l"], Action::SelectLine),
+        // Terminals without the kitty protocol send Ctrl+/ as Ctrl+7.
+        bind(&["ctrl+/", "ctrl+7"], Action::Comment),
         bind(&["alt+backspace", "ctrl+backspace"], Action::DeleteWord),
         bind(&["f1"], Action::Connections),
         bind(&["K"], Action::Clusters),

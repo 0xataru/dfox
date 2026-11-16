@@ -6,6 +6,20 @@ use crate::sql::{self, Pos};
 /// Undo steps kept per buffer.
 const MAX_UNDO: usize = 200;
 
+/// Brackets and quotes that close themselves.
+const PAIRS: [(char, char); 6] = [
+    ('(', ')'),
+    ('[', ']'),
+    ('{', '}'),
+    ('\'', '\''),
+    ('"', '"'),
+    ('`', '`'),
+];
+
+fn closer(open: char) -> Option<char> {
+    PAIRS.iter().find(|(o, _)| *o == open).map(|(_, c)| *c)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Motion {
     Left,
@@ -352,6 +366,109 @@ impl Buffer {
         self.changed();
     }
 
+    fn char_at(&self, (line, col): Pos) -> Option<char> {
+        self.lines[line].chars().nth(col)
+    }
+
+    fn char_before(&self) -> Option<char> {
+        let (line, col) = self.cursor;
+        col.checked_sub(1).and_then(|col| self.char_at((line, col)))
+    }
+
+    /// A typed character: an opening bracket or quote brings its closing
+    /// one, or wraps the selection, and a closing one already there is
+    /// stepped over.
+    pub fn type_char(&mut self, c: char) {
+        let next = self.char_at(self.cursor);
+        if let Some((start, end)) = self.selection() {
+            if let Some(close) = closer(c) {
+                self.checkpoint(EditKind::Other);
+                let at = byte_at(&self.lines[end.0], end.1);
+                self.lines[end.0].insert(at, close);
+                let at = byte_at(&self.lines[start.0], start.1);
+                self.lines[start.0].insert(at, c);
+                let shift = |pos: Pos| (pos.0, pos.1 + usize::from(pos.0 == start.0));
+                self.anchor = self.anchor.map(shift);
+                self.cursor = shift(self.cursor);
+                self.changed();
+                self.break_undo();
+                return;
+            }
+        } else if next == Some(c) && PAIRS.iter().any(|(_, close)| *close == c) {
+            self.cursor.1 += 1;
+            self.break_undo();
+            return;
+        }
+        let close = closer(c).filter(|close| {
+            let free_after = next.is_none_or(|n| n.is_whitespace() || ")]},;".contains(n));
+            let quote = *close == c;
+            let free_before = !quote
+                || self
+                    .char_before()
+                    .is_none_or(|p| !(p.is_alphanumeric() || p == '_' || p == c));
+            free_after && free_before
+        });
+        self.insert_char(c);
+        if let Some(close) = close {
+            let (line, col) = self.cursor;
+            let at = byte_at(&self.lines[line], col);
+            self.lines[line].insert(at, close);
+        }
+    }
+
+    /// Comments the lines of the selection, or the cursor's, out with
+    /// `prefix`, or back in when every one of them is commented.
+    pub fn toggle_comment(&mut self, prefix: &str) {
+        let (start, end) = self.selection().unwrap_or((self.cursor, self.cursor));
+        // A selection ending at a line's start doesn't take that line.
+        let last = if end.0 > start.0 && end.1 == 0 {
+            end.0 - 1
+        } else {
+            end.0
+        };
+        let filled: Vec<usize> = (start.0..=last)
+            .filter(|n| !self.lines[*n].trim().is_empty())
+            .collect();
+        if filled.is_empty() {
+            return;
+        }
+        self.checkpoint(EditKind::Other);
+        let indent = |line: &str| char_len(line) - char_len(line.trim_start());
+        let commented = filled
+            .iter()
+            .all(|n| self.lines[*n].trim_start().starts_with(prefix));
+        let column = filled
+            .iter()
+            .map(|n| indent(&self.lines[*n]))
+            .min()
+            .unwrap_or(0);
+        let mut moved = Vec::new();
+        for n in filled {
+            let line = &mut self.lines[n];
+            if commented {
+                let at = indent(line);
+                let mut gone = char_len(prefix);
+                if line.chars().nth(at + gone) == Some(' ') {
+                    gone += 1;
+                }
+                let from = byte_at(line, at);
+                line.replace_range(from..byte_at(line, at + gone), "");
+                moved.push((n, at, -(gone as isize)));
+            } else {
+                line.insert_str(byte_at(line, column), &format!("{prefix} "));
+                moved.push((n, column, char_len(prefix) as isize + 1));
+            }
+        }
+        let shift = |(line, col): Pos| match moved.iter().find(|(n, ..)| *n == line) {
+            Some((_, at, by)) if col >= *at => (line, col.saturating_add_signed(*by).max(*at)),
+            _ => (line, col),
+        };
+        self.anchor = self.anchor.map(shift);
+        self.cursor = shift(self.cursor);
+        self.changed();
+        self.break_undo();
+    }
+
     /// Inserts pasted text, replacing the selection.
     pub fn insert_str(&mut self, text: &str) {
         self.checkpoint(EditKind::Other);
@@ -401,6 +518,12 @@ impl Buffer {
         if !self.delete_selection() {
             let (line, col) = self.cursor;
             if col > 0 {
+                // An empty pair goes as one.
+                let next = self.char_at(self.cursor);
+                if next.is_some() && self.char_before().and_then(closer) == next {
+                    let at = byte_at(&self.lines[line], col);
+                    self.lines[line].remove(at);
+                }
                 let at = byte_at(&self.lines[line], col - 1);
                 self.lines[line].remove(at);
                 self.cursor.1 -= 1;
