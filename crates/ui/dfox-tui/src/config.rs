@@ -16,6 +16,8 @@ use crate::{icons::IconStyle, keymap::Preset};
 pub struct Config {
     /// A built-in theme, or the name of a file in `themes/` without `.toml`.
     pub theme: String,
+    /// `classic`, or `workspace`: the redesigned workspace.
+    pub layout: LayoutStyle,
     /// `standard` or `vim`.
     pub keymap: Preset,
     /// Spinners and fades. Off draws static symbols instead.
@@ -42,10 +44,35 @@ pub struct Config {
     pub kube_contexts: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutStyle {
+    #[default]
+    Classic,
+    Workspace,
+}
+
+impl LayoutStyle {
+    pub fn other(self) -> Self {
+        match self {
+            Self::Classic => Self::Workspace,
+            Self::Workspace => Self::Classic,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Classic => "classic",
+            Self::Workspace => "workspace",
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             theme: "dfox".to_string(),
+            layout: LayoutStyle::Classic,
             keymap: Preset::Standard,
             animations: true,
             icons: IconStyle::Auto,
@@ -130,6 +157,14 @@ impl Config {
         })
     }
 
+    /// Writes `layout` into `config.toml`, the rest left as it is.
+    pub fn save_layout(dir: &Path, layout: LayoutStyle) -> Result<(), String> {
+        Self::edit(dir, |doc, _| {
+            doc["layout"] = toml_edit::value(layout.name());
+            Ok(())
+        })
+    }
+
     /// Changes `config.toml` with `change`, keeping its comments and order.
     fn edit(
         dir: &Path,
@@ -166,11 +201,13 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("dir");
         std::fs::write(dir.join("config.toml"), "# mine\ntheme = \"nord\"\n").expect("write");
         Config::save_kube_contexts(&dir, &["current".into(), "do-stage".into()]).expect("save");
+        Config::save_layout(&dir, LayoutStyle::Workspace).expect("save");
         let text = std::fs::read_to_string(dir.join("config.toml")).expect("read");
         assert!(text.starts_with("# mine\ntheme = \"nord\"\n"), "{text}");
         let (config, problem) = Config::load(Some(&dir));
         assert_eq!(problem, None);
         assert_eq!(config.kube_contexts, ["current", "do-stage"]);
+        assert_eq!(config.layout, LayoutStyle::Workspace);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

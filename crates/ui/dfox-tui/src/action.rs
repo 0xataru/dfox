@@ -69,6 +69,10 @@ pub enum Action {
     Clusters,
     Debug,
     NextTheme,
+    /// The classic layout or the redesigned workspace.
+    SwitchLayout,
+    /// The editor or the results fill the workspace, and back.
+    Maximize,
     New,
     Edit,
     Delete,
@@ -132,6 +136,8 @@ impl Action {
         Action::Connections,
         Action::Clusters,
         Action::NextTheme,
+        Action::SwitchLayout,
+        Action::Maximize,
         Action::Debug,
         Action::Menu,
         Action::Help,
@@ -215,6 +221,8 @@ impl Action {
             Action::Refresh => "refresh",
             Action::Debug => "debug",
             Action::NextTheme => "next_theme",
+            Action::SwitchLayout => "switch_layout",
+            Action::Maximize => "maximize",
             Action::Input(_) => "input",
         }
     }
@@ -296,6 +304,8 @@ impl Action {
             Action::Refresh => "Refresh",
             Action::Debug => "Event log",
             Action::NextTheme => "Next theme",
+            Action::SwitchLayout => "Classic / new layout",
+            Action::Maximize => "Maximize the panel",
             Action::Input(_) => "Type",
         }
     }

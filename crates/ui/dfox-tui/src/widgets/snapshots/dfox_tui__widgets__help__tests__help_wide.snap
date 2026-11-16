@@ -1,42 +1,44 @@
 ---
-source: dfox-tui/src/widgets/help.rs
+source: crates/ui/dfox-tui/src/widgets/help.rs
+assertion_line: 176
 expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &super::Help::default(), ctx))"
 ---
 
 
                ╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮
                │                                                                                        │
-               │ Ctrl+P            Command palette          i                 Inspect / insert name     │
-               │ F5 Ctrl+E         Run statement/selection  J                 Results as JSON / grid    │
-               │ Shift+F5          Run the whole script     o                 Add a row / open a file   │
-               │ Ctrl+Space        Suggest names            x                 Export rows to a file     │
-               │ Ctrl+R            Query history            >                 Widen column              │
-               │ Ctrl+N            New query tab            s                 Sort by column            │
-               │ Ctrl+W            Close query tab          <                 Narrow column             │
-               │ Alt+] Ctrl+PgDn   Next query tab           Tab               Next panel                │
-               │ Alt+[ Ctrl+PgUp   Previous query tab       Shift+Tab         Previous panel            │
-               │ Ctrl+C            Copy / cancel query      /                 Filter                    │
-               │ Ctrl+X            Cut                      R                 Refresh                   │
-               │ Ctrl+V            Paste                    n                 New connection            │
-               │ Ctrl+Z            Undo                     e                 Edit / definition         │
-               │ Ctrl+Y            Redo                     Delete d          Delete                    │
-               │ Ctrl+A            Select all               Ctrl+S            Save                      │
-               │ Shift+←           Select left              F1                Connection list           │
-               │ Shift+→           Select right             K                 Kubernetes clusters       │
-               │ Shift+↑           Select up                Ctrl+T            Next theme                │
-               │ Shift+↓           Select down              F12               Event log                 │
-               │ Shift+Home        Select to line start     Space             Command menu              │
-               │ Shift+End         Select to line end       ? F2              Show keys                 │
-               │ Alt+Shift+←       Select previous word     Esc               Back / close              │
-               │ Alt+Shift+→       Select next word         q Ctrl+Q          Quit                      │
-               │ Ctrl+L            Select the line          Enter             Select / new line         │
-               │ Ctrl+/ Ctrl+7     Comment lines out or in  ↑                 Up                        │
-               │ Alt+Shift+F       Format the statement     ↓                 Down                      │
-               │ Alt+B Alt+←       Previous word            ←                 Left / previous column    │
-               │ Alt+F Alt+→       Next word                →                 Right / next column       │
-               │ Backspace         Delete back              PgUp              Page up                   │
-               │ Alt+Backspace     Delete a word            PgDn              Page down                 │
-               │ y                 Copy as CSV, JSON, …     Home              First row / line start    │
-               │ V                 Select whole rows        End               Last row / line end       │
+               │ Ctrl+P            Command palette          J                 Results as JSON / grid    │
+               │ F5 Ctrl+E         Run statement/selection  o                 Add a row / open a file   │
+               │ Shift+F5          Run the whole script     x                 Export rows to a file     │
+               │ Ctrl+Space        Suggest names            >                 Widen column              │
+               │ Ctrl+R            Query history            s                 Sort by column            │
+               │ Ctrl+N            New query tab            <                 Narrow column             │
+               │ Ctrl+W            Close query tab          Tab               Next panel                │
+               │ Alt+] Ctrl+PgDn   Next query tab           Shift+Tab         Previous panel            │
+               │ Alt+[ Ctrl+PgUp   Previous query tab       /                 Filter                    │
+               │ Ctrl+C            Copy / cancel query      R                 Refresh                   │
+               │ Ctrl+X            Cut                      n                 New connection            │
+               │ Ctrl+V            Paste                    e                 Edit / definition         │
+               │ Ctrl+Z            Undo                     Delete d          Delete                    │
+               │ Ctrl+Y            Redo                     Ctrl+S            Save                      │
+               │ Ctrl+A            Select all               F1                Connection list           │
+               │ Shift+←           Select left              K                 Kubernetes clusters       │
+               │ Shift+→           Select right             Ctrl+T            Next theme                │
+               │ Shift+↑           Select up                –                 Classic / new layout      │
+               │ Shift+↓           Select down              Ctrl+G            Maximize the panel        │
+               │ Shift+Home        Select to line start     F12               Event log                 │
+               │ Shift+End         Select to line end       Space             Command menu              │
+               │ Alt+Shift+←       Select previous word     ? F2              Show keys                 │
+               │ Alt+Shift+→       Select next word         Esc               Back / close              │
+               │ Ctrl+L            Select the line          q Ctrl+Q          Quit                      │
+               │ Ctrl+/ Ctrl+7     Comment lines out or in  Enter             Select / new line         │
+               │ Alt+Shift+F       Format the statement     ↑                 Up                        │
+               │ Alt+B Alt+←       Previous word            ↓                 Down                      │
+               │ Alt+F Alt+→       Next word                ←                 Left / previous column    │
+               │ Backspace         Delete back              →                 Right / next column       │
+               │ Alt+Backspace     Delete a word            PgUp              Page up                   │
+               │ y                 Copy as CSV, JSON, …     PgDn              Page down                 │
+               │ V                 Select whole rows        Home              First row / line start    │
+               │ i                 Inspect / insert name    End               Last row / line end       │
                │                                                                                        │
                ╰────────────────── ↑↓←→ move · Enter change · Del default · Esc close ──────────────────╯

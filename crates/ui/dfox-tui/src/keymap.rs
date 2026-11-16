@@ -321,6 +321,7 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["R"], Action::Refresh),
         bind(&["f12"], Action::Debug),
         bind(&["ctrl+t"], Action::NextTheme),
+        bind(&["ctrl+g"], Action::Maximize),
     ]
     .concat()
 }

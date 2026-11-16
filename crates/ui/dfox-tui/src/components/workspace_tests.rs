@@ -397,6 +397,59 @@ fn workspace_wide() {
 }
 
 #[test]
+fn the_new_layout_has_buttons_and_an_empty_state() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut w = workspace();
+    w.explorer.load(&mut Harness::new().ctx());
+    insta::assert_snapshot!(render(&test, 80, 24, |f, area, ctx| w.render(f, area, ctx)));
+}
+
+#[test]
+fn maximize_fills_the_workspace_and_back() {
+    let mut test = TestCtx::new();
+    let mut harness = Harness::new();
+    let mut w = workspace();
+    let full = Rect::new(0, 0, 100, 30);
+    let draw = |w: &Workspace, test: &TestCtx| {
+        render(test, 100, 30, |f, area, ctx| w.render(f, area, ctx));
+        w.areas.get()
+    };
+
+    w.handle(Action::Maximize, &mut harness.ctx());
+    assert_eq!(draw(&w, &test), [Rect::default(), full, Rect::default()]);
+    w.handle(Action::NextFocus, &mut harness.ctx());
+    assert_eq!(draw(&w, &test), [Rect::default(), Rect::default(), full]);
+    w.handle(Action::Maximize, &mut harness.ctx());
+    let [explorer, editor, results] = draw(&w, &test);
+    assert!(!explorer.is_empty() && !editor.is_empty() && !results.is_empty());
+    assert_eq!(
+        w.buttons.get(),
+        [Rect::default(); 2],
+        "the classic layout has none"
+    );
+
+    test.layout = LayoutStyle::Workspace;
+    draw(&w, &test);
+    let [_, button] = w.buttons.get();
+    let click = mouse(
+        MouseEventKind::Down(MouseButton::Left),
+        button.x + 1,
+        button.y,
+    );
+    w.mouse(click, &mut harness.ctx());
+    assert_eq!(draw(&w, &test), [Rect::default(), Rect::default(), full]);
+    let [_, button] = w.buttons.get();
+    let click = mouse(
+        MouseEventKind::Down(MouseButton::Left),
+        button.x + 1,
+        button.y,
+    );
+    w.mouse(click, &mut harness.ctx());
+    assert_eq!(draw(&w, &test)[0], explorer);
+}
+
+#[test]
 fn workspace_narrow() {
     let test = TestCtx::new();
     let mut w = workspace();

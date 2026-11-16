@@ -7,6 +7,7 @@ use tokio::time::Instant;
 
 use crate::{
     component::RenderCtx,
+    config::LayoutStyle,
     icons::Icons,
     keymap::{Keymap, Preset},
     theme::Theme,
@@ -18,6 +19,7 @@ pub struct TestCtx {
     pub icons: Icons,
     pub keymap: Keymap,
     pub now: Instant,
+    pub layout: LayoutStyle,
 }
 
 impl TestCtx {
@@ -27,6 +29,7 @@ impl TestCtx {
             icons: Icons::unicode(),
             keymap: Keymap::new(Preset::Standard, &BTreeMap::new()).0,
             now: Instant::now(),
+            layout: LayoutStyle::Classic,
         }
     }
 
@@ -38,6 +41,7 @@ impl TestCtx {
             now: self.now,
             frame: 0,
             animations: true,
+            layout: self.layout,
         }
     }
 }

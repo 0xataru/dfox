@@ -8,7 +8,7 @@ use crate::{
     action::Action,
     clipboard::{Clipboard, Via},
     command::Command,
-    config::Config,
+    config::{Config, LayoutStyle},
     history::History,
     icons::Icons,
     keymap::Keymap,
@@ -76,6 +76,7 @@ pub struct RenderCtx<'a> {
     /// Counts redraws while animating, to step spinners.
     pub frame: u64,
     pub animations: bool,
+    pub layout: LayoutStyle,
 }
 
 /// Notable events, shown by the debug action.

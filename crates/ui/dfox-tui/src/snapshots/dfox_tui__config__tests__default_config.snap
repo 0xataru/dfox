@@ -1,8 +1,10 @@
 ---
-source: dfox-tui/src/config.rs
+source: crates/ui/dfox-tui/src/config.rs
+assertion_line: 217
 expression: text
 ---
 theme = "dfox"
+layout = "classic"
 keymap = "standard"
 animations = true
 icons = "auto"
