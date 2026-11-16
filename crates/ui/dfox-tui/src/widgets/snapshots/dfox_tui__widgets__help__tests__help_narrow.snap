@@ -1,5 +1,6 @@
 ---
-source: dfox-tui/src/widgets/help.rs
+source: crates/ui/dfox-tui/src/widgets/help.rs
+assertion_line: 187
 expression: "render(&test, 80, 24, |f, area, ctx|\nsuper::render(f, area, &super::Help::default(), ctx))"
 ---
                  ╭ Keys ───────────────────────────────────────╮
@@ -7,6 +8,8 @@ expression: "render(&test, 80, 24, |f, area, ctx|\nsuper::render(f, area, &super
                  │ Ctrl+P            Command palette           │
                  │ F5 Ctrl+E         Run statement/selection   │
                  │ Shift+F5          Run the whole script      │
+                 │ F7                Explain the statement     │
+                 │ Shift+F7          Explain analyze           │
                  │ Ctrl+Space        Suggest names             │
                  │ Ctrl+R            Query history             │
                  │ Ctrl+N            New query tab             │
@@ -22,7 +25,5 @@ expression: "render(&test, 80, 24, |f, area, ctx|\nsuper::render(f, area, &super
                  │ Shift+←           Select left               │
                  │ Shift+→           Select right              │
                  │ Shift+↑           Select up                 │
-                 │ Shift+↓           Select down               │
-                 │ Shift+Home        Select to line start      │
                  │                                             │
                  ╰── Enter change · Del default · Esc close ───╯

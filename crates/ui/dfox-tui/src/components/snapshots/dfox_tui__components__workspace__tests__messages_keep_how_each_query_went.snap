@@ -1,10 +1,10 @@
 ---
 source: crates/ui/dfox-tui/src/components/workspace_tests.rs
-assertion_line: 494
+assertion_line: 501
 expression: "render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx))"
 ---
 ╭ Explorer ──────────╮ Query 1 × │
-│                    │ ◆ local · shop ▾
+│                    │ ◆ local · shop ▾                 ▶  »  Ex  Ex+  ≡  ⟲  ?
 │                    │╭ Query ────────────────────────────────────────────── ⤢ ╮
 │                    ││  1 create table if not exists t (id int)               │
 │                    ││                                                        │

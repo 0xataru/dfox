@@ -4,7 +4,7 @@ assertion_line: 418
 expression: screen
 ---
 ╭ Explorer ────────────────╮ Query 1 × │ Query 2 × │ Query 3 × │
-│                          │ ◆ local · shop ▾
+│                          │ ◆ local · shop ▾                               ▶  »  Ex  Ex+  ≡  ⟲  ?
 │                          │╭ Query ──────────────────────────────────────────────────────────── ⤢ ╮
 │                          ││  1                                                                   │
 │                          ││                                                                      │

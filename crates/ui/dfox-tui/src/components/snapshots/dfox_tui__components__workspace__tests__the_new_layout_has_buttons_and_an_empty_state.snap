@@ -4,7 +4,7 @@ assertion_line: 405
 expression: "render(&test, 80, 24, |f, area, ctx| w.render(f, area, ctx))"
 ---
 ╭ Explorer ⠷ ────────╮ Query 1 × │
-│   ▬▬▬▬▬▬▬▬▬▬▬▬▬▬   │ ◆ local · shop ▾
+│   ▬▬▬▬▬▬▬▬▬▬▬▬▬▬   │ ◆ local · shop ▾                 ▶  »  Ex  Ex+  ≡  ⟲  ?
 │   ▬▬▬▬▬▬▬▬▬        │╭ Query ────────────────────────────────────────────── ⤢ ╮
 │   ▬▬▬▬▬▬▬▬▬▬▬▬     ││  1                                                     │
 │   ▬▬▬▬▬▬▬          ││                                                        │

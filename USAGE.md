@@ -280,6 +280,8 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 ### Interface Controls
 - **F1** - Back to the connections
 - **Ctrl+T** - Next theme
+- **F7** / **Shift+F7** - Explain the statement / explain analyze it, which runs it (asking
+  first when it is destructive). Postgres and MySQL, plain explain on SQLite
 - **Ctrl+G** - The focused editor or results fill the workspace, and back
 - **Classic / new layout** in the command palette (**Ctrl+P**) switches to the redesigned
   workspace and back, and keeps the choice in `config.toml`. The new layout shows the
@@ -289,7 +291,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   Enter on one in the explorer does), **Data | Messages** over the results (**m** or a
   click switches: Messages lists how each query of the tab went, its rows or error and
   time, with the server's notices, which then don't pop up), a maximize button on the
-  editor and the results,
+  editor and the results, a toolbar at the right of the connection bar (run, stop, commit
+  and rollback while a transaction is open, run the script, explain, explain analyze,
+  format, history, keys: the mouse over one says what it does and its key, and the last
+  ones go on a narrow terminal),
   and a centred note while there are no results yet
 - **F12** - Event log
 - **Esc**, **q** or **Ctrl+Q** - Quit (asks first while connected)
@@ -381,6 +386,8 @@ action without a key. The actions and their default keys:
 | `palette` | Command palette | `ctrl+p` |
 | `execute` | Run statement/selection | `f5`, `ctrl+e`, `ctrl+enter` |
 | `execute_all` | Run the whole script | `shift+f5`, `ctrl+shift+enter`, `ctrl+shift+e` |
+| `explain` | Explain the statement | `f7` |
+| `explain_analyze` | Explain analyze | `shift+f7` |
 | `complete` | Suggest names | `ctrl+space` |
 | `history` | Query history | `ctrl+r` |
 | `new_tab` | New query tab | `ctrl+n` |
