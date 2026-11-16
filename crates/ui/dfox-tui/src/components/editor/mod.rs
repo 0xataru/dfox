@@ -8,6 +8,7 @@ mod render;
 
 use std::{
     cell::{Cell, RefCell},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -29,7 +30,10 @@ use crate::{
     component::{Component, Ctx, RenderCtx},
     sql::{self, Dialect, Piece, Pos, Stmt},
 };
-use dfox_core::session::{QueryLanguage, SqlDialect};
+use dfox_core::{
+    driver::Driver,
+    session::{QueryLanguage, SqlDialect},
+};
 
 /// A query tab, as its label in the editor's title.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,32 +64,52 @@ struct Cache {
 struct Problem {
     statement: Stmt,
     at: Pos,
+    /// Where the statement's last word starts.
+    tail: Pos,
     message: String,
 }
 
 impl Problem {
-    /// Whether it is only the statement still being typed: it ends too
-    /// soon and the cursor is at its end.
+    /// Whether it is only the statement still being typed: the cursor is at
+    /// its end and the problem in its last word.
     fn typing(&self, cursor: Pos) -> bool {
-        self.message.ends_with("found: EOF")
-            && cursor >= self.at
-            && cursor <= self.statement.zone_end
+        self.at >= self.tail && cursor >= self.statement.end && cursor <= self.statement.zone_end
     }
 }
 
-fn problems(lines: &[String], text: &str, dialect: Dialect) -> Vec<Problem> {
-    sql::statements(text, dialect)
-        .into_iter()
+/// `offset` characters into the text from `start`.
+fn advance(lines: &[String], (mut line, mut col): Pos, mut offset: usize) -> Pos {
+    while line < lines.len() {
+        let rest = lines[line].chars().count() - col.min(lines[line].chars().count());
+        if offset <= rest || line + 1 == lines.len() {
+            return (line, col + offset.min(rest));
+        }
+        offset -= rest + 1;
+        line += 1;
+        col = 0;
+    }
+    (line, col)
+}
+
+fn problems(checker: &Checker, lines: &[String], statements: &[Stmt]) -> Vec<Problem> {
+    let Some(driver) = &checker.0 else {
+        return Vec::new();
+    };
+    statements
+        .iter()
         .filter_map(|statement| {
-            let sql = sql::slice(lines, statement.start, statement.end);
-            let ((line, col), message) = sql::problem(&sql, dialect)?;
-            let at = match line {
-                0 => (statement.start.0, statement.start.1 + col),
-                line => (statement.start.0 + line, col),
-            };
+            let text = sql::slice(lines, statement.start, statement.end);
+            let (offset, message) = driver.check(&text)?;
+            let trimmed = text.trim_end();
+            let last = trimmed
+                .rsplit(char::is_whitespace)
+                .next()
+                .unwrap_or_default();
+            let tail = trimmed.chars().count() - last.chars().count();
             Some(Problem {
-                statement,
-                at,
+                statement: *statement,
+                at: advance(lines, statement.start, offset),
+                tail: advance(lines, statement.start, tail),
                 message,
             })
         })
@@ -147,8 +171,22 @@ fn matching(lines: &[String], highlight: &[Vec<Piece>], (line, col): Pos) -> Opt
     }
 }
 
+/// The session's driver, which says where a statement of its language
+/// stops parsing.
+#[derive(Clone, Default)]
+pub struct Checker(pub Option<Arc<dyn Driver>>);
+
+impl std::fmt::Debug for Checker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Checker")
+            .field(&self.0.as_ref().map(|d| d.db_type()))
+            .finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct EditorPanel {
+    pub checker: Checker,
     pub buffer: Buffer,
     dialect: Dialect,
     /// What it holds: SQL in `dialect`, or a database's own commands.
@@ -207,6 +245,7 @@ impl EditorPanel {
     pub fn new(dialect: Dialect) -> Self {
         Self {
             buffer: Buffer::default(),
+            checker: Checker::default(),
             dialect,
             language: QueryLanguage::Sql(SqlDialect::Generic),
             focused: false,
@@ -503,18 +542,24 @@ impl EditorPanel {
         let version = self.buffer.version();
         let cursor = self.buffer.cursor();
         if cache.version != Some(version) {
-            if self.language == QueryLanguage::MongoShell {
-                cache.highlight = sql::mongo::highlight(self.buffer.lines());
-                cache.statements = sql::mongo::statements(&self.buffer.text()).len();
-            } else if self.language == QueryLanguage::RedisCmd {
-                cache.highlight = sql::redis::highlight(self.buffer.lines());
-                cache.statements = sql::redis::statements(&self.buffer.text()).len();
-            } else {
-                let text = self.buffer.text();
-                cache.highlight = sql::highlight(self.buffer.lines(), self.dialect);
-                cache.statements = sql::statements(&text, self.dialect).len();
-                cache.problems = problems(self.buffer.lines(), &text, self.dialect);
-            }
+            let lines = self.buffer.lines();
+            let text = self.buffer.text();
+            let statements = match self.language {
+                QueryLanguage::MongoShell => {
+                    cache.highlight = sql::mongo::highlight(lines);
+                    sql::mongo::statements(&text)
+                }
+                QueryLanguage::RedisCmd => {
+                    cache.highlight = sql::redis::highlight(lines);
+                    sql::redis::statements(&text)
+                }
+                QueryLanguage::Sql(_) | QueryLanguage::Cql => {
+                    cache.highlight = sql::highlight(lines, self.dialect);
+                    sql::statements(&text, self.dialect)
+                }
+            };
+            cache.statements = statements.len();
+            cache.problems = problems(&self.checker, lines, &statements);
             cache.version = Some(version);
             cache.statement = None;
             cache.cursor = (usize::MAX, 0);

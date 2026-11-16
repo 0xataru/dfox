@@ -15,6 +15,10 @@ use futures_util::future::BoxFuture;
 pub struct PostgresDriver;
 
 impl Driver for PostgresDriver {
+    fn check(&self, statement: &str) -> Option<(usize, String)> {
+        dfox_sql::problem(statement, dfox_sql::Dialect::Postgres)
+    }
+
     fn info(&self) -> DriverInfo {
         DriverInfo {
             id: "postgres",

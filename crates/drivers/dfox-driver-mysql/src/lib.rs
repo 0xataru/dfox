@@ -16,6 +16,10 @@ use futures_util::future::BoxFuture;
 pub struct MySqlDriver;
 
 impl Driver for MySqlDriver {
+    fn check(&self, statement: &str) -> Option<(usize, String)> {
+        dfox_sql::problem(statement, dfox_sql::Dialect::MySql)
+    }
+
     fn info(&self) -> DriverInfo {
         DriverInfo {
             id: "mysql",

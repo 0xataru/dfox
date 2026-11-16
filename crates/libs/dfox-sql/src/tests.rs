@@ -269,15 +269,15 @@ fn problems_are_found_where_the_statement_stops_parsing() {
     );
     assert_eq!(
         problem("SELECT a\n  FROM t WHERE", Dialect::Postgres),
-        Some(((1, 9), "Expected: an expression, found: EOF".into()))
+        Some((18, "Expected: an expression, found: EOF".into()))
     );
     assert_eq!(
         problem("SELECT a FROM t t2 t3", Dialect::MySql).map(|(at, _)| at),
-        Some((0, 19))
+        Some(19)
     );
     assert_eq!(
         problem("UPDATE t SET a = 'x", Dialect::Sqlite).map(|(at, _)| at),
-        Some((0, 17))
+        Some(17)
     );
     // What sqlparser doesn't know well isn't checked.
     assert_eq!(problem("VACUUM ANALYZE t", Dialect::Postgres), None);

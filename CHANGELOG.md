@@ -9,6 +9,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The editor marks Mongo shell commands that dfox can't run as typed (`expected a value` at
+  the place it stops) and Redis commands with a quote left open, as it does SQL.
+
+### Added
+
 - The editor marks a Postgres, MySQL or SQLite query or data change that doesn't parse before
   it runs: the place it stops is underlined in red and the reason shows on the editor's bottom
   border. A statement still being typed isn't marked, utility commands and CQL aren't checked,

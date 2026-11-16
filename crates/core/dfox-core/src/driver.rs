@@ -120,6 +120,14 @@ pub trait Driver: Send + Sync + 'static {
         FormSpec::default()
     }
 
+    /// Where one statement of its query language stops parsing, in
+    /// characters, and why. None when it parses or isn't checked: a
+    /// statement that might be good is never marked.
+    fn check(&self, statement: &str) -> Option<(usize, String)> {
+        let _ = statement;
+        None
+    }
+
     /// Opens a [`Session`] from typed-in connection details.
     fn open<'a>(
         &'a self,

@@ -16,10 +16,29 @@ struct Word {
 
 /// The words of one command line, or why they can't be read.
 pub fn words(line: &str) -> Result<Vec<String>, String> {
-    scan(line).map(|words| words.into_iter().map(|w| w.text).collect())
+    scan(line)
+        .map(|words| words.into_iter().map(|w| w.text).collect())
+        .map_err(|(_, message)| message)
 }
 
-fn scan(line: &str) -> Result<Vec<Word>, String> {
+/// Where a script's commands can't be read, in characters, and why: a
+/// quote left open. Commands aren't checked against the table, which may
+/// not know a newer server's.
+pub fn problem(text: &str) -> Option<(usize, String)> {
+    let mut offset = 0;
+    for line in text.split('\n') {
+        if !is_comment(line) {
+            if let Err((at, message)) = scan(line) {
+                return Some((offset + at, message));
+            }
+        }
+        offset += line.chars().count() + 1;
+    }
+    None
+}
+
+/// The words of a line, or where and why they can't be read.
+fn scan(line: &str) -> Result<Vec<Word>, (usize, String)> {
     let chars: Vec<char> = line.chars().collect();
     let mut words = Vec::new();
     let mut i = 0;
@@ -35,7 +54,7 @@ fn scan(line: &str) -> Result<Vec<Word>, String> {
             i += 1;
             loop {
                 let Some(&c) = chars.get(i) else {
-                    return Err(format!("a {quote} quote isn't closed"));
+                    return Err((start, format!("a {quote} quote isn't closed")));
                 };
                 i += 1;
                 match c {
@@ -50,7 +69,7 @@ fn scan(line: &str) -> Result<Vec<Word>, String> {
                     }
                     '\\' => {
                         let Some(&escaped) = chars.get(i) else {
-                            return Err(format!("a {quote} quote isn't closed"));
+                            return Err((start, format!("a {quote} quote isn't closed")));
                         };
                         i += 1;
                         match escaped {
@@ -79,7 +98,7 @@ fn scan(line: &str) -> Result<Vec<Word>, String> {
                 }
             }
             if chars.get(i).is_some_and(|c| !c.is_whitespace()) {
-                return Err("a closing quote must be followed by a space".into());
+                return Err((i, "a closing quote must be followed by a space".into()));
             }
         } else {
             while i < chars.len() && !chars[i].is_whitespace() {
@@ -502,6 +521,16 @@ pub const COMMANDS: &[&str] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_open_quote_is_a_problem_where_it_opens() {
+        assert_eq!(
+            problem("SET k v\n# it's\nGET 'k"),
+            Some((19, "a ' quote isn't closed".into()))
+        );
+        assert_eq!(problem("SET k \"v\"x").map(|(at, _)| at), Some(9));
+        assert_eq!(problem("NOSUCH k"), None);
+    }
 
     fn lines(text: &str) -> Vec<String> {
         text.split('\n').map(str::to_string).collect()

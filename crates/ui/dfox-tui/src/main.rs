@@ -1,9 +1,6 @@
 use std::{env, sync::Arc};
 
-use dfox_core::{
-    driver::{Driver, Drivers},
-    engine::Command as DbCommand,
-};
+use dfox_core::{driver::Drivers, engine::Command as DbCommand};
 
 use dfox_tui::{
     app::{App, Detected, Setup},
@@ -20,26 +17,6 @@ use dfox_tui::{
 /// A faster allocator than the system's for the app's many small strings.
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
-/// The drivers this build has, picked by cargo features.
-fn drivers() -> Vec<Arc<dyn Driver>> {
-    let drivers: Vec<Option<Arc<dyn Driver>>> = vec![
-        #[cfg(feature = "postgres")]
-        Some(Arc::new(dfox_driver_postgres::PostgresDriver)),
-        #[cfg(feature = "mysql")]
-        Some(Arc::new(dfox_driver_mysql::MySqlDriver)),
-        #[cfg(feature = "sqlite")]
-        Some(Arc::new(dfox_driver_sqlite::SqliteDriver)),
-        #[cfg(feature = "mongo")]
-        Some(Arc::new(dfox_driver_mongo::MongoDriver)),
-        #[cfg(feature = "cassandra")]
-        Some(Arc::new(dfox_driver_cassandra::CassandraDriver)),
-        #[cfg(feature = "redis")]
-        Some(Arc::new(dfox_driver_redis::RedisDriver)),
-        None,
-    ];
-    drivers.into_iter().flatten().collect()
-}
 
 /// Prints a line of a command's output. A closed pipe (`dfox list | head -1`)
 /// ends the output quietly instead of panicking.
@@ -109,7 +86,7 @@ async fn headless(cli: Cli) -> i32 {
     let outcome = match (resolve(&from), command) {
         (Ok((connection, params)), Ok(command)) => {
             let (engine, mut events) =
-                dfox_core::engine::spawn_with(Drivers::new(drivers()), opener());
+                dfox_core::engine::spawn_with(Drivers::new(dfox_tui::drivers()), opener());
             let progress = dfox_tui::headless::shows_progress();
             dfox_tui::headless::run(&engine, &mut events, &connection, params, command, progress)
                 .await
@@ -180,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|c| c.name.chars().count())
                 .max();
             for connection in &store.connections {
-                let driver = drivers()
+                let driver = dfox_tui::drivers()
                     .iter()
                     .find(|d| d.db_type() == connection.driver)
                     .map_or(format!("{:?}", connection.driver), |d| {
@@ -298,7 +275,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let checking = update
         .then(|| dfox_tui::update::refresh(History::dir()))
         .flatten();
-    let (engine, events) = dfox_core::engine::spawn_with(Drivers::new(drivers()), opener());
+    let all = Drivers::new(dfox_tui::drivers());
+    let (engine, events) = dfox_core::engine::spawn_with(all.clone(), opener());
     let mut app = App::new(
         engine,
         Setup {
@@ -320,6 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
+    app.drivers = all;
     // kubectl on the PATH: the manager hints at the cluster picker.
     app.kubectl = env::var_os("PATH").is_some_and(|path| {
         env::split_paths(&path)

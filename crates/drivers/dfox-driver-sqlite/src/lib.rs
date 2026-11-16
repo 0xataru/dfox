@@ -16,6 +16,10 @@ use futures_util::future::BoxFuture;
 pub struct SqliteDriver;
 
 impl Driver for SqliteDriver {
+    fn check(&self, statement: &str) -> Option<(usize, String)> {
+        dfox_sql::problem(statement, dfox_sql::Dialect::Sqlite)
+    }
+
     fn info(&self) -> DriverInfo {
         DriverInfo {
             id: "sqlite",

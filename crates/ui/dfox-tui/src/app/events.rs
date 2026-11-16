@@ -125,6 +125,7 @@ impl App {
             });
         } else {
             let mut workspace = Workspace::new(&name, driver, &database)
+                .with_checker(self.drivers.get(driver).cloned())
                 .with_read_only(read_only)
                 .with_language(info.language)
                 .with_caps(info.caps);
