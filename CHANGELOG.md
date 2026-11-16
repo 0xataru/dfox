@@ -7,6 +7,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+## [0.5.40] - 2026-11-16
+
 ### Added
 
 - Copy to… and imports into Cassandra and ScyllaDB tables, as `INSERT … JSON` so the server
