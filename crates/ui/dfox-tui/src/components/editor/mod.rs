@@ -318,15 +318,13 @@ impl EditorPanel {
     }
 
     /// Lays out the selection, or the statement under the cursor, in one
-    /// undo step. SQL and CQL only for now.
+    /// undo step. Redis commands are left as they are.
     fn format(&mut self, ctx: &mut Ctx) {
-        let skipped = match self.language {
-            QueryLanguage::Sql(_) | QueryLanguage::Cql => None,
-            QueryLanguage::MongoShell => Some("Mongo commands aren't formatted yet"),
-            QueryLanguage::RedisCmd => Some("Redis commands are left as they are"),
-        };
-        if let Some(skipped) = skipped {
-            ctx.toast(crate::widgets::toast::Level::Info, skipped);
+        if self.language == QueryLanguage::RedisCmd {
+            ctx.toast(
+                crate::widgets::toast::Level::Info,
+                "Redis commands are left as they are",
+            );
             return;
         }
         let range = self.buffer.selection().or_else(|| {
@@ -337,7 +335,10 @@ impl EditorPanel {
             return;
         };
         let text = sql::slice(self.buffer.lines(), start, end);
-        let formatted = sql::format::format(&text, self.dialect);
+        let formatted = match self.language {
+            QueryLanguage::MongoShell => sql::mongo::format(&text),
+            _ => sql::format::format(&text, self.dialect),
+        };
         if formatted != text {
             self.buffer.set_cursor(start, false);
             self.buffer.set_cursor(end, true);

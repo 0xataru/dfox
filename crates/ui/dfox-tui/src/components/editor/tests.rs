@@ -441,3 +441,12 @@ fn the_statement_under_the_cursor_is_formatted_in_one_undo_step() {
     press(&mut e, &mut harness, &[Action::Undo]);
     assert_eq!(e.text(), "select 1;\nselect a from t where b = 1");
 }
+
+#[test]
+fn mongo_documents_are_formatted_too() {
+    let mut harness = Harness::new();
+    let mut e = EditorPanel::new(Dialect::Postgres).with_language(QueryLanguage::MongoShell);
+    e.set_text("db.users.find({age:{$gt:30}})");
+    press(&mut e, &mut harness, &[Action::Format]);
+    assert_eq!(e.text(), "db.users.find({ age: { $gt: 30 } })");
+}
