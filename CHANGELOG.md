@@ -18,15 +18,14 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 - The new layout puts the query tabs in a row of their own above the editor: a click
   switches, **×** closes, asking first when the tab holds a query.
 - The new layout shows the connection in a bar under the query tabs, with its colour tag,
-  read-only and an open transaction, instead of in the status bar. A click on the database
-  lists the server's databases to switch to.
+  read-only and an open transaction, instead of in the status bar.
 - The new layout has **Data | Messages** over the results (**m** or a click): Messages lists
   how each query of the tab went, rows or error and time, with the server's notices under it
   instead of as pop-ups.
-- The new layout has no explorer column. A rail of icons on the left holds the explorer, the
-  query and the connections. **Ctrl+B** or the explorer icon slides the explorer out over the
-  editor, Esc or Ctrl+B slides it back. In the classic layout Ctrl+B moves to the explorer and
-  back.
+- The new layout has no explorer column. A click on the database in the connection bar,
+  **Ctrl+B** or the explorer icon on a rail at the left drops the explorer down under the
+  database, search and all. Esc, Ctrl+B or a second click closes it. In the classic layout
+  Ctrl+B moves to the explorer and back.
 - **F7** explains the statement under the cursor, **Shift+F7** explains analyze it, which runs
   it: a destructive one asks first. Postgres and MySQL, plain explain on SQLite.
 - The new layout has a toolbar at the right of the connection bar: run, stop, commit and

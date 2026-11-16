@@ -1,0 +1,19 @@
+---
+source: crates/ui/dfox-tui/src/components/workspace_tests.rs
+assertion_line: 615
+expression: screen
+---
+    Query 1 × │
+☰   ◆ local · shop ▾                                                        ▶  »  Ex  Ex+  ≡  ⟲  ?
+   ╭ Query ──╭ Explorer ────────────────────────────╮─────────────────────────────────────────── ⤢ ╮
+ ✎ │  1 Write│   ◆ postgres                         │the cursor                                    │
+   │         │ ▾ ◆ shop ●                           │                                              │
+ ⇄ ╰─────────│   ▾ Tables 3                         │──────────────────────────────────────────────╯
+   ╭ Data │ M│     ▸ ▤ customers ~1.2k              │─────────────────────────────────────────── ⤢ ╮
+   │         │     ▸ ▤ order_items ~48.2k           │                                              │
+   │         │     ▸ ▤ orders ~12.4k                │                                              │
+   │         │   ▸ Views 1                          │                                              │
+   │         │   ▸ Functions 1                      │query to get output.                          │
+   │         │   ▸ Procedures 1                     │                                              │
+   │         │                                      │                                              │
+   ╰─────────╰──────────────────────────────────────╯──────────────────────────────────────────────╯

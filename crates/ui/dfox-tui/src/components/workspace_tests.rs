@@ -441,32 +441,35 @@ fn the_new_layout_has_the_query_tabs_on_top() {
 }
 
 #[test]
-fn the_connection_bar_switches_the_database() {
+fn the_database_opens_the_explorer_under_it() {
     let mut test = TestCtx::new();
     test.layout = LayoutStyle::Workspace;
     let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
     let mut w = workspace().with_tag(Tag::Red).with_read_only(true);
     answer_catalog(&mut w, &mut harness);
-    render(&test, 100, 16, |f, area, ctx| w.render(f, area, ctx));
+    render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx));
     let spot = w.database_spot.get();
-    w.mouse(
-        mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
-        &mut harness.ctx(),
+    let click = mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y);
+    w.mouse(click, &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Explorer);
+    insta::assert_snapshot!(render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx)));
+    let explorer = w.area(Panel::Explorer);
+    assert_eq!(
+        (explorer.x, explorer.y),
+        (spot.x - 1, spot.y + 1),
+        "under the database"
     );
-    insta::assert_snapshot!(render(&test, 100, 16, |f, area, ctx| w.render(f, area, ctx)));
 
-    // The keys move in the list, and picking the database in use changes nothing.
-    assert_eq!(w.handle(Action::Confirm, &mut harness.ctx()), None);
-    assert!(w.picker.is_none());
-    w.mouse(
-        mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
-        &mut harness.ctx(),
-    );
-    w.handle(Action::Up, &mut harness.ctx());
+    // Enter on another database switches to it, as in the explorer.
+    w.handle(Action::Home, &mut harness.ctx());
     assert_eq!(
         w.handle(Action::Confirm, &mut harness.ctx()),
         Some(Command::UseDatabase("postgres".into()))
     );
+    // A second click closes it.
+    w.mouse(click, &mut harness.ctx());
+    assert_eq!(w.focused(), Panel::Editor);
 }
 
 #[test]
@@ -597,7 +600,7 @@ fn the_toolbar_fits_the_width_and_its_buttons_work() {
 }
 
 #[test]
-fn the_explorer_slides_out_from_the_rail() {
+fn the_rail_and_ctrl_b_open_the_explorer() {
     let mut test = TestCtx::new();
     test.layout = LayoutStyle::Workspace;
     let mut harness = Harness::new();

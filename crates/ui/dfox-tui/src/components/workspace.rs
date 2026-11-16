@@ -26,7 +26,7 @@ use ratatui::{
 };
 
 use super::{
-    bar::{self, Bar, Button, Click, DatabasePicker, Picked},
+    bar::{self, Bar, Button, Click},
     card::{CardEvent, ColumnCard, TableCard},
     copy::CopyDialog,
     editor::{Checker, EditorPanel, TabLabel},
@@ -159,8 +159,6 @@ pub struct Workspace {
     tag: Tag,
     /// Where the bar shows the database, for clicks.
     database_spot: Cell<Rect>,
-    /// The list of databases the bar opened.
-    picker: Option<DatabasePicker>,
     /// The new layout's rail of the explorer, the query and the connections.
     rail: Cell<[Rect; 3]>,
     /// The toolbar's buttons where they were drawn, and the one the mouse
@@ -213,7 +211,6 @@ impl Workspace {
             closes: RefCell::new(Vec::new()),
             tag: Tag::None,
             database_spot: Cell::new(Rect::default()),
-            picker: None,
             toolbar: RefCell::new(Vec::new()),
             rail: Cell::new([Rect::default(); 3]),
             hovered: None,
@@ -278,17 +275,6 @@ impl Workspace {
     pub fn with_tag(mut self, tag: Tag) -> Self {
         self.tag = tag;
         self
-    }
-
-    /// What a choice in the list of databases does.
-    fn picked(&mut self, picked: Picked) -> Option<Command> {
-        self.picker = None;
-        match picked {
-            Picked::Database(name) if name != self.explorer.active => {
-                Some(Command::UseDatabase(name))
-            }
-            _ => None,
-        }
     }
 
     pub fn with_read_only(mut self, read_only: bool) -> Self {
@@ -1649,7 +1635,6 @@ impl Workspace {
             || self.menu.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
-            || self.picker.is_some()
         {
             return true;
         }
@@ -1700,13 +1685,6 @@ impl Workspace {
                 None => {}
             }
         }
-        if let Some(picker) = &self.picker {
-            if matches!(event.kind, MouseEventKind::Down(_)) {
-                let picked = picker.click(event.column, event.row);
-                return self.picked(picked);
-            }
-            return None;
-        }
         let button = self
             .toolbar
             .borrow()
@@ -1730,14 +1708,16 @@ impl Workspace {
                 Click::Sql(sql) => self.run(Some(sql.to_string()), ctx),
             };
         }
+        // The database opens the explorer under it, and closes it.
         if event.kind == MouseEventKind::Down(MouseButton::Left)
-            && !self.modal()
             && self.database_spot.get().contains(point)
         {
-            self.picker = Some(DatabasePicker::new(
-                self.explorer.databases(),
-                &self.explorer.active,
-            ));
+            let to = if self.focus.is(Panel::Explorer) {
+                Panel::Editor
+            } else {
+                Panel::Explorer
+            };
+            self.set_focus(to);
             return None;
         }
         let closing = (strip.contains(point) && !self.modal())
@@ -1832,9 +1812,6 @@ impl Workspace {
 
 impl Component for Workspace {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
-        if let Some(picker) = &mut self.picker {
-            return picker.handle(action).and_then(|p| self.picked(p));
-        }
         if let Some(dialog) = &mut self.export_dialog {
             match dialog.handle(action) {
                 Some(DialogEvent::Export(file)) => {
@@ -2014,10 +1991,16 @@ impl Component for Workspace {
                 Layout::vertical([Constraint::Percentage(35), Constraint::Fill(1)]).areas(right)
             }
         };
-        // The new layout's explorer slides out over the rest while focused.
+        // The new layout's explorer drops down from the database while
+        // focused.
         let left = if workspace && self.focus.is(Panel::Explorer) {
-            let width = (right.width * 2 / 5).max(32).min(right.width);
-            Rect { width, ..right }
+            let width = (right.width * 2 / 5).max(40).min(right.width);
+            let height = (right.height * 2 / 3).max(12).min(right.height);
+            let x = spot
+                .x
+                .saturating_sub(1)
+                .clamp(right.x, right.right().saturating_sub(width));
+            Rect::new(x, right.y, width, height)
         } else {
             left
         };
@@ -2065,9 +2048,6 @@ impl Component for Workspace {
         if let Some(dialog) = &self.export_dialog {
             dialog.render(f, area, ctx);
         }
-        if let Some(picker) = &self.picker {
-            picker.render(f, spot, area, ctx);
-        }
     }
 
     fn is_animating(&self) -> bool {
@@ -2084,7 +2064,6 @@ impl Component for Workspace {
             || self.menu.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
-            || self.picker.is_some()
         {
             return true;
         }

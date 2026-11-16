@@ -1,0 +1,25 @@
+---
+source: crates/ui/dfox-tui/src/components/workspace_tests.rs
+assertion_line: 456
+expression: "render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx))"
+---
+    Query 1 × │
+☰   ▌◆ local · shop ▾ · read-only                                           ▶  »  Ex  Ex+  ≡  ⟲  ?
+   ╭ Query ───╭ Explorer ────────────────────────────╮────────────────────────────────────────── ⤢ ╮
+ ✎ │  1 Write │   ◆ postgres                         │he cursor                                    │
+   │          │ ▾ ◆ shop ●                           │                                             │
+ ⇄ │          │   ▾ Tables 3                         │                                             │
+   │          │     ▸ ▤ customers ~1.2k              │                                             │
+   ╰──────────│     ▸ ▤ order_items ~48.2k           │─────────────────────────────────────────────╯
+   ╭ Data │ Me│     ▸ ▤ orders ~12.4k                │────────────────────────────────────────── ⤢ ╮
+   │          │   ▸ Views 1                          │                                             │
+   │          │   ▸ Functions 1                      │                                             │
+   │          │   ▸ Procedures 1                     │                                             │
+   │          │                                      │                                             │
+   │          ╰──────────────────────────────────────╯                                             │
+   │                         ● No data output. Run a query to get output.                          │
+   │                                                                                               │
+   │                                                                                               │
+   │                                                                                               │
+   │                                                                                               │
+   ╰───────────────────────────────────────────────────────────────────────────────────────────────╯

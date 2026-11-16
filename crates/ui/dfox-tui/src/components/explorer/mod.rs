@@ -289,22 +289,6 @@ impl Explorer {
         });
     }
 
-    /// The databases listed at the top, or the active one before they are.
-    pub fn databases(&self) -> Vec<String> {
-        let mut names: Vec<String> = match &self.root {
-            Load::Loaded(entries) => entries
-                .iter()
-                .filter(|e| e.node.kind == NodeKind::Database)
-                .map(|e| e.node.name.clone())
-                .collect(),
-            _ => Vec::new(),
-        };
-        if !names.contains(&self.active) {
-            names.insert(0, self.active.clone());
-        }
-        names
-    }
-
     /// The session now uses `name`: forget what was loaded for the old one.
     pub fn set_active(&mut self, name: &str, ctx: &mut Ctx) {
         let old = std::mem::replace(&mut self.active, name.to_string());
