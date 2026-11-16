@@ -52,6 +52,44 @@ struct Cache {
     statement: Option<Stmt>,
     /// The bracket at the cursor and its match.
     brackets: Option<[Pos; 2]>,
+    problems: Vec<Problem>,
+}
+
+/// Where a statement stops parsing, and why.
+#[derive(Debug, Clone, PartialEq)]
+struct Problem {
+    statement: Stmt,
+    at: Pos,
+    message: String,
+}
+
+impl Problem {
+    /// Whether it is only the statement still being typed: it ends too
+    /// soon and the cursor is at its end.
+    fn typing(&self, cursor: Pos) -> bool {
+        self.message.ends_with("found: EOF")
+            && cursor >= self.at
+            && cursor <= self.statement.zone_end
+    }
+}
+
+fn problems(lines: &[String], text: &str, dialect: Dialect) -> Vec<Problem> {
+    sql::statements(text, dialect)
+        .into_iter()
+        .filter_map(|statement| {
+            let sql = sql::slice(lines, statement.start, statement.end);
+            let ((line, col), message) = sql::problem(&sql, dialect)?;
+            let at = match line {
+                0 => (statement.start.0, statement.start.1 + col),
+                line => (statement.start.0 + line, col),
+            };
+            Some(Problem {
+                statement,
+                at,
+                message,
+            })
+        })
+        .collect()
 }
 
 /// Lines looked through for a bracket's match.
@@ -472,8 +510,10 @@ impl EditorPanel {
                 cache.highlight = sql::redis::highlight(self.buffer.lines());
                 cache.statements = sql::redis::statements(&self.buffer.text()).len();
             } else {
+                let text = self.buffer.text();
                 cache.highlight = sql::highlight(self.buffer.lines(), self.dialect);
-                cache.statements = sql::statements(&self.buffer.text(), self.dialect).len();
+                cache.statements = sql::statements(&text, self.dialect).len();
+                cache.problems = problems(self.buffer.lines(), &text, self.dialect);
             }
             cache.version = Some(version);
             cache.statement = None;

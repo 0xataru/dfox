@@ -615,6 +615,14 @@ fn a_password_from_a_kubernetes_secret_connects() {
 }
 
 #[test]
+fn a_statement_that_doesnt_parse_is_marked_before_it_runs() {
+    let mut test = test_app("problem", Some("pw"), "");
+    test.open_prod();
+    test.typed("SELECT name, email FORM customers WHERE id = 1");
+    insta::assert_snapshot!(test.snapshot(120, 32));
+}
+
+#[test]
 fn running_a_query_in_the_workspace() {
     let mut test = test_app("query", Some("pw"), "");
     test.open_prod();

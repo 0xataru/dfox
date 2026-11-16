@@ -1,0 +1,37 @@
+---
+source: crates/ui/dfox-tui/src/app/tests.rs
+assertion_line: 622
+expression: "test.snapshot(120, 32)"
+---
+╭ Explorer ──────────────────────╮╭ Query ─────────────────────────────────────────────────────────────────────────────╮
+│   ◆ postgres                   ││  1 SELECT name, email FORM customers WHERE id = 1                                  │
+│ ▾ ◆ shop ●                     ││                                                                                    │
+│   ▾ Tables 3                   ││                                                                                    │
+│     ▸ ▤ customers ~1.2k        ││                                                                                    │
+│     ▸ ▤ order_items ~48.2k     ││                                                                                    │
+│     ▸ ▤ orders ~12.4k          ││                                                                                    │
+│   ▸ Views 1                    ││                                                                                    │
+│   ▸ Functions 1                ││                                                                                    │
+│   ▸ Procedures 1               ││                                                                                    │
+│                                │╰ ✗ Expected: end of statement, found: customers ────────────────────── Ln 1, Col 47 ╯
+│                                │╭ Results ───────────────────────────────────────────────────────────────────────────╮
+│                                ││ Run a query to see results here                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+│                                ││                                                                                    │
+╰────────────────────────────────╯╰────────────────────────────────────────────────────────────────────────────────────╯
+ dfox  ▌◆ prod · shop                                                   F5 run  Ctrl+P commands  F1 connections  ? keys

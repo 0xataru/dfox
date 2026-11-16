@@ -9,6 +9,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The editor marks a Postgres, MySQL or SQLite query or data change that doesn't parse before
+  it runs: the place it stops is underlined in red and the reason shows on the editor's bottom
+  border. A statement still being typed isn't marked, utility commands and CQL aren't checked,
+  and running is never blocked.
 - In the editor, brackets and quotes close themselves, wrap the selection, and are stepped
   over when typed again; Backspace in an empty pair removes both. The bracket matching the one
   at the cursor is underlined, strings and comments left out.
