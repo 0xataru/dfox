@@ -56,7 +56,7 @@ pub fn format(text: &str, dialect: Dialect) -> String {
     if lexemes.iter().any(|l| l.token == Token::EOF) {
         return text.to_string();
     }
-    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let lines: Vec<String> = crate::lines(text);
     let tokens: Vec<&Lexeme> = lexemes.iter().filter(|l| !l.trivia || comment(l)).collect();
     let mut out = String::new();
     // Each open bracket, and whether it holds a subquery.

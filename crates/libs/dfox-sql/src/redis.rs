@@ -540,10 +540,6 @@ mod tests {
         assert_eq!(problem("NOSUCH k"), None);
     }
 
-    fn lines(text: &str) -> Vec<String> {
-        text.split('\n').map(str::to_string).collect()
-    }
-
     #[test]
     fn words_split_like_redis_cli() {
         assert_eq!(
@@ -586,7 +582,7 @@ mod tests {
 
     #[test]
     fn commands_strings_and_numbers_have_colours() {
-        let pieces = highlight(&lines(
+        let pieces = highlight(&crate::lines(
             "zadd scores 1.5 \"bob\"\nCONFIG GET maxmemory\n# hi",
         ));
         let kinds = |line: &[Piece]| line.iter().map(|p| (p.start, p.kind)).collect::<Vec<_>>();
@@ -596,7 +592,7 @@ mod tests {
         );
         assert_eq!(kinds(&pieces[1]), [(0, Kind::Keyword), (7, Kind::Keyword)]);
         assert_eq!(kinds(&pieces[2]), [(0, Kind::Comment)]);
-        assert!(highlight(&lines("NOTACOMMAND x"))[0].is_empty());
+        assert!(highlight(&crate::lines("NOTACOMMAND x"))[0].is_empty());
     }
 
     #[test]

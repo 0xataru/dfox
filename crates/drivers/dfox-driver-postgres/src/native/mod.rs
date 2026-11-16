@@ -240,7 +240,7 @@ impl Session for PgSession {
 
     fn run(&mut self, request: Request) -> BoxFuture<'_, Result<ResultStream, DbError>> {
         let statements: Vec<(usize, String)> = {
-            let lines: Vec<String> = request.text.split('\n').map(str::to_string).collect();
+            let lines: Vec<String> = dfox_sql::lines(&request.text);
             dfox_sql::statements(&request.text, dfox_sql::Dialect::Postgres)
                 .into_iter()
                 .map(|s| {

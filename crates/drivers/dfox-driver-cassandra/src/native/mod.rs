@@ -187,7 +187,7 @@ impl Session for CqlSession {
     }
 
     fn run(&mut self, request: Request) -> BoxFuture<'_, Result<ResultStream, DbError>> {
-        let lines: Vec<String> = request.text.split('\n').map(str::to_string).collect();
+        let lines: Vec<String> = dfox_sql::lines(&request.text);
         let statements: Vec<(usize, String)> =
             dfox_sql::statements(&request.text, dfox_sql::Dialect::Cql)
                 .iter()
@@ -214,7 +214,7 @@ impl Session for CqlSession {
             }
             Ok(spawn_run(move |tx| async move {
                 for (start, statement) in statements {
-                    let lines: Vec<String> = statement.split('\n').map(str::to_string).collect();
+                    let lines: Vec<String> = dfox_sql::lines(&statement);
                     run_one(&session, statement, limit, &tx)
                         .await
                         .map_err(|err| located(err, &lines).shifted(start))?;

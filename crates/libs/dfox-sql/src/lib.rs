@@ -234,7 +234,7 @@ pub fn highlight(lines: &[String], dialect: Dialect) -> Vec<Vec<Piece>> {
             if sql_bodies && matches!(after.as_deref(), Some("AS" | "DO")) {
                 let open = quoted.tag.as_deref().map_or(0, str::len) + 2;
                 let (line, col) = lexeme.start;
-                let inner: Vec<String> = quoted.value.split('\n').map(str::to_string).collect();
+                let inner: Vec<String> = crate::lines(&quoted.value);
                 let last = (line + inner.len() - 1).min(lines.len().saturating_sub(1));
                 out[line].push(Piece {
                     start: col,
@@ -514,7 +514,7 @@ pub fn without_delimiters(text: &str, dialect: Dialect) -> Option<String> {
     if dialect != Dialect::MySql || delimiter_lines(&lex(text, dialect), text).is_empty() {
         return None;
     }
-    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let lines: Vec<String> = crate::lines(text);
     let statements: Vec<String> = statements(text, dialect)
         .iter()
         .map(|s| {
@@ -536,6 +536,11 @@ pub fn statement_at(text: &str, cursor: Pos, dialect: Dialect) -> Option<Stmt> {
         .copied()
 }
 
+/// The lines of `text`, as positions count them.
+pub fn lines(text: &str) -> Vec<String> {
+    text.split('\n').map(str::to_string).collect()
+}
+
 /// Characters into the text of `lines` where `pos` is.
 pub fn offset(lines: &[String], (line, col): Pos) -> usize {
     lines
@@ -544,6 +549,20 @@ pub fn offset(lines: &[String], (line, col): Pos) -> usize {
         .map(|l| l.chars().count() + 1)
         .sum::<usize>()
         + col
+}
+
+/// Where `offset` characters past `start` are, the inverse of [`offset`].
+pub fn position(lines: &[String], (mut line, mut col): Pos, mut offset: usize) -> Pos {
+    while line < lines.len() {
+        let rest = lines[line].chars().count() - col.min(lines[line].chars().count());
+        if offset <= rest || line + 1 == lines.len() {
+            return (line, col + offset.min(rest));
+        }
+        offset -= rest + 1;
+        line += 1;
+        col = 0;
+    }
+    (line, col)
 }
 
 /// The text between two positions.

@@ -413,7 +413,7 @@ pub fn statement_at(text: &str, cursor: Pos) -> Option<Stmt> {
 /// Commands that delete, change or drop everything they reach: a delete or
 /// update without a filter, dropping a collection or a database.
 pub fn check(text: &str) -> Findings {
-    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let lines: Vec<String> = crate::lines(text);
     let mut findings = Findings::default();
     for statement in statements(text) {
         let command = slice(&lines, statement.start, statement.end);
@@ -802,7 +802,7 @@ pub fn format(text: &str) -> String {
     if all.iter().any(|t| t.kind == Tok::Comment) {
         return text.to_string();
     }
-    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let lines: Vec<String> = crate::lines(text);
     let out: Vec<String> = statements(text)
         .iter()
         .map(|s| {
@@ -867,14 +867,10 @@ mod tests {
         }
     }
 
-    fn lines(text: &str) -> Vec<String> {
-        text.split('\n').map(str::to_string).collect()
-    }
-
     fn split(text: &str) -> Vec<String> {
         statements(text)
             .iter()
-            .map(|s| slice(&lines(text), s.start, s.end))
+            .map(|s| slice(&crate::lines(text), s.start, s.end))
             .collect()
     }
 
@@ -904,7 +900,7 @@ mod tests {
 
     #[test]
     fn words_strings_and_operators_are_coloured() {
-        let pieces = highlight(&lines("db.users.find({ $gt: 'a', n: 1 }) // hi"));
+        let pieces = highlight(&crate::lines("db.users.find({ $gt: 'a', n: 1 }) // hi"));
         let kinds: Vec<(usize, usize, Kind)> =
             pieces[0].iter().map(|p| (p.start, p.end, p.kind)).collect();
         assert_eq!(

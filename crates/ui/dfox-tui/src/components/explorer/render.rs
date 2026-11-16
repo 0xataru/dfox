@@ -94,18 +94,14 @@ fn entry_item<'a>(explorer: &Explorer, entry: &'a Entry, ctx: &RenderCtx) -> Tre
         return object_item(entry, ctx);
     }
     let theme = ctx.theme;
-    let mut text = match (entry.node.kind, explorer.driver) {
-        (NodeKind::Database, Some(driver)) => vec![
+    let mut text = match entry.node.kind {
+        NodeKind::Database => vec![
             Span::styled(
-                format!("{} ", ctx.icons.engine(driver)),
-                theme.engine(driver),
+                format!("{} ", database_icon(explorer, ctx)),
+                explorer.driver.map_or(theme.base(), |d| theme.engine(d)),
             ),
             Span::raw(entry.node.name.as_str()),
         ],
-        (NodeKind::Database, None) => vec![Span::raw(format!(
-            "{} {}",
-            ctx.icons.database, entry.node.name
-        ))],
         _ => vec![Span::raw(format!("◇ {}", entry.node.name))],
     };
     if entry.node.kind == NodeKind::Database && entry.node.name == explorer.active {
@@ -154,6 +150,13 @@ fn child_items<'a>(
         Some(item(group_id(kind), text, items))
     }));
     items
+}
+
+/// The engine's logo, or a plain database mark without one.
+fn database_icon(explorer: &Explorer, ctx: &RenderCtx) -> &'static str {
+    explorer
+        .driver
+        .map_or(ctx.icons.database, |d| ctx.icons.engine(d))
 }
 
 fn object_item<'a>(entry: &'a Entry, ctx: &RenderCtx) -> TreeItem<'a, String> {
@@ -349,10 +352,9 @@ fn render_matches(explorer: &Explorer, query: &str, f: &mut Frame, area: Rect, c
                 (true, Some(parent)) => format!("{parent}.{}", m.node.name),
                 _ => m.node.name.clone(),
             };
-            let icon = match (m.node.kind, explorer.driver) {
-                (NodeKind::Database, Some(driver)) => ctx.icons.engine(driver),
-                (NodeKind::Database, None) => ctx.icons.database,
-                (kind, _) if kind.has_rows() => ctx.icons.table,
+            let icon = match m.node.kind {
+                NodeKind::Database => database_icon(explorer, ctx),
+                kind if kind.has_rows() => ctx.icons.table,
                 _ => "ƒ",
             };
             let line = Line::from(format!(
