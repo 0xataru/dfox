@@ -42,6 +42,8 @@ pub enum Action {
     SelectLine,
     /// Comment the lines out, or back in.
     Comment,
+    /// Lay the statement or the selection out.
+    Format,
     SelectRow,
     DeleteWord,
     NewTab,
@@ -105,6 +107,7 @@ impl Action {
         Action::SelectWordRight,
         Action::SelectLine,
         Action::Comment,
+        Action::Format,
         Action::WordLeft,
         Action::WordRight,
         Action::Backspace,
@@ -185,6 +188,7 @@ impl Action {
             Action::SelectWordRight => "select_word_right",
             Action::SelectLine => "select_line",
             Action::Comment => "comment",
+            Action::Format => "format",
             Action::SelectRow => "select_row",
             Action::DeleteWord => "delete_word",
             Action::NewTab => "new_tab",
@@ -265,6 +269,7 @@ impl Action {
             Action::SelectWordRight => "Select next word",
             Action::SelectLine => "Select the line",
             Action::Comment => "Comment lines out or in",
+            Action::Format => "Format the statement",
             Action::SelectRow => "Select whole rows",
             Action::DeleteWord => "Delete a word",
             Action::NewTab => "New query tab",

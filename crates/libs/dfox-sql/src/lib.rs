@@ -5,6 +5,7 @@
 
 pub mod builtins;
 pub mod complete;
+pub mod format;
 pub mod guard;
 pub mod mongo;
 pub mod redis;
@@ -772,6 +773,7 @@ const KEYWORDS: &[&str] = &[
     "CHECK",
     "COLUMN",
     "COMMIT",
+    "CONFLICT",
     "CONSTRAINT",
     "CREATE",
     "CROSS",

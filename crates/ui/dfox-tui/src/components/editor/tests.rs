@@ -431,3 +431,13 @@ fn each_language_is_checked_by_its_driver() {
     // Without a driver nothing is checked.
     assert!(problems_of(&editor("SELECT FROM WHERE")).is_empty());
 }
+
+#[test]
+fn the_statement_under_the_cursor_is_formatted_in_one_undo_step() {
+    let mut harness = Harness::new();
+    let mut e = editor("select 1;\nselect a from t where b = 1");
+    press(&mut e, &mut harness, &[Action::Format]);
+    assert_eq!(e.text(), "select 1;\nSELECT a\nFROM t\nWHERE b = 1");
+    press(&mut e, &mut harness, &[Action::Undo]);
+    assert_eq!(e.text(), "select 1;\nselect a from t where b = 1");
+}
