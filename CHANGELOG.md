@@ -7,6 +7,10 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Added
+
+- The terminal tab is titled `⛁ dfox` while dfox runs, and gets its old title back on exit.
+
 ## [0.6.0] - 2026-11-17
 
 ### Added

@@ -11,12 +11,14 @@ use crossterm::{
         KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
-    terminal::supports_keyboard_enhancement,
+    style::Print,
+    terminal::{supports_keyboard_enhancement, SetTitle},
 };
 use ratatui::DefaultTerminal;
 
 static MOUSE: AtomicBool = AtomicBool::new(false);
 static ENHANCED: AtomicBool = AtomicBool::new(false);
+static TITLED: AtomicBool = AtomicBool::new(false);
 
 /// Enters the alternate screen and raw mode, with bracketed paste, the mouse
 /// when `mouse` is set, and keys like `Ctrl+Enter` where the terminal can
@@ -26,6 +28,9 @@ pub fn init(mouse: bool) -> io::Result<DefaultTerminal> {
     let terminal = ratatui::try_init()?;
     let enhanced = matches!(supports_keyboard_enhancement(), Ok(true));
     execute!(stdout(), EnableBracketedPaste)?;
+    if execute!(stdout(), Print("\x1b[22;0t"), SetTitle("⛁ dfox")).is_ok() {
+        TITLED.store(true, Ordering::Relaxed);
+    }
     if mouse {
         execute!(stdout(), EnableMouseCapture)?;
     }
@@ -61,4 +66,7 @@ fn leave() {
         let _ = execute!(out, DisableMouseCapture);
     }
     let _ = execute!(out, DisableBracketedPaste);
+    if TITLED.swap(false, Ordering::Relaxed) {
+        let _ = execute!(out, Print("\x1b[23;0t"));
+    }
 }
