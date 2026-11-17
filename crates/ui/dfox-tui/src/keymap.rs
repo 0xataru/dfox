@@ -288,6 +288,7 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["i"], Action::Inspect),
         bind(&["J"], Action::JsonView),
         bind(&["m"], Action::Messages),
+        bind(&["p"], Action::Graph),
         bind(&["o"], Action::AddRow),
         bind(&["x"], Action::Export),
         bind(&[">"], Action::Wider),

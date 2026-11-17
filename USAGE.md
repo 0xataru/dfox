@@ -310,9 +310,12 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   - **Query | History** over the editor (**Ctrl+R** or a click): History searches the
     query history in place of the query, Enter puts the one chosen in the editor, Esc or
     `Query` goes back
-  - **Data | Messages** over the results (**m** or a click): Messages lists how each query
-    of the tab went, its rows or error and time, with the server's notices, which then
-    don't pop up
+  - **Data | Messages | Graph** over the results (**m** or a click): Messages lists how
+    each query of the tab went, its rows or error and time, with the server's notices,
+    which then don't pop up. Graph (**p** or a click) plots the numeric columns as lines,
+    and **p** again (or a second click) as bars. The X axis is the first column when it
+    and another one are numbers, the row number otherwise, labelled with the first
+    column. It plots the first 1000 rows. **Esc** goes back to Data
   - each column's type under its name in the grid, `[PK]` on the key of a table's rows
   - `Total rows` and how long the query took (`Query complete 00:00:00.492`) in the
     status bar
@@ -448,6 +451,7 @@ action without a key. The actions and their default keys:
 | `switch_layout` | Classic / new layout | |
 | `maximize` | Maximize the panel | `ctrl+g` |
 | `messages` | Data / messages | `m` |
+| `graph` | Graph: lines / bars | `p` |
 | `debug` | Event log | `f12` |
 | `menu` | Command menu | `space` |
 | `help` | Show keys | `?`, `f2` |

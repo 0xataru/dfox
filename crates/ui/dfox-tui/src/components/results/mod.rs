@@ -2,6 +2,7 @@
 
 mod edit;
 pub mod export;
+pub mod graph;
 pub mod grid;
 mod inspector;
 mod json;
@@ -80,6 +81,13 @@ fn empty() -> ArrowResultSet {
     result
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    Data,
+    Messages,
+    Graph,
+}
+
 #[derive(Debug)]
 struct Unfiltered {
     store: ArrowResultSet,
@@ -137,8 +145,10 @@ pub struct ResultsPanel {
     reviewing: bool,
     /// How the tab's queries went, the new layout's Messages.
     pub messages: Messages,
-    /// Messages show instead of the rows.
-    showing_messages: bool,
+    /// What the new layout shows: the rows, the messages or the graph.
+    view: View,
+    /// How the graph draws the rows.
+    graph: graph::Kind,
     /// Where the new layout drew `Data`, `Messages` after it, on the top
     /// border.
     views: Cell<Option<Position>>,
@@ -187,7 +197,8 @@ impl ResultsPanel {
             cell_edit: None,
             reviewing: false,
             messages: Messages::default(),
-            showing_messages: false,
+            view: View::Data,
+            graph: graph::Kind::Line,
             views: Cell::new(None),
             data_toolbar: Default::default(),
             hovered: None,
@@ -516,6 +527,69 @@ impl ResultsPanel {
         }
     }
 
+    /// The graph, or on it, the other kind.
+    fn show_graph(&mut self) {
+        if self.view == View::Graph {
+            self.graph = match self.graph {
+                graph::Kind::Line => graph::Kind::Bar,
+                graph::Kind::Bar => graph::Kind::Line,
+            };
+        }
+        self.view = View::Graph;
+    }
+
+    /// Keys for the rows.
+    fn handle_data(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if let Some(command) = self.handle_edit(action, ctx) {
+            return command;
+        }
+        if action == Action::JsonView {
+            self.json = match self.json {
+                Some(_) => None,
+                None => Some(json::JsonView::default()),
+            };
+            self.inspecting = false;
+            return None;
+        }
+        if let Some(view) = &mut self.json {
+            match action {
+                Action::Copy => self.copy(ctx),
+                Action::CopyAs if self.store.row_count() > 0 => self.picker = true,
+                action => {
+                    view.handle(action, &self.store, self.json_height.get());
+                }
+            }
+            return None;
+        }
+        match action {
+            Action::Sort => self.sort(ctx),
+            Action::Filter => self.filter(true, ctx),
+            Action::FilterOut => self.filter(false, ctx),
+            Action::Unfilter => self.unfilter(ctx),
+            Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
+                self.inspecting = !self.inspecting;
+                self.inspect_scroll.set(0);
+            }
+            Action::Back if self.inspecting && !self.grid.has_selection() => {
+                self.inspecting = false
+            }
+            Action::Copy => self.copy(ctx),
+            Action::CopyAs if self.store.row_count() == 0 => {
+                ctx.toast(Level::Warning, "No results to copy")
+            }
+            Action::CopyAs => self.picker = true,
+            action => {
+                let size = self.size();
+                let row = self.grid.cursor().0;
+                self.grid.handle(action, size);
+                if self.grid.cursor().0 != row {
+                    self.inspect_scroll.set(0);
+                }
+            }
+        }
+        None
+    }
+
     /// Puts the rows back in the order they came.
     fn unsort(&mut self) -> Result<(), arrow_schema::ArrowError> {
         let Some(order) = self.unsorted.take() else {
@@ -779,13 +853,15 @@ impl ResultsPanel {
     pub fn click(&mut self, column: u16, row: u16, drag: bool) -> bool {
         if let Some(at) = self.views.get().filter(|at| at.y == row) {
             if !drag && (at.x..at.x + 4).contains(&column) {
-                self.showing_messages = false;
+                self.view = View::Data;
             } else if !drag && (at.x + 7..at.x + 15).contains(&column) {
-                self.showing_messages = true;
+                self.view = View::Messages;
+            } else if !drag && (at.x + 18..at.x + 23).contains(&column) {
+                self.show_graph();
             }
             return true;
         }
-        if self.showing_messages {
+        if self.view != View::Data {
             return false;
         }
         if let Some(view) = &mut self.json {
@@ -846,67 +922,25 @@ impl Component for ResultsPanel {
             }
             return None;
         }
-        if action == Action::Messages && ctx.config.layout == LayoutStyle::Workspace {
-            self.showing_messages = !self.showing_messages;
-            return None;
-        }
-        if self.showing_messages {
-            return None;
-        }
-        if let Some(command) = self.handle_edit(action, ctx) {
-            return command;
-        }
-        if action == Action::JsonView {
-            self.json = match self.json {
-                Some(_) => None,
-                None => Some(json::JsonView::default()),
-            };
-            self.inspecting = false;
-            return None;
-        }
-        if let Some(view) = &mut self.json {
+        if ctx.config.layout == LayoutStyle::Workspace {
             match action {
-                Action::Copy => self.copy(ctx),
-                Action::CopyAs if self.store.row_count() > 0 => self.picker = true,
-                action => {
-                    view.handle(action, &self.store, self.json_height.get());
-                }
+                Action::Messages if self.view == View::Messages => self.view = View::Data,
+                Action::Messages => self.view = View::Messages,
+                Action::Graph => self.show_graph(),
+                Action::Back if self.view != View::Data => self.view = View::Data,
+                _ if self.view != View::Data => {}
+                _ => return self.handle_data(action, ctx),
             }
             return None;
         }
-        match action {
-            Action::Sort => self.sort(ctx),
-            Action::Filter => self.filter(true, ctx),
-            Action::FilterOut => self.filter(false, ctx),
-            Action::Unfilter => self.unfilter(ctx),
-            Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
-                self.inspecting = !self.inspecting;
-                self.inspect_scroll.set(0);
-            }
-            Action::Back if self.inspecting && !self.grid.has_selection() => {
-                self.inspecting = false
-            }
-            Action::Copy => self.copy(ctx),
-            Action::CopyAs if self.store.row_count() == 0 => {
-                ctx.toast(Level::Warning, "No results to copy")
-            }
-            Action::CopyAs => self.picker = true,
-            action => {
-                let size = self.size();
-                let row = self.grid.cursor().0;
-                self.grid.handle(action, size);
-                if self.grid.cursor().0 != row {
-                    self.inspect_scroll.set(0);
-                }
-            }
-        }
-        None
+        self.handle_data(action, ctx)
     }
 
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
         let workspace = ctx.layout == LayoutStyle::Workspace;
-        let messages = workspace && self.showing_messages;
+        let view = if workspace { self.view } else { View::Data };
+        let messages = view == View::Messages;
         let mut title = if workspace {
             let style = |shown: bool| {
                 if shown {
@@ -918,9 +952,11 @@ impl Component for ResultsPanel {
             let x = area.x + 2;
             self.views.set(Some(Position::new(x, area.y)));
             vec![
-                Span::styled("Data", style(!messages)),
+                Span::styled("Data", style(view == View::Data)),
                 Span::styled(" │ ", theme.dim()),
                 Span::styled("Messages", style(messages)),
+                Span::styled(" │ ", theme.dim()),
+                Span::styled("Graph", style(view == View::Graph)),
             ]
         } else {
             self.views.set(None);
@@ -939,7 +975,7 @@ impl Component for ResultsPanel {
         }
         let rows = self.store.row_count();
         let columns = self.store.columns().len();
-        if messages {
+        if view != View::Data {
             // The rows' counts are about Data.
         } else if rows > 0 && self.json.is_some() {
             title.push(Span::styled(format!(" {rows} rows"), theme.dim()));
@@ -979,6 +1015,9 @@ impl Component for ResultsPanel {
         if messages {
             f.render_widget(block, area);
             self.messages.render(f, inner(area), ctx);
+        } else if view == View::Graph {
+            f.render_widget(block, area);
+            graph::render(f, inner(area), &self.store, self.graph, ctx);
         } else if let Some(error) = &self.error {
             let text = Paragraph::new(Line::from(vec![
                 Span::styled(format!("{} ", ctx.icons.error), theme.danger()),

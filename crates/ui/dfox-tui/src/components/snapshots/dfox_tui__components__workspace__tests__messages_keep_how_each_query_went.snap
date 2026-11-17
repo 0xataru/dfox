@@ -10,7 +10,7 @@ expression: "render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx))"
    │                                                                           │
  ◆ │                                                                           │
    ╰───────────────────────────────────────────────────────────────────────────╯
-   ╭ Data │ Messages ─────────────────────────────────────────────────────── ⤢ ╮
+   ╭ Data │ Messages │ Graph ─────────────────────────────────────────────── ⤢ ╮
    │ ✔ create table if not exists t (id int)                                   │
    │   NOTICE: relation "t" already exists, skipping                           │
    │   done · 0 ms                                                             │

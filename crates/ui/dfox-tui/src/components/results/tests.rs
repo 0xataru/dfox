@@ -610,3 +610,20 @@ fn filters_keep_or_drop_the_cells_value_and_u_brings_every_row_back() {
     assert_eq!(values(&results), ["3", "1", "3", "2"]);
     assert!(!results.rearranged());
 }
+
+#[test]
+fn p_shows_the_rows_as_lines_then_bars_and_esc_goes_back() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
+    let mut results = showing(store(6));
+    results.handle(Action::Graph, &mut harness.ctx());
+    let lines = render(&test, 60, 14, |f, area, ctx| results.render(f, area, ctx));
+    insta::assert_snapshot!("graph_lines", lines);
+    results.handle(Action::Graph, &mut harness.ctx());
+    let bars = render(&test, 60, 14, |f, area, ctx| results.render(f, area, ctx));
+    insta::assert_snapshot!("graph_bars", bars);
+    results.handle(Action::Back, &mut harness.ctx());
+    assert_eq!(results.view, View::Data);
+}
