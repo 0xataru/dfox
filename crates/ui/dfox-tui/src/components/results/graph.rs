@@ -128,12 +128,47 @@ fn is_id(name: &str) -> bool {
     name == "id" || name.ends_with("_id") || name.ends_with("_ids")
 }
 
-/// X is the first column that is neither a number nor an id, as a status
-/// or a date is, else the row number. Y is the first number that isn't an
+/// Categories a column may have to be X: a status has a few, a name has
+/// one per row.
+const CATEGORIES: usize = 50;
+
+/// Starts like `2026-11-17`.
+fn is_date(text: &str) -> bool {
+    let b = text.as_bytes();
+    b.len() >= 10
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[7] == b'-'
+        && b[8..10].iter().all(u8::is_ascii_digit)
+}
+
+/// X is a column of categories (a status, a type: few values, not an id),
+/// else a date, else the row number. Y is the first number that isn't an
 /// id, else the row count.
 pub fn default_pick(result: &impl ResultSet) -> Pick {
     let columns = result.columns();
-    let x = (0..columns.len()).find(|&c| !is_id(&columns[c].name) && !is_numeric(result, c));
+    let rows = result.row_count().min(SAMPLE);
+    let texts: Vec<usize> = (0..columns.len())
+        .filter(|&c| !is_id(&columns[c].name) && !is_numeric(result, c))
+        .collect();
+    let values = |c: usize| {
+        (0..rows)
+            .filter_map(move |r| result.cell(r, c))
+            .filter(|v| !v.is_null())
+    };
+    let categories = texts.iter().copied().find(|&c| {
+        let distinct: std::collections::HashSet<String> =
+            values(c).map(|v| v.to_string()).collect();
+        (2..=CATEGORIES).contains(&distinct.len()) && distinct.len() < rows
+    });
+    let date = || {
+        texts
+            .iter()
+            .copied()
+            .find(|&c| values(c).next().is_some_and(|v| is_date(&v.to_string())))
+    };
+    let x = categories.or_else(date);
     let y = (0..columns.len()).find(|&c| !is_id(&columns[c].name) && is_numeric(result, c));
     Pick {
         x,
@@ -746,6 +781,24 @@ mod tests {
         let p = plot(&r, &by_id).expect("plot");
         assert!(p.numeric_x && !p.grouped);
         assert_eq!(p.xs, [1.0, 2.0, 3.0]);
+
+        let people = result(
+            &["fio", "created_at", "sum"],
+            (0..5)
+                .map(|i| {
+                    vec![
+                        Text(format!("person {i}").into()),
+                        Text(format!("2026-11-0{i} 10:00").into()),
+                        Int(i),
+                    ]
+                })
+                .collect(),
+        );
+        assert_eq!(
+            default_pick(&people).x,
+            Some(1),
+            "a date, not a name per row"
+        );
 
         let ids = result(&["id"], vec![vec![Int(1)]]);
         assert_eq!(

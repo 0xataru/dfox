@@ -323,8 +323,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     - pie: the first numeric column's shares, the 6 biggest and the rest as `other`
     - histogram: how the first numeric column's values spread
 
-    At first X is the first column that is neither a number nor an id (a status, a
-    date), and Y the first number that isn't an id (`id`, `*_id`), else the row count.
+    At first X is a column of categories (text with 2 to 50 values, as a status has, not
+    a name with one per row), else a date column, else the row number. Y is the first
+    number that isn't an id (`id`, `*_id`), else the row count.
     **Enter**, or a click on the line over the graph, drops down the columns: one X (or
     the row number) and any Ys, the row count among them. A text X adds up each Y over
     the rows that share it, so `SELECT * FROM orders` with X `status` plots the sum per
