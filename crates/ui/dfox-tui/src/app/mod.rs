@@ -201,6 +201,8 @@ pub struct App {
     secrets_tx: Option<mpsc::UnboundedSender<SecretAnswer>>,
     /// A found connection being connected to, saved once its login works.
     remember: Option<String>,
+    /// The new layout was offered this run.
+    offered_layout: bool,
     session: Option<Session>,
     toasts: Toasts,
     log: EventLog,
@@ -279,6 +281,7 @@ impl App {
             workspace: None,
             connecting: None,
             remember: None,
+            offered_layout: false,
             secrets_tx: None,
             discovery: None,
             kubectl: false,

@@ -6,7 +6,7 @@ use dfox_core::{
 };
 
 use super::{App, Screen, Session};
-use crate::{components::workspace::Workspace, widgets::toast::Level};
+use crate::{components::workspace::Workspace, config::LayoutStyle, widgets::toast::Level};
 
 impl App {
     /// Updates the screens with an answer from the engine.
@@ -142,6 +142,14 @@ impl App {
                 .collect();
             self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
             self.workspace = Some(workspace);
+            if self.config.layout == LayoutStyle::Classic && !self.offered_layout {
+                self.offered_layout = true;
+                self.toasts.push(
+                    Level::Info,
+                    "New layout: Ctrl+P, Classic / new layout".into(),
+                    tokio::time::Instant::now(),
+                );
+            }
         }
         self.screen = Screen::Workspace;
     }

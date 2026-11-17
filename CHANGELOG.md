@@ -9,6 +9,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- In the classic layout the first connect of a run suggests the new one in a toast:
+  `New layout: Ctrl+P, Classic / new layout`.
 - A saved connection opens on the database it was last switched to: switching writes it
   to the connection's `database`.
 - The new layout's database drop-down lists the other saved connections and

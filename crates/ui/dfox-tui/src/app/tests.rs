@@ -68,6 +68,7 @@ fn test_app(name: &str, password: Option<&str>, pgpass_text: &str) -> Test {
     );
     let mut test = Test { app, rx, dir };
     test.app.drivers = dfox_core::driver::Drivers::new(crate::drivers());
+    test.app.offered_layout = true;
     test.sent();
     test
 }
@@ -1414,4 +1415,25 @@ fn rows_copy_into_a_saved_connection_with_its_password() {
         copying.and_then(|e| e.copy_to.as_deref()),
         Some("warehouse")
     );
+}
+
+#[test]
+fn the_classic_layout_offers_the_new_one_once_a_run() {
+    let mut test = test_app("offer", Some("pw"), "");
+    test.app.offered_layout = false;
+    test.open_prod();
+    let texts = |test: &Test| -> Vec<String> {
+        test.app
+            .toasts
+            .items()
+            .iter()
+            .map(|t| t.text.clone())
+            .collect()
+    };
+    assert_eq!(texts(&test), ["New layout: Ctrl+P, Classic / new layout"]);
+    test.app.toasts = Default::default();
+    test.app
+        .apply_command(Command::Connect(EntryKey::Saved("prod".into())));
+    test.app.apply(EngineEvent::Connected(Ok(session_info())));
+    assert!(texts(&test).is_empty());
 }
