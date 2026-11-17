@@ -1,11 +1,11 @@
 ---
 source: crates/ui/dfox-tui/src/components/workspace_tests.rs
-assertion_line: 474
+assertion_line: 507
 expression: "render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx))"
 ---
     Query 1 × │  +
  ▤  ▌◆ local · shop ▾ · read-only                                     ▶   »   Ex   Ex+   ≡   ⟲   ?
-   ╭ Query ───╭ Explorer ────────────────────────────╮────────────────────────────────────────── ⤢ ╮
+   ╭ Query │ H╭ Explorer ────────────────────────────╮────────────────────────────────────────── ⤢ ╮
  ✎ │  1 Write │   ◆ postgres                         │he cursor                                    │
    │          │ ▾ ◆ shop ●                           │                                             │
  ◆ │          │   ▾ Tables 3                         │                                             │

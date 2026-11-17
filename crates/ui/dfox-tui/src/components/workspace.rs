@@ -1765,15 +1765,29 @@ impl Workspace {
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 let panel = under?;
+                // The history has the keys, but `Query` still leads back.
+                if panel == Panel::Editor
+                    && self.editor().view_at(event.column, event.row) == Some(false)
+                {
+                    self.editor_mut().close_history();
+                    self.set_focus(Panel::Editor);
+                    return None;
+                }
                 if self.modal() {
                     return None;
                 }
                 self.set_focus(panel);
                 match panel {
                     Panel::Explorer => return self.explorer.click(event.column, event.row, ctx),
-                    Panel::Editor => {
-                        self.editor_mut().click(event.column, event.row, sideways);
-                    }
+                    Panel::Editor => match self.editor().view_at(event.column, event.row) {
+                        Some(true) if !self.editor().is_modal() => {
+                            return self.delegate(Action::History, ctx);
+                        }
+                        Some(false) => self.editor_mut().close_history(),
+                        _ => {
+                            self.editor_mut().click(event.column, event.row, sideways);
+                        }
+                    },
                     Panel::Results => {
                         self.tab_mut().results.click(event.column, event.row, false);
                     }

@@ -259,6 +259,39 @@ fn history_focuses_the_editor() {
 }
 
 #[test]
+fn the_new_layout_shows_the_history_in_place_of_the_query() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness
+        .history
+        .push(crate::history::Entry::now(
+            "local",
+            "shop",
+            "select * from orders",
+        ))
+        .expect("push");
+    let mut w = workspace();
+    render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx));
+    let editor = w.area(Panel::Editor);
+    let click = |x: u16| mouse(MouseEventKind::Down(MouseButton::Left), x, editor.y);
+
+    w.mouse(click(editor.x + 11), &mut harness.ctx());
+    let screen = render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx));
+    insta::assert_snapshot!(screen);
+    w.handle(Action::Confirm, &mut harness.ctx());
+    assert_eq!(w.editor().text(), "select * from orders");
+    let screen = render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx));
+    assert!(screen.contains("1 select * from orders"), "{screen}");
+
+    // `Query` leads back without picking.
+    w.mouse(click(editor.x + 11), &mut harness.ctx());
+    assert!(w.editor().is_modal());
+    w.mouse(click(editor.x + 3), &mut harness.ctx());
+    assert!(!w.editor().is_modal());
+}
+
+#[test]
 fn paste_goes_to_the_editor_only() {
     let mut w = workspace();
     assert!(w.paste("select\n1"));

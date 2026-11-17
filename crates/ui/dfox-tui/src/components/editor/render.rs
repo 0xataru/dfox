@@ -2,7 +2,7 @@
 //! run, highlighted text and the selection.
 
 use ratatui::{
-    layout::Rect,
+    layout::{Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
@@ -15,6 +15,7 @@ use crate::{
     action::Action,
     component::RenderCtx,
     components::{inner, panel, scroll_to},
+    config::LayoutStyle,
     sql::{self, Piece, Pos},
     widgets::throbber::spinner,
 };
@@ -24,12 +25,29 @@ impl EditorPanel {
     pub fn render_with(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx, tabs: &[TabLabel]) {
         let theme = ctx.theme;
         let mut title = Vec::new();
-        if tabs.len() <= 1 {
+        let workspace = ctx.layout == LayoutStyle::Workspace;
+        let history = workspace && self.search.is_some();
+        if workspace {
+            let style = |shown: bool| {
+                if shown {
+                    theme.title(self.focused).add_modifier(Modifier::UNDERLINED)
+                } else {
+                    theme.dim()
+                }
+            };
+            title.push(Span::styled("Query", style(!history)));
+            title.push(Span::styled(" │ ", theme.dim()));
+            title.push(Span::styled("History", style(history)));
+            self.views.set(Some(Position::new(area.x + 2, area.y)));
+        } else {
+            self.views.set(None);
+        }
+        if tabs.len() <= 1 && !workspace {
             // A lone tab is just "Query", unless it holds a definition.
             let name = tabs.first().filter(|t| t.named).map(|t| t.title.clone());
             title.push(Span::raw(name.unwrap_or_else(|| "Query".into())));
         }
-        if tabs.len() > 1 {
+        if tabs.len() > 1 && !workspace {
             for (i, tab) in tabs.iter().enumerate() {
                 if i > 0 {
                     title.push(Span::styled(" │ ", theme.dim()));
@@ -83,6 +101,11 @@ impl EditorPanel {
 
         let text_area = inner(area);
         if text_area.is_empty() {
+            return;
+        }
+        if let (true, Some(search)) = (history, &self.search) {
+            self.screen_cursor.set(None);
+            search.render_in(f, text_area, ctx);
             return;
         }
         let lines = self.buffer.lines();
@@ -174,7 +197,7 @@ impl EditorPanel {
 
     /// Draws the history search over `area`, when it is open.
     pub fn render_overlay(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
-        if let Some(search) = &self.search {
+        if let (false, Some(search)) = (ctx.layout == LayoutStyle::Workspace, &self.search) {
             search.render(f, area, ctx);
         }
         if let (Some(completion), Some((x, y))) = (&self.completion, self.screen_cursor.get()) {
