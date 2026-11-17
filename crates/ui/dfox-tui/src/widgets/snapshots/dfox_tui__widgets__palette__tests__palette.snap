@@ -1,6 +1,5 @@
 ---
 source: crates/ui/dfox-tui/src/widgets/palette.rs
-assertion_line: 248
 expression: "render(&test, 80, 16, |f, area, ctx| palette.render(f, area, ctx))"
 ---
 
@@ -14,6 +13,7 @@ expression: "render(&test, 80, 16, |f, area, ctx| palette.render(f, area, ctx))"
           │ Remove sort and filter                                 u │
           │ Results as JSON / grid                                 J │
           │ Narrow column                                          < │
+          │ Graph / previous kind                                  P │
           │ Previous panel                                 Shift+Tab │
           │ Sort by column                                         s │
           ╰──────────────────────────────────────────────────────────╯

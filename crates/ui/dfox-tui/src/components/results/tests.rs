@@ -645,6 +645,10 @@ fn p_goes_through_every_kind_of_graph_and_esc_goes_back() {
         insta::assert_snapshot!(format!("graph_{}", kind.name().replace(' ', "_")), screen);
     }
 
+    results.handle(Action::GraphBack, &mut harness.ctx());
+    assert_eq!(results.graph, graph::Kind::ALL[graph::Kind::ALL.len() - 2]);
+    results.handle(Action::Graph, &mut harness.ctx());
+
     // Enter picks X: the day. Right goes on to Y: the items as a second one.
     results.handle(Action::Graph, &mut harness.ctx());
     results.handle(Action::Confirm, &mut harness.ctx());

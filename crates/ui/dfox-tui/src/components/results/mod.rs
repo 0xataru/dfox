@@ -626,9 +626,13 @@ impl ResultsPanel {
     }
 
     /// The graph, or on it, the next kind.
-    fn show_graph(&mut self) {
+    fn show_graph(&mut self, back: bool) {
         if self.view == View::Graph {
-            self.graph = self.graph.next();
+            self.graph = if back {
+                self.graph.previous()
+            } else {
+                self.graph.next()
+            };
         }
         self.view = View::Graph;
     }
@@ -955,7 +959,7 @@ impl ResultsPanel {
             } else if !drag && (at.x + 7..at.x + 15).contains(&column) {
                 self.view = View::Messages;
             } else if !drag && (at.x + 18..at.x + 23).contains(&column) {
-                self.show_graph();
+                self.show_graph(false);
             }
             return true;
         }
@@ -1059,7 +1063,8 @@ impl Component for ResultsPanel {
             match action {
                 Action::Messages if self.view == View::Messages => self.view = View::Data,
                 Action::Messages => self.view = View::Messages,
-                Action::Graph => self.show_graph(),
+                Action::Graph => self.show_graph(false),
+                Action::GraphBack => self.show_graph(true),
                 Action::Confirm if self.view == View::Graph => self.open_columns(Axis::X),
                 Action::Back if self.view != View::Data => self.view = View::Data,
                 _ if self.view != View::Data => {}

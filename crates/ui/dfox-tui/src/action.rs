@@ -82,6 +82,7 @@ pub enum Action {
     SwitchLayout,
     /// The results as a graph, or the next kind of graph.
     Graph,
+    GraphBack,
     /// The editor or the results fill the workspace, and back.
     Maximize,
     New,
@@ -140,6 +141,7 @@ impl Action {
         Action::JsonView,
         Action::Messages,
         Action::Graph,
+        Action::GraphBack,
         Action::AddRow,
         Action::Export,
         Action::Wider,
@@ -236,6 +238,7 @@ impl Action {
             Action::JsonView => "json_view",
             Action::Messages => "messages",
             Action::Graph => "graph",
+            Action::GraphBack => "graph_back",
             Action::AddRow => "add_row",
             Action::Export => "export",
             Action::Palette => "palette",
@@ -327,6 +330,7 @@ impl Action {
             Action::JsonView => "Results as JSON / grid",
             Action::Messages => "Data / messages",
             Action::Graph => "Graph / next kind",
+            Action::GraphBack => "Graph / previous kind",
             Action::AddRow => "Add a row / open a file",
             Action::Export => "Export rows to a file",
             Action::Palette => "Command palette",

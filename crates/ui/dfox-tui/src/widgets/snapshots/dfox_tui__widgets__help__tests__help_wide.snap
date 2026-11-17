@@ -4,8 +4,8 @@ expression: "render(&test, 120, 40, |f, area, ctx|\nsuper::render(f, area, &supe
 ---
                ╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮
                │                                                                                        │
-               │ Ctrl+P            Command palette          m                 Data / messages           │
-               │ F5 Ctrl+E         Run statement/selection  p                 Graph / next kind         │
+               │ Ctrl+P            Command palette          p                 Graph / next kind         │
+               │ F5 Ctrl+E         Run statement/selection  P                 Graph / previous kind     │
                │ Shift+F5          Run the whole script     o                 Add a row / open a file   │
                │ F7                Explain the statement    x                 Export rows to a file     │
                │ Shift+F7          Explain analyze          >                 Widen column              │

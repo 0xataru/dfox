@@ -313,7 +313,8 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   - **Data | Messages | Graph** over the results (**m** or a click): Messages lists how
     each query of the tab went, its rows or error and time, with the server's notices,
     which then don't pop up. Graph (**p** or a click) plots the numeric columns, and **p**
-    again (or another click) goes to the next kind:
+    again (or another click) goes to the next kind, **P** to the previous one. A stacked
+    kind with one Y says so: it stacks once a second Y is added. The kinds:
     - lines: a metric over time, such as orders per day
     - stacked lines: parts of a total over time, such as orders per status per day
     - points: how two numbers go together, such as rows against time taken

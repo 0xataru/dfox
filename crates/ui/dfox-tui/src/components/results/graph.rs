@@ -73,6 +73,11 @@ impl Kind {
         let at = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
         Self::ALL[(at + 1) % Self::ALL.len()]
     }
+
+    pub fn previous(self) -> Kind {
+        let at = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
+        Self::ALL[(at + Self::ALL.len() - 1) % Self::ALL.len()]
+    }
 }
 
 /// The columns plotted: X (the row number when `None`), and the Y columns,
@@ -375,6 +380,9 @@ pub fn render(
     if shown < plot.total {
         let what = if plot.grouped { "categories" } else { "rows" };
         text.push_str(&format!(" · first {shown} of {} {what}", plot.total));
+    }
+    if matches!(kind, Kind::StackedLine | Kind::StackedBar) && plot.series.len() < 2 {
+        text.push_str(" · one Y, nothing to stack: add one with →");
     }
     text.push_str(" · Enter: X, then ←→");
     f.render_widget(Paragraph::new(Span::styled(text, theme.dim())), note);
