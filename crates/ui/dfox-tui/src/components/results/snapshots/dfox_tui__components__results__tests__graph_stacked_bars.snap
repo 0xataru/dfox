@@ -3,7 +3,7 @@ source: crates/ui/dfox-tui/src/components/results/tests.rs
 expression: screen
 ---
 ╭ Data │ Messages │ Graph · stacked bars ──────────────────╮
-│ X status · Y order_sum (sums) · Enter: columns           │
+│ X status ▾ · Y order_sum (sums) ▾ · Enter: X, then ←→    │
 │ ■ order_sum                                              │
 │              ████████████                                │
 │              ████████████                                │

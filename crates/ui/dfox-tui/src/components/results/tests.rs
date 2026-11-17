@@ -645,19 +645,22 @@ fn p_goes_through_every_kind_of_graph_and_esc_goes_back() {
         insta::assert_snapshot!(format!("graph_{}", kind.name().replace(' ', "_")), screen);
     }
 
-    // Enter picks the columns: the day as X, the items as a second Y.
+    // Enter picks X: the day. Right goes on to Y: the items as a second one.
     results.handle(Action::Graph, &mut harness.ctx());
     results.handle(Action::Confirm, &mut harness.ctx());
     for _ in 0..3 {
         results.handle(Action::Down, &mut harness.ctx());
     }
     results.handle(Action::Confirm, &mut harness.ctx());
-    for _ in 0..7 {
+    let screen = render(&test, 60, 20, |f, area, ctx| results.render(f, area, ctx));
+    insta::assert_snapshot!("graph_x", screen);
+    results.handle(Action::Right, &mut harness.ctx());
+    for _ in 0..3 {
         results.handle(Action::Down, &mut harness.ctx());
     }
     results.handle(Action::Input(' '), &mut harness.ctx());
     let screen = render(&test, 60, 20, |f, area, ctx| results.render(f, area, ctx));
-    insta::assert_snapshot!("graph_columns", screen);
+    insta::assert_snapshot!("graph_y", screen);
     results.handle(Action::Back, &mut harness.ctx());
     assert_eq!(
         results.graph_pick,

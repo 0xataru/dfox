@@ -3,7 +3,7 @@ source: crates/ui/dfox-tui/src/components/results/tests.rs
 expression: screen
 ---
 ╭ Data │ Messages │ Graph · histogram ─────────────────────╮
-│ How order_sum spreads · Enter: columns                   │
+│ How order_sum spreads ▾ · Enter: X, then ←→              │
 │ ■ order_sum · 10 values                                  │
 │ ██████ ██████ ██████ ██████ ██████                       │
 │ ██████ ██████ ██████ ██████ ██████                       │

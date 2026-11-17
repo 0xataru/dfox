@@ -83,6 +83,12 @@ fn empty() -> ArrowResultSet {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    X,
+    Y,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum View {
     Data,
     Messages,
@@ -154,7 +160,9 @@ pub struct ResultsPanel {
     graph_pick: Option<graph::Pick>,
     /// The graph's columns to pick from, open, and the Y column each Y
     /// item is (`None` for the row count).
-    graph_columns: Option<(Checklist, Vec<Option<usize>>)>,
+    graph_columns: Option<(Checklist, Axis)>,
+    /// Where the graph names its X and Y.
+    axes: Cell<[Rect; 2]>,
     /// Counts the changes to the rows, so the graph knows to plot again.
     rev: u64,
     plot_cache: std::cell::RefCell<Option<(graph::Pick, u64, Option<graph::Plot>)>>,
@@ -210,6 +218,7 @@ impl ResultsPanel {
             graph: graph::Kind::Line,
             graph_pick: None,
             graph_columns: None,
+            axes: Cell::default(),
             rev: 0,
             plot_cache: Default::default(),
             views: Cell::new(None),
@@ -552,51 +561,65 @@ impl ResultsPanel {
             .unwrap_or_else(|| graph::default_pick(&self.store))
     }
 
-    /// Drops down the columns to plot, under the graph's title.
-    fn open_columns(&mut self) {
+    /// Drops down the columns one axis can plot, under its name.
+    fn open_columns(&mut self, axis: Axis) {
+        let axis = if self.graph == graph::Kind::Histogram {
+            Axis::Y
+        } else {
+            axis
+        };
         let pick = self.pick();
         let columns = self.store.columns();
-        let mut items = vec![("X: row number".to_string(), pick.x.is_none())];
-        items.extend(
-            columns
-                .iter()
-                .enumerate()
-                .map(|(c, column)| (format!("X: {}", column.name), pick.x == Some(c))),
-        );
-        let radio = items.len();
-        let mut ys = vec![None];
-        items.push(("Y: row count".to_string(), pick.count));
-        for (c, column) in columns.iter().enumerate() {
-            if graph::is_numeric(&self.store, c) {
-                items.push((format!("Y: {}", column.name), pick.ys.contains(&c)));
-                ys.push(Some(c));
+        let list = match axis {
+            Axis::X => {
+                let mut items = vec![("row number".to_string(), pick.x.is_none())];
+                items.extend(
+                    columns
+                        .iter()
+                        .enumerate()
+                        .map(|(c, column)| (column.name.to_string(), pick.x == Some(c))),
+                );
+                let count = items.len();
+                Checklist::new(items, self.axes.get()[0]).radio(count)
             }
-        }
-        let anchor = self
-            .views
-            .get()
-            .map_or(Rect::default(), |at| Rect::new(at.x + 18, at.y, 5, 1));
-        self.graph_columns = Some((Checklist::new(items, anchor).radio(radio), ys));
+            Axis::Y => {
+                let mut items = vec![("row count".to_string(), pick.count)];
+                items.extend(
+                    self.numeric()
+                        .map(|c| (columns[c].name.to_string(), pick.ys.contains(&c))),
+                );
+                Checklist::new(items, self.axes.get()[1])
+            }
+        };
+        self.graph_columns = Some((list, axis));
+    }
+
+    fn numeric(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.store.columns().len()).filter(|&c| graph::is_numeric(&self.store, c))
     }
 
     /// The graph plots what the open list has ticked.
     fn pick_columns(&mut self) {
-        let Some((list, ys)) = &self.graph_columns else {
+        let Some((list, axis)) = &self.graph_columns else {
             return;
         };
-        let (xs, rest) = list.items.split_at(list.items.len() - ys.len());
-        let mut pick = graph::Pick {
-            x: xs
-                .iter()
-                .position(|(_, on)| *on)
-                .and_then(|i| i.checked_sub(1)),
-            ..Default::default()
-        };
-        for ((_, on), y) in rest.iter().zip(ys) {
-            match (on, y) {
-                (true, Some(c)) => pick.ys.push(*c),
-                (true, None) => pick.count = true,
-                _ => {}
+        let mut pick = self.pick();
+        match axis {
+            Axis::X => {
+                pick.x = list
+                    .items
+                    .iter()
+                    .position(|(_, on)| *on)
+                    .and_then(|i| i.checked_sub(1));
+            }
+            Axis::Y => {
+                pick.count = list.items[0].1;
+                pick.ys = self
+                    .numeric()
+                    .zip(&list.items[1..])
+                    .filter(|(_, (_, on))| *on)
+                    .map(|(c, _)| c)
+                    .collect();
             }
         }
         self.graph_pick = Some(pick);
@@ -947,9 +970,14 @@ impl ResultsPanel {
             }
             return true;
         }
-        // The line over the graph opens its columns.
+        // The line over the graph opens its axes' columns.
         if self.view == View::Graph && self.views.get().is_some_and(|at| at.y + 1 == row) && !drag {
-            self.open_columns();
+            let axis = if self.axes.get()[1].contains(Position::new(column, row)) {
+                Axis::Y
+            } else {
+                Axis::X
+            };
+            self.open_columns(axis);
             return true;
         }
         if self.view != View::Data {
@@ -1000,11 +1028,17 @@ fn describe(rows: usize, cells: usize) -> String {
 
 impl Component for ResultsPanel {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
-        if let Some((list, _)) = self.graph_columns.as_mut() {
-            if list.handle(action) {
-                self.pick_columns();
-            } else {
-                self.graph_columns = None;
+        if let Some((list, axis)) = self.graph_columns.as_mut() {
+            match (action, *axis) {
+                (Action::Left, Axis::Y) => self.open_columns(Axis::X),
+                (Action::Right, Axis::X) => self.open_columns(Axis::Y),
+                _ => {
+                    if list.handle(action) {
+                        self.pick_columns();
+                    } else {
+                        self.graph_columns = None;
+                    }
+                }
             }
             return None;
         }
@@ -1026,7 +1060,7 @@ impl Component for ResultsPanel {
                 Action::Messages if self.view == View::Messages => self.view = View::Data,
                 Action::Messages => self.view = View::Messages,
                 Action::Graph => self.show_graph(),
-                Action::Confirm if self.view == View::Graph => self.open_columns(),
+                Action::Confirm if self.view == View::Graph => self.open_columns(Axis::X),
                 Action::Back if self.view != View::Data => self.view = View::Data,
                 _ if self.view != View::Data => {}
                 _ => return self.handle_data(action, ctx),
@@ -1135,7 +1169,8 @@ impl Component for ResultsPanel {
                 *cache = Some((pick, self.rev, plot));
             }
             let plot = cache.as_ref().and_then(|(_, _, plot)| plot.as_ref());
-            graph::render(f, inner(area), plot, self.graph, ctx);
+            self.axes
+                .set(graph::render(f, inner(area), plot, self.graph, ctx));
             if let Some((list, _)) = &self.graph_columns {
                 list.render(f, area, ctx);
             }

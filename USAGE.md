@@ -326,8 +326,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     At first X is a column of categories (text with 2 to 50 values, as a status has, not
     a name with one per row), else a date column, else the row number. Y is the first
     number that isn't an id (`id`, `*_id`), else the row count.
-    **Enter**, or a click on the line over the graph, drops down the columns: one X (or
-    the row number) and any Ys, the row count among them. A text X adds up each Y over
+    The line over the graph names X and Y, and each drops down its own list on a click.
+    **Enter** drops down X: one column or the row number. **←** and **→** switch to Y
+    and back: any numbers, the row count among them. A text X adds up each Y over
     the rows that share it, so `SELECT * FROM orders` with X `status` plots the sum per
     status. A histogram leaves out the values past the 1st and 99th percentiles and
     says how many. **Esc** goes back to Data

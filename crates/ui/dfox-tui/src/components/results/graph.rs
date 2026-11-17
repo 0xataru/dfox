@@ -296,11 +296,18 @@ fn centered(f: &mut Frame, area: Rect, text: &str, ctx: &RenderCtx) {
     f.render_widget(Paragraph::new(text).centered(), line);
 }
 
-pub fn render(f: &mut Frame, area: Rect, plot: Option<&Plot>, kind: Kind, ctx: &RenderCtx) {
+/// Draws the graph. Gives back where its X and Y are named, to click on.
+pub fn render(
+    f: &mut Frame,
+    area: Rect,
+    plot: Option<&Plot>,
+    kind: Kind,
+    ctx: &RenderCtx,
+) -> [Rect; 2] {
     let theme = ctx.theme;
     let Some(plot) = plot.filter(|_| area.width >= 12 && area.height >= 5) else {
         centered(f, area, "Nothing to plot. Enter picks the columns.", ctx);
-        return;
+        return [Rect::default(); 2];
     };
     if kind == Kind::Pie && !plot.grouped {
         centered(
@@ -309,7 +316,7 @@ pub fn render(f: &mut Frame, area: Rect, plot: Option<&Plot>, kind: Kind, ctx: &
             "A pie shows categories: Enter, then a text column as X.",
             ctx,
         );
-        return;
+        return [Rect::default(); 2];
     }
     let [note, area] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
     let colors = [
@@ -350,16 +357,28 @@ pub fn render(f: &mut Frame, area: Rect, plot: Option<&Plot>, kind: Kind, ctx: &
     };
     let ys: Vec<&str> = plot.series.iter().map(|(n, _)| n.as_str()).collect();
     let by = if plot.grouped { " (sums)" } else { "" };
-    let mut text = match kind {
-        Kind::Histogram => format!("How {} spreads", ys.first().unwrap_or(&"")),
-        _ => format!("X {} · Y {}{by}", plot.x, ys.join(", ")),
+    let x = format!("X {} ▾", plot.x);
+    let y = match kind {
+        Kind::Histogram => format!("How {} spreads ▾", ys.first().unwrap_or(&"")),
+        _ => format!("Y {}{by} ▾", ys.join(", ")),
     };
+    let width = |s: &str| s.chars().count() as u16;
+    let mut axes = [
+        Rect::new(note.x, note.y, width(&x), 1),
+        Rect::new(note.x + width(&x) + 3, note.y, width(&y), 1),
+    ];
+    let mut text = format!("{x} · {y}");
+    if kind == Kind::Histogram {
+        axes = [Rect::default(), Rect::new(note.x, note.y, width(&y), 1)];
+        text = y;
+    }
     if shown < plot.total {
         let what = if plot.grouped { "categories" } else { "rows" };
         text.push_str(&format!(" · first {shown} of {} {what}", plot.total));
     }
-    text.push_str(" · Enter: columns");
+    text.push_str(" · Enter: X, then ←→");
     f.render_widget(Paragraph::new(Span::styled(text, theme.dim())), note);
+    axes.map(|axis| axis.intersection(note))
 }
 
 struct Paint<'a> {
