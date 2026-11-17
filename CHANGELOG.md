@@ -7,6 +7,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ## [Unreleased]
 
+### Fixed
+
+- kubectl's errors after a Kubernetes port-forward starts, like a lost connection to the pod,
+  go to `dfox-debug.log` instead of being dropped.
+
 ## [0.7.0] - 2026-11-17
 
 ### Added
