@@ -9,6 +9,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The status bar's hints in the query editor include `Ctrl+B explorer`. On a narrow
+  terminal the hints before `? keys` make way for the connection and database.
 - In the classic layout the first connect of a run suggests the new one in a toast:
   `New layout: Ctrl+P, Classic / new layout`.
 - A saved connection opens on the database it was last switched to: switching writes it

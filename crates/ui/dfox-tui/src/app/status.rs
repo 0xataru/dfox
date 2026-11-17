@@ -211,6 +211,7 @@ impl App {
                 Some(Panel::Editor) => &[
                     (Action::Execute, "run"),
                     (Action::Palette, "commands"),
+                    (Action::Explorer, "explorer"),
                     (Action::Connections, "connections"),
                     (Action::Help, "keys"),
                 ],
