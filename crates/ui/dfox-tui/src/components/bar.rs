@@ -65,6 +65,11 @@ pub const ANALYZE: Button = button(
     "Explain analyze: runs it",
     ["\u{f0e4}", "Ex+", "Ex+"],
 );
+pub const EXPLAIN_OPTIONS: Button = button(
+    Click::Action(Action::ExplainOptions),
+    "Explain options",
+    ["\u{f0d7}", "▾", "v"],
+);
 pub const FORMAT: Button = button(
     Click::Action(Action::Format),
     "Format the statement",

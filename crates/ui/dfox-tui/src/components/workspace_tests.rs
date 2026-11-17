@@ -2125,3 +2125,68 @@ fn the_data_toolbar_sits_over_the_rows_and_says_which_are_shown() {
     );
     assert_eq!(w.focused(), Panel::Results);
 }
+
+#[test]
+fn postgres_explains_with_the_options_ticked() {
+    assert_eq!(
+        postgres_explain(false, &[false, true, false, true, false, false, false]),
+        "EXPLAIN "
+    );
+    assert_eq!(
+        postgres_explain(true, &[false, true, false, true, false, false, false]),
+        "EXPLAIN ANALYZE "
+    );
+    // Timing and wal need analyze.
+    assert_eq!(
+        postgres_explain(false, &[true, false, true, false, false, false, true]),
+        "EXPLAIN (VERBOSE, COSTS OFF, BUFFERS) "
+    );
+    assert_eq!(
+        postgres_explain(true, &[false, true, false, false, false, true, true]),
+        "EXPLAIN (ANALYZE, TIMING OFF, SETTINGS, WAL) "
+    );
+}
+
+#[test]
+fn the_explain_options_drop_down_from_their_button() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
+    let mut w = workspace();
+    render(&test, 140, 20, |f, area, ctx| w.render(f, area, ctx));
+    let (spot, _) = *w
+        .toolbar
+        .borrow()
+        .iter()
+        .find(|(_, b)| *b == bar::EXPLAIN_OPTIONS)
+        .expect("shown for Postgres");
+    assert_eq!(
+        w.mouse(
+            mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
+            &mut harness.ctx()
+        ),
+        Some(Command::Dispatch(Action::ExplainOptions))
+    );
+    w.handle(Action::ExplainOptions, &mut harness.ctx());
+    insta::assert_snapshot!(render(&test, 140, 20, |f, area, ctx| w.render(f, area, ctx)));
+    // Verbose by key, buffers by a click.
+    w.handle(Action::Input(' '), &mut harness.ctx());
+    w.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y + 4),
+        &mut harness.ctx(),
+    );
+    // A click elsewhere closes it.
+    w.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), 0, 19),
+        &mut harness.ctx(),
+    );
+    assert!(w.checklist.is_none());
+
+    w.editor_mut().set_text("select 1");
+    w.handle(Action::Explain, &mut harness.ctx());
+    assert!(matches!(
+        harness.sent().as_slice(),
+        [DbCommand::Run { sql, .. }] if sql == "EXPLAIN (VERBOSE, BUFFERS) select 1"
+    ));
+}

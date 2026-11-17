@@ -298,10 +298,12 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     Choosing what to do with a table closes it, as do Esc, Ctrl+B and a second click.
     Tab passes it by
   - a toolbar at the right of the bar: run, stop, commit and rollback while a
-    transaction is open, run the script, explain, explain analyze, the row limit, format,
+    transaction is open, run the script, explain, explain analyze, explain options
+    (Postgres: a drop-down of Verbose, Costs, Buffers, Timing, Summary, Settings and Wal to
+    tick with Space, Enter or a click, kept while the app runs), the row limit, format,
     history, keys. A click on the row limit (`100k rows`) steps through 100, 500, 1000,
-    100k, no limit and the config's `row_limit`, for that tab only. The mouse over one says what it does and its key, the last ones go on a
-    narrow terminal
+    100k, no limit and the config's `row_limit`, for that tab only. The mouse over one
+    says what it does and its key, the last ones go on a narrow terminal
   - buttons over the rows, on the results' top border: add a row, delete it and save the
     edits (on a table's rows that can be edited), copy, export, and which rows are on
     screen (`Showing rows 1 to 9`)
@@ -408,6 +410,7 @@ action without a key. The actions and their default keys:
 | `execute_all` | Run the whole script | `shift+f5`, `ctrl+shift+enter`, `ctrl+shift+e` |
 | `explain` | Explain the statement | `f7` |
 | `explain_analyze` | Explain analyze | `shift+f7` |
+| `explain_options` | Explain options | |
 | `complete` | Suggest names | `ctrl+space` |
 | `history` | Query history | `ctrl+r` |
 | `new_tab` | New query tab | `ctrl+n` |

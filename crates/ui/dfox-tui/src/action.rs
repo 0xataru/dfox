@@ -25,6 +25,8 @@ pub enum Action {
     /// The plan of the statement, or with `ANALYZE` the plan it ran with.
     Explain,
     ExplainAnalyze,
+    /// Which options Postgres explains with.
+    ExplainOptions,
     Copy,
     CopyAs,
     SelectAll,
@@ -102,6 +104,7 @@ impl Action {
         Action::ExecuteAll,
         Action::Explain,
         Action::ExplainAnalyze,
+        Action::ExplainOptions,
         Action::Complete,
         Action::History,
         Action::NewTab,
@@ -194,6 +197,7 @@ impl Action {
             Action::ExecuteAll => "execute_all",
             Action::Explain => "explain",
             Action::ExplainAnalyze => "explain_analyze",
+            Action::ExplainOptions => "explain_options",
             Action::Copy => "copy",
             Action::CopyAs => "copy_as",
             Action::SelectAll => "select_all",
@@ -283,6 +287,7 @@ impl Action {
             Action::ExecuteAll => "Run the whole script",
             Action::Explain => "Explain the statement",
             Action::ExplainAnalyze => "Explain analyze",
+            Action::ExplainOptions => "Explain options",
             Action::Copy => "Copy / cancel query",
             Action::CopyAs => "Copy as CSV, JSON, …",
             Action::SelectAll => "Select all",

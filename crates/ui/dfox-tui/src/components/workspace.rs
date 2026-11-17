@@ -28,6 +28,7 @@ use ratatui::{
 use super::{
     bar::{self, Bar, Button, Click},
     card::{CardEvent, ColumnCard, TableCard},
+    checklist::Checklist,
     copy::CopyDialog,
     editor::{Checker, EditorPanel, TabLabel},
     explorer::Explorer,
@@ -58,6 +59,37 @@ const ORDER: &[Panel] = &[Panel::Explorer, Panel::Editor, Panel::Results];
 
 /// Lines the mouse wheel scrolls.
 const WHEEL: isize = 3;
+
+/// Postgres's explain options: the keyword, its label, whether it is on by
+/// default, and whether it needs `ANALYZE`.
+const EXPLAIN_OPTIONS: [(&str, &str, bool, bool); 7] = [
+    ("VERBOSE", "Verbose", false, false),
+    ("COSTS", "Costs", true, false),
+    ("BUFFERS", "Buffers", false, false),
+    ("TIMING", "Timing (analyze)", true, true),
+    ("SUMMARY", "Summary", false, false),
+    ("SETTINGS", "Settings", false, false),
+    ("WAL", "Wal (analyze)", false, true),
+];
+
+/// Postgres's `EXPLAIN` with the options that differ from its defaults.
+fn postgres_explain(analyze: bool, options: &[bool; 7]) -> String {
+    let mut parts: Vec<String> = analyze.then(|| "ANALYZE".to_string()).into_iter().collect();
+    for ((keyword, _, default, needs_analyze), on) in EXPLAIN_OPTIONS.iter().zip(options) {
+        if on != default && (analyze || !needs_analyze) {
+            parts.push(if *on {
+                keyword.to_string()
+            } else {
+                format!("{keyword} OFF")
+            });
+        }
+    }
+    match parts.len() {
+        0 => "EXPLAIN ".into(),
+        1 if analyze => "EXPLAIN ANALYZE ".into(),
+        _ => format!("EXPLAIN ({}) ", parts.join(", ")),
+    }
+}
 
 /// A query tab: its text and its last results.
 #[derive(Debug)]
@@ -175,6 +207,10 @@ pub struct Workspace {
     card: Option<ColumnCard>,
     /// What Enter on a table offers, while it is open.
     menu: Option<TableMenu>,
+    /// The explain options, dropped down.
+    checklist: Option<Checklist>,
+    /// Postgres's explain options, as [`EXPLAIN_OPTIONS`] lists them.
+    explain_options: [bool; 7],
     /// A table's properties, while they are shown.
     properties: Option<TableCard>,
     pending: Option<Pending>,
@@ -221,6 +257,8 @@ impl Workspace {
             buttons: Cell::new([Rect::default(); 2]),
             card: None,
             menu: None,
+            checklist: None,
+            explain_options: EXPLAIN_OPTIONS.map(|(_, _, default, _)| default),
             properties: None,
             pending: None,
             export_dialog: None,
@@ -584,15 +622,53 @@ impl Workspace {
     }
 
     /// What `EXPLAIN` is in this database, `None` where there is none.
-    fn explain_prefix(&self, analyze: bool) -> Option<&'static str> {
+    fn explain_prefix(&self, analyze: bool) -> Option<String> {
         if !matches!(self.language, QueryLanguage::Sql(_)) {
             return None;
         }
         match (self.dialect, analyze) {
-            (Dialect::Postgres | Dialect::MySql, false) => Some("EXPLAIN "),
-            (Dialect::Postgres | Dialect::MySql, true) => Some("EXPLAIN ANALYZE "),
-            (Dialect::Sqlite, false) => Some("EXPLAIN QUERY PLAN "),
+            (Dialect::Postgres, _) => Some(postgres_explain(analyze, &self.explain_options)),
+            (Dialect::MySql, false) => Some("EXPLAIN ".into()),
+            (Dialect::MySql, true) => Some("EXPLAIN ANALYZE ".into()),
+            (Dialect::Sqlite, false) => Some("EXPLAIN QUERY PLAN ".into()),
             _ => None,
+        }
+    }
+
+    /// Drops the explain options down under their button.
+    fn open_explain_options(&mut self) {
+        let anchor = self
+            .toolbar
+            .borrow()
+            .iter()
+            .find(|(_, b)| *b == bar::EXPLAIN_OPTIONS)
+            .map(|(spot, _)| *spot)
+            .unwrap_or_default();
+        let items = EXPLAIN_OPTIONS
+            .iter()
+            .zip(self.explain_options)
+            .map(|((_, label, _, _), on)| (*label, on))
+            .collect();
+        self.checklist = Some(Checklist::new(items, anchor));
+    }
+
+    /// The checklist has the keys.
+    fn checklist_handle(&mut self, action: Action) {
+        let Some(list) = self.checklist.as_mut() else {
+            return;
+        };
+        if !list.handle(action) {
+            self.checklist = None;
+            return;
+        }
+        self.keep_explain_options();
+    }
+
+    fn keep_explain_options(&mut self) {
+        if let Some(list) = &self.checklist {
+            for (on, (_, ticked)) in self.explain_options.iter_mut().zip(&list.items) {
+                *on = *ticked;
+            }
         }
     }
 
@@ -634,6 +710,9 @@ impl Workspace {
         }
         if self.explain_prefix(true).is_some() {
             buttons.push(bar::ANALYZE);
+        }
+        if self.dialect == Dialect::Postgres && matches!(self.language, QueryLanguage::Sql(_)) {
+            buttons.push(bar::EXPLAIN_OPTIONS);
         }
         buttons.push(bar::LIMIT);
         if dfox_core::result::ResultSet::row_count(&self.results().store) > 0 {
@@ -1655,6 +1734,7 @@ impl Workspace {
     fn modal(&self) -> bool {
         if self.card.is_some()
             || self.menu.is_some()
+            || self.checklist.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
         {
@@ -1683,6 +1763,16 @@ impl Workspace {
     /// scrolls the panel under it.
     pub fn mouse(&mut self, event: MouseEvent, ctx: &mut Ctx) -> Option<Command> {
         let point = Position::new(event.column, event.row);
+        if let Some(list) = self.checklist.as_mut() {
+            if event.kind == MouseEventKind::Down(MouseButton::Left) {
+                if list.click(point) {
+                    self.keep_explain_options();
+                } else {
+                    self.checklist = None;
+                }
+            }
+            return None;
+        }
         let [explorer, editor, results] = self.areas.get();
         let under = if explorer.contains(point) {
             Some(Panel::Explorer)
@@ -1885,6 +1975,10 @@ impl Component for Workspace {
         if self.menu.is_some() {
             return self.menu_handle(action, ctx);
         }
+        if self.checklist.is_some() {
+            self.checklist_handle(action);
+            return None;
+        }
         if self.properties.is_some() {
             if TableCard::closes(action) {
                 self.properties = None;
@@ -1931,6 +2025,9 @@ impl Component for Workspace {
             }
             Action::Explain => return self.explain(false, ctx),
             Action::ExplainAnalyze => return self.explain(true, ctx),
+            Action::ExplainOptions if self.buttons().contains(&bar::EXPLAIN_OPTIONS) => {
+                self.open_explain_options();
+            }
             Action::Complete if self.focus.is(Panel::Editor) => {
                 let tab = &mut self.tabs[self.active];
                 tab.editor.complete(&self.catalog, action);
@@ -2106,6 +2203,9 @@ impl Component for Workspace {
         if let Some(menu) = &self.menu {
             menu.render(f, left, ctx);
         }
+        if let Some(list) = &self.checklist {
+            list.render(f, area, ctx);
+        }
         if let Some(properties) = &self.properties {
             properties.render(f, area, ctx);
         }
@@ -2129,6 +2229,7 @@ impl Component for Workspace {
         // Cards and menus take letters as keys.
         if self.card.is_some()
             || self.menu.is_some()
+            || self.checklist.is_some()
             || self.properties.is_some()
             || self.export_dialog.is_some()
         {
