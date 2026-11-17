@@ -9,6 +9,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Filter the rows by the cell's value: **/** keeps the rows with it, **!** drops them, **u**
+  brings every row back unsorted. The new layout's toolbar has buttons for them.
 - The new layout's toolbar has a row limit chip (`100k rows`): a click steps through 100,
   500, 1000, 100k, no limit and the config's `row_limit`, for the tab it is on.
 - The new layout has **Query | History** over the editor: History (**Ctrl+R** or a click)

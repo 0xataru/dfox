@@ -242,6 +242,10 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - **>** / **<** - Widen / narrow the column
 - **s** - Sort by the column: ascending (▲), descending (▼), then back to the order the rows
   came in. It sorts the rows fetched, once they are all in; decimals sort as numbers
+- **/** - Keep only the rows whose value in the column is the cell's, **!** drops them
+  instead, **u** brings every row back unsorted. Like sorting, it works on the rows fetched,
+  once they are all in. The new layout's toolbar has a button for **/** and, while the rows
+  are sorted or filtered, one for **u**
 - **Enter** or **i** - Inspect the row: every field in full, JSON pretty-printed, binary as a hex dump
 - **e** - Edit the cell, in rows opened from a table that has a primary key: type, then
   **Enter** keeps the change, **Esc** drops it, **Del** makes it NULL. **o** adds a row
@@ -424,7 +428,9 @@ action without a key. The actions and their default keys:
 | `narrower` | Narrow column | `<` |
 | `next_focus` | Next panel | `tab` |
 | `prev_focus` | Previous panel | `shift+tab` |
-| `filter` | Filter | `/` |
+| `filter` | Filter / by cell value | `/` |
+| `filter_out` | Filter out cell value | `!` |
+| `unfilter` | Remove sort and filter | `u` |
 | `refresh` | Refresh | `R` |
 | `new` | New connection | `n` |
 | `edit` | Edit / definition | `e` |

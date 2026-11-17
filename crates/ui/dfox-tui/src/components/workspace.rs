@@ -635,7 +635,14 @@ impl Workspace {
         if self.explain_prefix(true).is_some() {
             buttons.push(bar::ANALYZE);
         }
-        buttons.extend([bar::LIMIT, bar::FORMAT, bar::HISTORY, bar::HELP]);
+        buttons.push(bar::LIMIT);
+        if dfox_core::result::ResultSet::row_count(&self.results().store) > 0 {
+            buttons.push(bar::FILTER);
+        }
+        if self.results().rearranged() {
+            buttons.push(bar::UNFILTER);
+        }
+        buttons.extend([bar::FORMAT, bar::HISTORY, bar::HELP]);
         buttons
     }
 
@@ -1716,8 +1723,10 @@ impl Workspace {
         {
             return match button.click {
                 Click::Action(action) => {
-                    if action == Action::Format {
-                        self.set_focus(Panel::Editor);
+                    match action {
+                        Action::Format => self.set_focus(Panel::Editor),
+                        Action::Filter | Action::Unfilter => self.set_focus(Panel::Results),
+                        _ => {}
                     }
                     Some(Command::Dispatch(action))
                 }

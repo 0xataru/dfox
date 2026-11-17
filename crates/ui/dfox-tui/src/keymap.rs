@@ -322,6 +322,8 @@ fn standard() -> Vec<(Key, Action)> {
         bind(&["d", "delete"], Action::Delete),
         bind(&["ctrl+s"], Action::Save),
         bind(&["/"], Action::Filter),
+        bind(&["!"], Action::FilterOut),
+        bind(&["u"], Action::Unfilter),
         bind(&["R"], Action::Refresh),
         bind(&["f12"], Action::Debug),
         bind(&["ctrl+t"], Action::NextTheme),
