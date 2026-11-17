@@ -77,6 +77,8 @@ pub struct RenderCtx<'a> {
     pub frame: u64,
     pub animations: bool,
     pub layout: LayoutStyle,
+    /// Rows kept per result, from the config.
+    pub row_limit: usize,
 }
 
 /// Notable events, shown by the debug action.

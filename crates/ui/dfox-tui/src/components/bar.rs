@@ -18,6 +18,8 @@ use crate::{action::Action, component::RenderCtx, connections::Tag};
 pub enum Click {
     Action(Action),
     Sql(&'static str),
+    /// The next row limit.
+    Limit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +80,11 @@ pub const NEW_TAB: Button = button(
     "New query tab",
     ["+", "+", "+"],
 );
+pub const LIMIT: Button = button(
+    Click::Limit,
+    "Rows kept per result, for this tab · click for the next",
+    ["", "", ""],
+);
 pub const HELP: Button = button(Click::Action(Action::Help), "Keys", ["\u{f059}", "?", "?"]);
 
 impl Button {
@@ -97,6 +104,7 @@ impl Button {
                 key => format!("{} · {key}", self.label),
             },
             Click::Sql(sql) => format!("{} · runs {sql}", self.label),
+            Click::Limit => self.label.to_string(),
         }
     }
 }
@@ -112,6 +120,8 @@ pub struct Bar<'a> {
     pub buttons: &'a [Button],
     /// The button under the mouse, lit up.
     pub hovered: Option<Button>,
+    /// What the row limit chip says.
+    pub limit: &'a str,
 }
 
 impl Bar<'_> {
@@ -166,7 +176,10 @@ impl Bar<'_> {
         let fit: Vec<(Button, String)> = self
             .buttons
             .iter()
-            .map(|b| (*b, format!(" {} ", b.glyph(ctx))))
+            .map(|b| match b.click {
+                Click::Limit => (*b, format!(" {} ", self.limit)),
+                _ => (*b, format!(" {} ", b.glyph(ctx))),
+            })
             .take_while(|(_, text)| {
                 let fits = text.width() < room;
                 room = room.saturating_sub(text.width() + 1);
@@ -189,11 +202,56 @@ impl Bar<'_> {
     }
 }
 
+/// What the row limit chip says for `limit`.
+pub fn limit_label(limit: usize) -> String {
+    match limit {
+        usize::MAX => "No limit".to_string(),
+        n if n >= 10_000 && n % 1000 == 0 => format!("{}k rows", n / 1000),
+        n => format!("{n} rows"),
+    }
+}
+
+/// The limit after `current`: the presets and the config's, smallest first,
+/// then back round.
+pub fn next_limit(current: usize, config: usize) -> usize {
+    let mut all = vec![100, 500, 1000, 100_000, usize::MAX, config];
+    all.sort_unstable();
+    all.dedup();
+    all.into_iter().find(|&n| n > current).unwrap_or(100)
+}
+
 /// A button: accent on a raised block, the other way round under the mouse.
 pub fn button_style(theme: &crate::theme::Theme, hovered: bool) -> Style {
     if hovered {
         Style::default().fg(theme.bg).bg(theme.accent)
     } else {
         Style::default().fg(theme.accent).bg(theme.surface_alt)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn limits_go_round_through_the_presets_and_the_config() {
+        let mut seen = vec![limit_label(100_000)];
+        let mut limit = 100_000;
+        for _ in 0..6 {
+            limit = next_limit(limit, 2000);
+            seen.push(limit_label(limit));
+        }
+        assert_eq!(
+            seen,
+            [
+                "100k rows",
+                "No limit",
+                "100 rows",
+                "500 rows",
+                "1000 rows",
+                "2000 rows",
+                "100k rows"
+            ]
+        );
     }
 }

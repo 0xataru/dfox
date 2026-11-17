@@ -4,7 +4,7 @@ assertion_line: 507
 expression: "render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx))"
 ---
     Query 1 × │  +
- ▤  ▌◆ local · shop ▾ · read-only                                     ▶   »   Ex   Ex+   ≡   ⟲   ?
+ ▤  ▌◆ local · shop ▾ · read-only                         ▶   »   Ex   Ex+   100k rows   ≡   ⟲   ?
    ╭ Query │ H╭ Explorer ────────────────────────────╮────────────────────────────────────────── ⤢ ╮
  ✎ │  1 Write │   ◆ postgres                         │he cursor                                    │
    │          │ ▾ ◆ shop ●                           │                                             │

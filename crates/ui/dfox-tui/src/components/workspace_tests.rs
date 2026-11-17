@@ -661,6 +661,14 @@ fn the_toolbar_fits_the_width_and_its_buttons_work() {
         ),
         Some(Command::Dispatch(Action::Execute))
     );
+    render(&test, 160, 8, |f, area, ctx| w.render(f, area, ctx));
+    let (x, y) = spot(&w, bar::LIMIT);
+    w.mouse(
+        mouse(MouseEventKind::Down(MouseButton::Left), x, y),
+        &mut harness.ctx(),
+    );
+    let screen = render(&test, 160, 8, |f, area, ctx| w.render(f, area, ctx));
+    assert!(screen.contains(" No limit "), "{screen}");
     let (x, y) = spot(&w, bar::COMMIT);
     w.mouse(
         mouse(MouseEventKind::Down(MouseButton::Left), x, y),
@@ -668,7 +676,7 @@ fn the_toolbar_fits_the_width_and_its_buttons_work() {
     );
     assert!(matches!(
         harness.sent().as_slice(),
-        [DbCommand::Run { sql, .. }] if sql == "COMMIT"
+        [DbCommand::Run { sql, row_limit: usize::MAX, .. }] if sql == "COMMIT"
     ));
     w.mouse(mouse(MouseEventKind::Moved, 0, 0), &mut harness.ctx());
     assert_eq!(w.tooltip(&test.keymap), None);

@@ -4,7 +4,7 @@ assertion_line: 579
 expression: "render(&test, 80, 16, |f, area, ctx| w.render(f, area, ctx))"
 ---
     Query 1 × │  +
- ▤  ◆ local · shop ▾                              ▶   »   Ex   Ex+   ≡   ⟲   ?
+ ▤  ◆ local · shop ▾                  ▶   »   Ex   Ex+   100k rows   ≡   ⟲   ?
    ╭ Query │ History ─────────────────────────────────────────────────────── ⤢ ╮
  ✎ │  1 create table if not exists t (id int)                                  │
    │                                                                           │

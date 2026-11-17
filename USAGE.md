@@ -294,8 +294,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     Choosing what to do with a table closes it, as do Esc, Ctrl+B and a second click.
     Tab passes it by
   - a toolbar at the right of the bar: run, stop, commit and rollback while a
-    transaction is open, run the script, explain, explain analyze, format, history,
-    keys. The mouse over one says what it does and its key, the last ones go on a
+    transaction is open, run the script, explain, explain analyze, the row limit, format,
+    history, keys. A click on the row limit (`100k rows`) steps through 100, 500, 1000,
+    100k, no limit and the config's `row_limit`, for that tab only. The mouse over one says what it does and its key, the last ones go on a
     narrow terminal
   - **Query | History** over the editor (**Ctrl+R** or a click): History searches the
     query history in place of the query, Enter puts the one chosen in the editor, Esc or
