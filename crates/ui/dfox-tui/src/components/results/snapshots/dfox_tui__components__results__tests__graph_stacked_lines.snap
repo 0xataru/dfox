@@ -1,0 +1,18 @@
+---
+source: crates/ui/dfox-tui/src/components/results/tests.rs
+expression: screen
+---
+╭ Data │ Messages │ Graph · stacked lines ─────────────────╮
+│ X status ▾ · Y order_sum (sums) ▾ · one Y, nothing to st │
+│ 184 │          ⣀⣀⠤⠤⠒⠒⠉⠑⠢⢄⡀                   ┌─────────┐ │
+│     │ ⢀⣀⡠⠤⠔⠒⠊⠉⠉          ⠈⠑⠢⢄⡀               │order_sum│ │
+│     │⠉⠁                      ⠈⠑⠢⢄⡀           └─────────┘ │
+│     │                            ⠈⠑⠢⢄⡀                   │
+│     │                                ⠈⠑⠤⣀                │
+│     │                                    ⠉⠒⠤⣀            │
+│     │                                        ⠉⠒⢄⡀        │
+│     │                                           ⠈⠑⠢⢄⡀    │
+│ 52.5│                                             status │
+│     └─────────────────────────────────────────────────── │
+│   new                                               done │
+╰──────────────────────────────────────────────────────────╯

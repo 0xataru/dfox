@@ -1,0 +1,18 @@
+---
+source: crates/ui/dfox-tui/src/components/results/tests.rs
+expression: screen
+---
+╭ Data │ Messages │ Graph · points ────────────────────────╮
+│ X status ▾ · Y order_sum (sums) ▾ · Enter: X, then ←→    │
+│ 184 │                 •                      ┌─────────┐ │
+│     │                                        │order_sum│ │
+│     │•                                       └─────────┘ │
+│     │                                                    │
+│     │                                 •                  │
+│     │                                                    │
+│     │                                                    │
+│     │                                                    │
+│ 52.5│                                             status │
+│     └─────────────────────────────────────────────────── │
+│   new                                               done │
+╰──────────────────────────────────────────────────────────╯

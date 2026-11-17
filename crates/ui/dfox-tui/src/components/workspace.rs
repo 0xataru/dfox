@@ -647,7 +647,7 @@ impl Workspace {
         let items = EXPLAIN_OPTIONS
             .iter()
             .zip(self.explain_options)
-            .map(|((_, label, _, _), on)| (*label, on))
+            .map(|((_, label, _, _), on)| (label.to_string(), on))
             .collect();
         self.checklist = Some(Checklist::new(items, anchor));
     }

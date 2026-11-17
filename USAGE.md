@@ -310,9 +310,29 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
   - **Query | History** over the editor (**Ctrl+R** or a click): History searches the
     query history in place of the query, Enter puts the one chosen in the editor, Esc or
     `Query` goes back
-  - **Data | Messages** over the results (**m** or a click): Messages lists how each query
-    of the tab went, its rows or error and time, with the server's notices, which then
-    don't pop up
+  - **Data | Messages | Graph** over the results (**m** or a click): Messages lists how
+    each query of the tab went, its rows or error and time, with the server's notices,
+    which then don't pop up. Graph (**p** or a click) plots the numeric columns, and **p**
+    again (or another click) goes to the next kind, **P** to the previous one. A stacked
+    kind with one Y says so: it stacks once a second Y is added. The kinds:
+    - lines: a metric over time, such as orders per day
+    - stacked lines: parts of a total over time, such as orders per status per day
+    - points: how two numbers go together, such as rows against time taken
+    - bars: categories compared, such as rows per status
+    - horizontal bars: the same with long names, such as the biggest tables
+    - stacked bars: each category's total in parts
+    - pie: the first numeric column's shares, the 6 biggest and the rest as `other`
+    - histogram: how the first numeric column's values spread
+
+    At first X is a column of categories (text with 2 to 50 values, as a status has, not
+    a name with one per row), else a date column, else the row number. Y is the first
+    number that isn't an id (`id`, `*_id`), else the row count.
+    The line over the graph names X and Y, and each drops down its own list on a click.
+    **Enter** drops down X: one column or the row number. **←** and **→** switch to Y
+    and back: any numbers, the row count among them. A text X adds up each Y over
+    the rows that share it, so `SELECT * FROM orders` with X `status` plots the sum per
+    status. A histogram leaves out the values past the 1st and 99th percentiles and
+    says how many. **Esc** goes back to Data
   - each column's type under its name in the grid, `[PK]` on the key of a table's rows
   - `Total rows` and how long the query took (`Query complete 00:00:00.492`) in the
     status bar
@@ -448,6 +468,7 @@ action without a key. The actions and their default keys:
 | `switch_layout` | Classic / new layout | |
 | `maximize` | Maximize the panel | `ctrl+g` |
 | `messages` | Data / messages | `m` |
+| `graph` | Graph / next kind | `p` |
 | `debug` | Event log | `f12` |
 | `menu` | Command menu | `space` |
 | `help` | Show keys | `?`, `f2` |

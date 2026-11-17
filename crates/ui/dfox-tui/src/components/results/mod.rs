@@ -2,6 +2,7 @@
 
 mod edit;
 pub mod export;
+pub mod graph;
 pub mod grid;
 mod inspector;
 mod json;
@@ -36,6 +37,7 @@ use self::{
 use super::editor::buffer::{Buffer, Motion};
 use super::{
     bar::{self, Button},
+    checklist::Checklist,
     inner, panel,
 };
 use crate::{
@@ -78,6 +80,19 @@ fn empty() -> ArrowResultSet {
     let mut result = ArrowResultSet::new(Arc::new(Schema::empty()));
     result.finish();
     result
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    X,
+    Y,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum View {
+    Data,
+    Messages,
+    Graph,
 }
 
 #[derive(Debug)]
@@ -137,8 +152,20 @@ pub struct ResultsPanel {
     reviewing: bool,
     /// How the tab's queries went, the new layout's Messages.
     pub messages: Messages,
-    /// Messages show instead of the rows.
-    showing_messages: bool,
+    /// What the new layout shows: the rows, the messages or the graph.
+    view: View,
+    /// How the graph draws the rows.
+    graph: graph::Kind,
+    /// The columns the graph plots, picked; the likely ones when `None`.
+    graph_pick: Option<graph::Pick>,
+    /// The graph's columns to pick from, open, and the Y column each Y
+    /// item is (`None` for the row count).
+    graph_columns: Option<(Checklist, Axis)>,
+    /// Where the graph names its X and Y.
+    axes: Cell<[Rect; 2]>,
+    /// Counts the changes to the rows, so the graph knows to plot again.
+    rev: u64,
+    plot_cache: std::cell::RefCell<Option<(graph::Pick, u64, Option<graph::Plot>)>>,
     /// Where the new layout drew `Data`, `Messages` after it, on the top
     /// border.
     views: Cell<Option<Position>>,
@@ -187,7 +214,13 @@ impl ResultsPanel {
             cell_edit: None,
             reviewing: false,
             messages: Messages::default(),
-            showing_messages: false,
+            view: View::Data,
+            graph: graph::Kind::Line,
+            graph_pick: None,
+            graph_columns: None,
+            axes: Cell::default(),
+            rev: 0,
+            plot_cache: Default::default(),
             views: Cell::new(None),
             data_toolbar: Default::default(),
             hovered: None,
@@ -385,11 +418,14 @@ impl ResultsPanel {
 
     pub(crate) fn show(&mut self, store: ArrowResultSet) {
         self.store = store;
+        self.rev += 1;
         self.error = None;
         self.message = None;
         self.grid = Grid::default();
         self.unsorted = None;
         self.unfiltered = None;
+        self.graph_pick = None;
+        self.graph_columns = None;
         // New rows, the same view.
         if self.json.is_some() {
             self.json = Some(json::JsonView::default());
@@ -408,6 +444,7 @@ impl ResultsPanel {
     pub fn on_batch(&mut self, id: QueryId, batch: RecordBatch) {
         if self.is_current(id) {
             self.store.push(batch);
+            self.rev += 1;
         }
     }
 
@@ -509,11 +546,147 @@ impl ResultsPanel {
         match sorted {
             Ok((rows, order)) => {
                 self.store = rows;
+                self.rev += 1;
                 self.unsorted = Some(order);
                 self.grid.sorted = next;
             }
             Err(err) => ctx.toast(Level::Error, format!("Couldn't sort: {err}")),
         }
+    }
+
+    /// What the graph plots.
+    fn pick(&self) -> graph::Pick {
+        self.graph_pick
+            .clone()
+            .unwrap_or_else(|| graph::default_pick(&self.store))
+    }
+
+    /// Drops down the columns one axis can plot, under its name.
+    fn open_columns(&mut self, axis: Axis) {
+        let axis = if self.graph == graph::Kind::Histogram {
+            Axis::Y
+        } else {
+            axis
+        };
+        let pick = self.pick();
+        let columns = self.store.columns();
+        let list = match axis {
+            Axis::X => {
+                let mut items = vec![("row number".to_string(), pick.x.is_none())];
+                items.extend(
+                    columns
+                        .iter()
+                        .enumerate()
+                        .map(|(c, column)| (column.name.to_string(), pick.x == Some(c))),
+                );
+                let count = items.len();
+                Checklist::new(items, self.axes.get()[0]).radio(count)
+            }
+            Axis::Y => {
+                let mut items = vec![("row count".to_string(), pick.count)];
+                items.extend(
+                    self.numeric()
+                        .map(|c| (columns[c].name.to_string(), pick.ys.contains(&c))),
+                );
+                Checklist::new(items, self.axes.get()[1])
+            }
+        };
+        self.graph_columns = Some((list, axis));
+    }
+
+    fn numeric(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.store.columns().len()).filter(|&c| graph::is_numeric(&self.store, c))
+    }
+
+    /// The graph plots what the open list has ticked.
+    fn pick_columns(&mut self) {
+        let Some((list, axis)) = &self.graph_columns else {
+            return;
+        };
+        let mut pick = self.pick();
+        match axis {
+            Axis::X => {
+                pick.x = list
+                    .items
+                    .iter()
+                    .position(|(_, on)| *on)
+                    .and_then(|i| i.checked_sub(1));
+            }
+            Axis::Y => {
+                pick.count = list.items[0].1;
+                pick.ys = self
+                    .numeric()
+                    .zip(&list.items[1..])
+                    .filter(|(_, (_, on))| *on)
+                    .map(|(c, _)| c)
+                    .collect();
+            }
+        }
+        self.graph_pick = Some(pick);
+    }
+
+    /// The graph, or on it, the next kind.
+    fn show_graph(&mut self, back: bool) {
+        if self.view == View::Graph {
+            self.graph = if back {
+                self.graph.previous()
+            } else {
+                self.graph.next()
+            };
+        }
+        self.view = View::Graph;
+    }
+
+    /// Keys for the rows.
+    fn handle_data(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if let Some(command) = self.handle_edit(action, ctx) {
+            return command;
+        }
+        if action == Action::JsonView {
+            self.json = match self.json {
+                Some(_) => None,
+                None => Some(json::JsonView::default()),
+            };
+            self.inspecting = false;
+            return None;
+        }
+        if let Some(view) = &mut self.json {
+            match action {
+                Action::Copy => self.copy(ctx),
+                Action::CopyAs if self.store.row_count() > 0 => self.picker = true,
+                action => {
+                    view.handle(action, &self.store, self.json_height.get());
+                }
+            }
+            return None;
+        }
+        match action {
+            Action::Sort => self.sort(ctx),
+            Action::Filter => self.filter(true, ctx),
+            Action::FilterOut => self.filter(false, ctx),
+            Action::Unfilter => self.unfilter(ctx),
+            Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
+                self.inspecting = !self.inspecting;
+                self.inspect_scroll.set(0);
+            }
+            Action::Back if self.inspecting && !self.grid.has_selection() => {
+                self.inspecting = false
+            }
+            Action::Copy => self.copy(ctx),
+            Action::CopyAs if self.store.row_count() == 0 => {
+                ctx.toast(Level::Warning, "No results to copy")
+            }
+            Action::CopyAs => self.picker = true,
+            action => {
+                let size = self.size();
+                let row = self.grid.cursor().0;
+                self.grid.handle(action, size);
+                if self.grid.cursor().0 != row {
+                    self.inspect_scroll.set(0);
+                }
+            }
+        }
+        None
     }
 
     /// Puts the rows back in the order they came.
@@ -528,6 +701,7 @@ impl ResultsPanel {
         match self.store.reordered(&back.into()) {
             Ok(rows) => {
                 self.store = rows;
+                self.rev += 1;
                 self.grid.sorted = None;
                 Ok(())
             }
@@ -573,6 +747,7 @@ impl ResultsPanel {
         match self.store.reordered(&rows.into()) {
             Ok(rows) => {
                 let before = std::mem::replace(&mut self.store, rows);
+                self.rev += 1;
                 let unsorted = self.unsorted.take();
                 let sorted = self.grid.sorted;
                 let all = self.unfiltered.get_or_insert(Unfiltered {
@@ -601,6 +776,7 @@ impl ResultsPanel {
         }
         if let Some(all) = self.unfiltered.take() {
             self.store = all.store;
+            self.rev += 1;
             self.unsorted = all.unsorted;
             self.grid.sorted = all.sorted;
         }
@@ -690,7 +866,7 @@ impl ResultsPanel {
 
     /// True while the copy-as menu has the keys.
     pub fn is_modal(&self) -> bool {
-        self.picker || self.cell_edit.is_some() || self.reviewing
+        self.picker || self.cell_edit.is_some() || self.reviewing || self.graph_columns.is_some()
     }
 
     /// True when Back has something to undo here: an open menu or a
@@ -779,13 +955,36 @@ impl ResultsPanel {
     pub fn click(&mut self, column: u16, row: u16, drag: bool) -> bool {
         if let Some(at) = self.views.get().filter(|at| at.y == row) {
             if !drag && (at.x..at.x + 4).contains(&column) {
-                self.showing_messages = false;
+                self.view = View::Data;
             } else if !drag && (at.x + 7..at.x + 15).contains(&column) {
-                self.showing_messages = true;
+                self.view = View::Messages;
+            } else if !drag && (at.x + 18..at.x + 23).contains(&column) {
+                self.show_graph(false);
             }
             return true;
         }
-        if self.showing_messages {
+        if let Some((list, _)) = self.graph_columns.as_mut() {
+            if drag {
+                return true;
+            }
+            if list.click(Position::new(column, row)) {
+                self.pick_columns();
+            } else {
+                self.graph_columns = None;
+            }
+            return true;
+        }
+        // The line over the graph opens its axes' columns.
+        if self.view == View::Graph && self.views.get().is_some_and(|at| at.y + 1 == row) && !drag {
+            let axis = if self.axes.get()[1].contains(Position::new(column, row)) {
+                Axis::Y
+            } else {
+                Axis::X
+            };
+            self.open_columns(axis);
+            return true;
+        }
+        if self.view != View::Data {
             return false;
         }
         if let Some(view) = &mut self.json {
@@ -833,6 +1032,20 @@ fn describe(rows: usize, cells: usize) -> String {
 
 impl Component for ResultsPanel {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if let Some((list, axis)) = self.graph_columns.as_mut() {
+            match (action, *axis) {
+                (Action::Left, Axis::Y) => self.open_columns(Axis::X),
+                (Action::Right, Axis::X) => self.open_columns(Axis::Y),
+                _ => {
+                    if list.handle(action) {
+                        self.pick_columns();
+                    } else {
+                        self.graph_columns = None;
+                    }
+                }
+            }
+            return None;
+        }
         if self.picker {
             match action {
                 Action::Input(c) => {
@@ -846,67 +1059,27 @@ impl Component for ResultsPanel {
             }
             return None;
         }
-        if action == Action::Messages && ctx.config.layout == LayoutStyle::Workspace {
-            self.showing_messages = !self.showing_messages;
-            return None;
-        }
-        if self.showing_messages {
-            return None;
-        }
-        if let Some(command) = self.handle_edit(action, ctx) {
-            return command;
-        }
-        if action == Action::JsonView {
-            self.json = match self.json {
-                Some(_) => None,
-                None => Some(json::JsonView::default()),
-            };
-            self.inspecting = false;
-            return None;
-        }
-        if let Some(view) = &mut self.json {
+        if ctx.config.layout == LayoutStyle::Workspace {
             match action {
-                Action::Copy => self.copy(ctx),
-                Action::CopyAs if self.store.row_count() > 0 => self.picker = true,
-                action => {
-                    view.handle(action, &self.store, self.json_height.get());
-                }
+                Action::Messages if self.view == View::Messages => self.view = View::Data,
+                Action::Messages => self.view = View::Messages,
+                Action::Graph => self.show_graph(false),
+                Action::GraphBack => self.show_graph(true),
+                Action::Confirm if self.view == View::Graph => self.open_columns(Axis::X),
+                Action::Back if self.view != View::Data => self.view = View::Data,
+                _ if self.view != View::Data => {}
+                _ => return self.handle_data(action, ctx),
             }
             return None;
         }
-        match action {
-            Action::Sort => self.sort(ctx),
-            Action::Filter => self.filter(true, ctx),
-            Action::FilterOut => self.filter(false, ctx),
-            Action::Unfilter => self.unfilter(ctx),
-            Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
-                self.inspecting = !self.inspecting;
-                self.inspect_scroll.set(0);
-            }
-            Action::Back if self.inspecting && !self.grid.has_selection() => {
-                self.inspecting = false
-            }
-            Action::Copy => self.copy(ctx),
-            Action::CopyAs if self.store.row_count() == 0 => {
-                ctx.toast(Level::Warning, "No results to copy")
-            }
-            Action::CopyAs => self.picker = true,
-            action => {
-                let size = self.size();
-                let row = self.grid.cursor().0;
-                self.grid.handle(action, size);
-                if self.grid.cursor().0 != row {
-                    self.inspect_scroll.set(0);
-                }
-            }
-        }
-        None
+        self.handle_data(action, ctx)
     }
 
     fn render(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
         let theme = ctx.theme;
         let workspace = ctx.layout == LayoutStyle::Workspace;
-        let messages = workspace && self.showing_messages;
+        let view = if workspace { self.view } else { View::Data };
+        let messages = view == View::Messages;
         let mut title = if workspace {
             let style = |shown: bool| {
                 if shown {
@@ -918,9 +1091,18 @@ impl Component for ResultsPanel {
             let x = area.x + 2;
             self.views.set(Some(Position::new(x, area.y)));
             vec![
-                Span::styled("Data", style(!messages)),
+                Span::styled("Data", style(view == View::Data)),
                 Span::styled(" │ ", theme.dim()),
                 Span::styled("Messages", style(messages)),
+                Span::styled(" │ ", theme.dim()),
+                Span::styled("Graph", style(view == View::Graph)),
+                Span::styled(
+                    match view {
+                        View::Graph => format!(" · {}", self.graph.name()),
+                        _ => String::new(),
+                    },
+                    theme.dim(),
+                ),
             ]
         } else {
             self.views.set(None);
@@ -939,7 +1121,7 @@ impl Component for ResultsPanel {
         }
         let rows = self.store.row_count();
         let columns = self.store.columns().len();
-        if messages {
+        if view != View::Data {
             // The rows' counts are about Data.
         } else if rows > 0 && self.json.is_some() {
             title.push(Span::styled(format!(" {rows} rows"), theme.dim()));
@@ -979,6 +1161,24 @@ impl Component for ResultsPanel {
         if messages {
             f.render_widget(block, area);
             self.messages.render(f, inner(area), ctx);
+        } else if view == View::Graph {
+            f.render_widget(block, area);
+            let mut pick = self.pick();
+            // A histogram counts every row's value, not each category's sum.
+            if self.graph == graph::Kind::Histogram {
+                pick.x = None;
+            }
+            let mut cache = self.plot_cache.borrow_mut();
+            if !matches!(&*cache, Some((p, rev, _)) if *p == pick && *rev == self.rev) {
+                let plot = graph::plot(&self.store, &pick);
+                *cache = Some((pick, self.rev, plot));
+            }
+            let plot = cache.as_ref().and_then(|(_, _, plot)| plot.as_ref());
+            self.axes
+                .set(graph::render(f, inner(area), plot, self.graph, ctx));
+            if let Some((list, _)) = &self.graph_columns {
+                list.render(f, area, ctx);
+            }
         } else if let Some(error) = &self.error {
             let text = Paragraph::new(Line::from(vec![
                 Span::styled(format!("{} ", ctx.icons.error), theme.danger()),

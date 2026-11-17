@@ -9,6 +9,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The new layout has **Graph** beside Messages: **p** plots the result's numeric columns
+  as lines, stacked lines, points, bars, horizontal bars, stacked bars, a pie or a
+  histogram, the next kind at each press of **p**, the previous one with **P**.
 - Explain options for Postgres in the new layout: **▾** by the explain buttons drops down
   Verbose, Costs, Buffers, Timing, Summary, Settings and Wal to tick. Explain and explain
   analyze use them while the app runs.
