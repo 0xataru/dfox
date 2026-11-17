@@ -302,6 +302,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     history, keys. A click on the row limit (`100k rows`) steps through 100, 500, 1000,
     100k, no limit and the config's `row_limit`, for that tab only. The mouse over one says what it does and its key, the last ones go on a
     narrow terminal
+  - buttons over the rows, on the results' top border: add a row, delete it and save the
+    edits (on a table's rows that can be edited), copy, export, and which rows are on
+    screen (`Showing rows 1 to 9`)
   - **Query | History** over the editor (**Ctrl+R** or a click): History searches the
     query history in place of the query, Enter puts the one chosen in the editor, Esc or
     `Query` goes back

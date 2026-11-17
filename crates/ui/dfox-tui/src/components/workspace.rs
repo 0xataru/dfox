@@ -1713,9 +1713,18 @@ impl Workspace {
             .iter()
             .find(|(spot, _)| spot.contains(point))
             .map(|(_, button)| *button)
+            .or_else(|| {
+                self.results()
+                    .data_toolbar
+                    .borrow()
+                    .iter()
+                    .find(|(spot, _)| spot.contains(point))
+                    .map(|(_, button)| *button)
+            })
             .or_else(|| self.plus.get().contains(point).then_some(bar::NEW_TAB));
         if event.kind == MouseEventKind::Moved {
             self.hovered = button;
+            self.tab_mut().results.hovered = button;
             return None;
         }
         if let (MouseEventKind::Down(MouseButton::Left), Some(button), false) =
@@ -1724,6 +1733,7 @@ impl Workspace {
             return match button.click {
                 Click::Action(action) => {
                     match action {
+                        _ if bar::DATA.contains(&button) => self.set_focus(Panel::Results),
                         Action::Format => self.set_focus(Panel::Editor),
                         Action::Filter | Action::Unfilter => self.set_focus(Panel::Results),
                         _ => {}
