@@ -289,8 +289,12 @@ impl Grid {
                     let label = typed.as_ref().map_or(0, |keys| {
                         type_label(&meta.type_name, keys.contains(&col)).width()
                     });
-                    (content.max(meta.name.width()).max(label) as u16)
-                        .clamp(MIN_WIDTH, MAX_AUTO_WIDTH)
+                    let most = if col + 1 == columns.len() {
+                        MAX_WIDTH
+                    } else {
+                        MAX_AUTO_WIDTH
+                    };
+                    (content.max(meta.name.width()).max(label) as u16).clamp(MIN_WIDTH, most)
                 })
                 .collect();
             cache.sampled = sampled;

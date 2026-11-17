@@ -152,14 +152,24 @@ fn columns_widen_and_narrow_within_limits() {
 
 #[test]
 fn widths_follow_the_widest_sampled_value() {
-    let mut result = Cells::new(vec![ColumnMeta::new("id", ""), ColumnMeta::new("note", "")]);
-    result.push(vec![
-        OwnedCell::Int(1),
-        OwnedCell::Text("x".repeat(100).into()),
+    let mut result = Cells::new(vec![
+        ColumnMeta::new("id", ""),
+        ColumnMeta::new("note", ""),
+        ColumnMeta::new("plan", ""),
     ]);
-    result.push(vec![OwnedCell::Int(123_456), OwnedCell::Null]);
+    let long = || OwnedCell::Text("x".repeat(100).into());
+    result.push(vec![OwnedCell::Int(1), long(), long()]);
+    result.push(vec![
+        OwnedCell::Int(123_456),
+        OwnedCell::Null,
+        OwnedCell::Null,
+    ]);
     let grid = Grid::default();
-    assert_eq!(grid.widths(&result, &Icons::unicode()), [7, MAX_AUTO_WIDTH]);
+    // The last column isn't cut at the others' width: a plan's lines show whole.
+    assert_eq!(
+        grid.widths(&result, &Icons::unicode()),
+        [7, MAX_AUTO_WIDTH, 100]
+    );
 }
 
 #[test]
