@@ -635,7 +635,7 @@ impl Workspace {
         if self.explain_prefix(true).is_some() {
             buttons.push(bar::ANALYZE);
         }
-        buttons.extend([bar::FORMAT, bar::HISTORY, bar::HELP]);
+        buttons.extend([bar::LIMIT, bar::FORMAT, bar::HISTORY, bar::HELP]);
         buttons
     }
 
@@ -1722,6 +1722,13 @@ impl Workspace {
                     Some(Command::Dispatch(action))
                 }
                 Click::Sql(sql) => self.run(Some(sql.to_string()), ctx),
+                Click::Limit => {
+                    let config = ctx.config.row_limit;
+                    let results = &mut self.tab_mut().results;
+                    let now = results.row_limit.unwrap_or(config);
+                    results.row_limit = Some(bar::next_limit(now, config));
+                    None
+                }
             };
         }
         // The database opens the explorer under it, and closes it.
@@ -2005,6 +2012,7 @@ impl Component for Workspace {
             [none, none, right]
         };
         let buttons = self.buttons();
+        let limit = bar::limit_label(self.results().row_limit.unwrap_or(ctx.row_limit));
         let (spot, toolbar) = if workspace {
             Bar {
                 tag: self.tag,
@@ -2015,6 +2023,7 @@ impl Component for Workspace {
                 in_transaction: self.in_transaction,
                 buttons: &buttons,
                 hovered: self.hovered,
+                limit: &limit,
             }
             .render(f, bar, ctx)
         } else {

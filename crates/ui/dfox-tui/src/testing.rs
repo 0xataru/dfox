@@ -42,6 +42,7 @@ impl TestCtx {
             frame: 0,
             animations: true,
             layout: self.layout,
+            row_limit: 100_000,
         }
     }
 }

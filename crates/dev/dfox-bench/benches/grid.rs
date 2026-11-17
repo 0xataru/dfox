@@ -28,6 +28,7 @@ fn draw(c: &mut Criterion, name: &str, result: &impl ResultSet) {
         frame: 0,
         animations: true,
         layout: Default::default(),
+        row_limit: 100_000,
     };
     let mut grid = Grid::default();
     grid.handle(Action::End, (result.row_count(), result.columns().len()));

@@ -1015,6 +1015,7 @@ impl App {
             frame: self.frame,
             animations: self.config.animations,
             layout: self.config.layout,
+            row_limit: self.config.row_limit,
         };
         self.draw(f, &ctx);
         if let Some(logo) = self.splash_logo.take() {

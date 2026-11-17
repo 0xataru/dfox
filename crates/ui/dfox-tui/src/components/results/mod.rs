@@ -84,6 +84,8 @@ pub struct ResultsPanel {
     pub message: Option<String>,
     /// How long the last query that worked took.
     pub took: Option<Duration>,
+    /// Rows kept per result in this tab, the config's when unset.
+    pub row_limit: Option<usize>,
     pub running: Option<RunningQuery>,
     /// When the last query's rows were counted, to roll the count up.
     counted: Option<(Instant, QueryStats)>,
@@ -147,6 +149,7 @@ impl ResultsPanel {
             error: None,
             message: None,
             took: None,
+            row_limit: None,
             running: None,
             counted: None,
             unsorted: None,
@@ -304,7 +307,7 @@ impl ResultsPanel {
         ctx.engine.send(DbCommand::Run {
             id,
             sql: sql.to_string(),
-            row_limit: ctx.config.row_limit,
+            row_limit: self.row_limit.unwrap_or(ctx.config.row_limit),
         });
         self.start(id, ctx);
         self.sql = sql.to_string();
