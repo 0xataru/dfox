@@ -2068,3 +2068,60 @@ fn esc_and_enter_leave_the_explorers_filter_even_when_it_found_nothing() {
         assert!(!w.wants_text(), "{keys} {last:?}");
     }
 }
+
+#[test]
+fn the_data_toolbar_sits_over_the_rows_and_says_which_are_shown() {
+    use arrow_array::{Int32Array, RecordBatch};
+    use arrow_schema::{DataType, Field, Schema};
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
+    let mut w = workspace();
+    w.editor_mut().set_text("select n from t");
+    w.handle(Action::Execute, &mut harness.ctx());
+    let id = sent_query(&mut harness);
+    let schema = Arc::new(Schema::new(vec![Field::new("n", DataType::Int32, true)]));
+    let values: Vec<i32> = (1..=40).collect();
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(Int32Array::from(values))])
+        .expect("batch");
+    let results = &mut w.tab_mut().results;
+    results.on_schema(id, schema);
+    results.on_batch(id, batch);
+    w.on_query_event(
+        EngineEvent::QueryDone {
+            id,
+            outcome: Ok(QueryStats::default()),
+        },
+        &mut harness.ctx(),
+    );
+    let screen = render(&test, 100, 24, |f, area, ctx| w.render(f, area, ctx));
+    assert!(screen.contains("Showing rows 1 to "), "{screen}");
+    insta::assert_snapshot!(screen);
+    let spots: Vec<(Rect, Button)> = w.results().data_toolbar.borrow().clone();
+    let shown: Vec<Button> = spots.iter().map(|(_, b)| *b).collect();
+    assert_eq!(
+        shown,
+        [bar::EXPORT, bar::COPY],
+        "no edit buttons on a query's rows"
+    );
+
+    w.set_focus(Panel::Editor);
+    let (spot, _) = spots[1];
+    w.mouse(
+        mouse(MouseEventKind::Moved, spot.x, spot.y),
+        &mut harness.ctx(),
+    );
+    assert_eq!(
+        w.tooltip(&test.keymap).as_deref(),
+        Some("Copy the cell or the selection · Ctrl+C")
+    );
+    assert_eq!(
+        w.mouse(
+            mouse(MouseEventKind::Down(MouseButton::Left), spot.x, spot.y),
+            &mut harness.ctx()
+        ),
+        Some(Command::Dispatch(Action::Copy))
+    );
+    assert_eq!(w.focused(), Panel::Results);
+}

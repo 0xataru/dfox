@@ -9,6 +9,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The new layout has buttons over the rows: add a row, delete it, save the edits, copy,
+  export, and `Showing rows 1 to 9` for the rows on screen.
 - Filter the rows by the cell's value: **/** keeps the rows with it, **!** drops them, **u**
   brings every row back unsorted. The new layout's toolbar has buttons for them.
 - The new layout's toolbar has a row limit chip (`100k rows`): a click steps through 100,

@@ -475,6 +475,12 @@ impl Grid {
         };
     }
 
+    /// The first row drawn and how many were.
+    pub fn shown_rows(&self) -> (usize, usize) {
+        let drawn = self.drawn.borrow();
+        (drawn.top, drawn.first_row.height as usize)
+    }
+
     #[cfg(test)]
     pub fn contains(&self, column: u16, row: u16) -> bool {
         self.drawn

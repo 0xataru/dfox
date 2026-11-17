@@ -34,7 +34,10 @@ use self::{
     messages::Messages,
 };
 use super::editor::buffer::{Buffer, Motion};
-use super::{inner, panel};
+use super::{
+    bar::{self, Button},
+    inner, panel,
+};
 use crate::{
     action::Action,
     command::Command,
@@ -139,6 +142,10 @@ pub struct ResultsPanel {
     /// Where the new layout drew `Data`, `Messages` after it, on the top
     /// border.
     views: Cell<Option<Position>>,
+    /// The buttons over the rows where they were drawn, in the new layout.
+    pub data_toolbar: std::cell::RefCell<Vec<(Rect, Button)>>,
+    /// The button under the mouse.
+    pub hovered: Option<Button>,
 }
 
 /// A cell being changed: where it is, and what is typed.
@@ -182,6 +189,8 @@ impl ResultsPanel {
             messages: Messages::default(),
             showing_messages: false,
             views: Cell::new(None),
+            data_toolbar: Default::default(),
+            hovered: None,
         }
     }
 
@@ -602,6 +611,36 @@ impl ResultsPanel {
         self.grid.sorted = None;
     }
 
+    /// The new layout's buttons over the rows, and which rows are shown, on
+    /// the panel's top border after its title.
+    fn render_data_bar(&self, f: &mut Frame, area: Rect, title: u16, ctx: &RenderCtx) {
+        let (top, count) = self.grid.shown_rows();
+        let total = self.size().0;
+        let showing = format!(
+            " Showing rows {} to {} ",
+            (top + 1).min(total),
+            (top + count).min(total)
+        );
+        let left = area.x + title + 3;
+        let width = showing.len() as u16;
+        let mut x = area.right().saturating_sub(5);
+        if x >= left + width {
+            x -= width;
+            f.render_widget(
+                Span::styled(showing, ctx.theme.dim()),
+                Rect::new(x, area.y, width, 1),
+            );
+        }
+        let buttons: Vec<Button> = bar::DATA
+            .into_iter()
+            .filter(|b| {
+                self.edits.is_some() || !matches!(*b, bar::ADD_ROW | bar::DELETE_ROW | bar::SAVE)
+            })
+            .collect();
+        let spots = bar::chips(f, &buttons, (left, x, area.y), self.hovered, ctx);
+        *self.data_toolbar.borrow_mut() = spots;
+    }
+
     /// Redraws at an animation's pace are wanted: the fox runs while a query
     /// waits for its first rows, and the row count rolls up after.
     pub fn smooth(&self, now: Instant) -> bool {
@@ -933,7 +972,9 @@ impl Component for ResultsPanel {
                 ));
             }
         }
+        let title_width = Line::from(title.clone()).width() as u16;
         let block = panel(title, self.focused, ctx);
+        self.data_toolbar.borrow_mut().clear();
 
         if messages {
             f.render_widget(block, area);
@@ -1002,6 +1043,9 @@ impl Component for ResultsPanel {
                     ctx,
                     &marks,
                 );
+            }
+            if workspace {
+                self.render_data_bar(f, area, title_width, ctx);
             }
         } else {
             let status = match &self.running {

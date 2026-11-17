@@ -95,6 +95,33 @@ pub const LIMIT: Button = button(
     "Rows kept per result, for this tab · click for the next",
     ["", "", ""],
 );
+pub const ADD_ROW: Button = button(
+    Click::Action(Action::AddRow),
+    "Add a row",
+    ["\u{f067}", "+", "+"],
+);
+pub const DELETE_ROW: Button = button(
+    Click::Action(Action::Delete),
+    "Delete the row, or keep it",
+    ["\u{f1f8}", "✗", "d"],
+);
+pub const SAVE: Button = button(
+    Click::Action(Action::Save),
+    "Save the edits",
+    ["\u{f0c7}", "✔", "s"],
+);
+pub const COPY: Button = button(
+    Click::Action(Action::Copy),
+    "Copy the cell or the selection",
+    ["\u{f0c5}", "⧉", "c"],
+);
+pub const EXPORT: Button = button(
+    Click::Action(Action::Export),
+    "Export the rows to a file",
+    ["\u{f019}", "⤓", "x"],
+);
+/// The buttons over the rows: they act on the results.
+pub const DATA: [Button; 5] = [ADD_ROW, DELETE_ROW, SAVE, COPY, EXPORT];
 pub const HELP: Button = button(Click::Action(Action::Help), "Keys", ["\u{f059}", "?", "?"]);
 
 impl Button {
@@ -228,6 +255,34 @@ pub fn next_limit(current: usize, config: usize) -> usize {
     all.sort_unstable();
     all.dedup();
     all.into_iter().find(|&n| n > current).unwrap_or(100)
+}
+
+/// Draws `buttons` right to left from `x` on `y`, while they stay right of
+/// `left`, and returns where each one went.
+pub fn chips(
+    f: &mut Frame,
+    buttons: &[Button],
+    (left, x, y): (u16, u16, u16),
+    hovered: Option<Button>,
+    ctx: &RenderCtx,
+) -> Vec<(Rect, Button)> {
+    let mut x = x;
+    let mut spots = Vec::new();
+    for button in buttons.iter().rev() {
+        let text = format!(" {} ", button.glyph(ctx));
+        let width = text.width() as u16;
+        if x < left + width + 1 {
+            break;
+        }
+        x -= width + 1;
+        let spot = Rect::new(x, y, width, 1);
+        f.render_widget(
+            Span::styled(text, button_style(ctx.theme, hovered == Some(*button))),
+            spot,
+        );
+        spots.push((spot, *button));
+    }
+    spots
 }
 
 /// A button: accent on a raised block, the other way round under the mouse.
