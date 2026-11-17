@@ -37,6 +37,7 @@ use self::{
 use super::editor::buffer::{Buffer, Motion};
 use super::{
     bar::{self, Button},
+    checklist::Checklist,
     inner, panel,
 };
 use crate::{
@@ -149,6 +150,14 @@ pub struct ResultsPanel {
     view: View,
     /// How the graph draws the rows.
     graph: graph::Kind,
+    /// The columns the graph plots, picked; the likely ones when `None`.
+    graph_pick: Option<graph::Pick>,
+    /// The graph's columns to pick from, open, and the Y column each Y
+    /// item is (`None` for the row count).
+    graph_columns: Option<(Checklist, Vec<Option<usize>>)>,
+    /// Counts the changes to the rows, so the graph knows to plot again.
+    rev: u64,
+    plot_cache: std::cell::RefCell<Option<(graph::Pick, u64, Option<graph::Plot>)>>,
     /// Where the new layout drew `Data`, `Messages` after it, on the top
     /// border.
     views: Cell<Option<Position>>,
@@ -199,6 +208,10 @@ impl ResultsPanel {
             messages: Messages::default(),
             view: View::Data,
             graph: graph::Kind::Line,
+            graph_pick: None,
+            graph_columns: None,
+            rev: 0,
+            plot_cache: Default::default(),
             views: Cell::new(None),
             data_toolbar: Default::default(),
             hovered: None,
@@ -396,11 +409,14 @@ impl ResultsPanel {
 
     pub(crate) fn show(&mut self, store: ArrowResultSet) {
         self.store = store;
+        self.rev += 1;
         self.error = None;
         self.message = None;
         self.grid = Grid::default();
         self.unsorted = None;
         self.unfiltered = None;
+        self.graph_pick = None;
+        self.graph_columns = None;
         // New rows, the same view.
         if self.json.is_some() {
             self.json = Some(json::JsonView::default());
@@ -419,6 +435,7 @@ impl ResultsPanel {
     pub fn on_batch(&mut self, id: QueryId, batch: RecordBatch) {
         if self.is_current(id) {
             self.store.push(batch);
+            self.rev += 1;
         }
     }
 
@@ -520,11 +537,69 @@ impl ResultsPanel {
         match sorted {
             Ok((rows, order)) => {
                 self.store = rows;
+                self.rev += 1;
                 self.unsorted = Some(order);
                 self.grid.sorted = next;
             }
             Err(err) => ctx.toast(Level::Error, format!("Couldn't sort: {err}")),
         }
+    }
+
+    /// What the graph plots.
+    fn pick(&self) -> graph::Pick {
+        self.graph_pick
+            .clone()
+            .unwrap_or_else(|| graph::default_pick(&self.store))
+    }
+
+    /// Drops down the columns to plot, under the graph's title.
+    fn open_columns(&mut self) {
+        let pick = self.pick();
+        let columns = self.store.columns();
+        let mut items = vec![("X: row number".to_string(), pick.x.is_none())];
+        items.extend(
+            columns
+                .iter()
+                .enumerate()
+                .map(|(c, column)| (format!("X: {}", column.name), pick.x == Some(c))),
+        );
+        let radio = items.len();
+        let mut ys = vec![None];
+        items.push(("Y: row count".to_string(), pick.count));
+        for (c, column) in columns.iter().enumerate() {
+            if graph::is_numeric(&self.store, c) {
+                items.push((format!("Y: {}", column.name), pick.ys.contains(&c)));
+                ys.push(Some(c));
+            }
+        }
+        let anchor = self
+            .views
+            .get()
+            .map_or(Rect::default(), |at| Rect::new(at.x + 18, at.y, 5, 1));
+        self.graph_columns = Some((Checklist::new(items, anchor).radio(radio), ys));
+    }
+
+    /// The graph plots what the open list has ticked.
+    fn pick_columns(&mut self) {
+        let Some((list, ys)) = &self.graph_columns else {
+            return;
+        };
+        let (xs, rest) = list.items.split_at(list.items.len() - ys.len());
+        let mut pick = graph::Pick {
+            x: xs
+                .iter()
+                .position(|(_, on)| *on)
+                .and_then(|i| i.checked_sub(1)),
+            ..Default::default()
+        };
+        for ((_, on), y) in rest.iter().zip(ys) {
+            match (on, y) {
+                (true, Some(c)) => pick.ys.push(*c),
+                (true, None) => pick.count = true,
+                _ => {}
+            }
+        }
+        self.graph_pick = Some(pick);
     }
 
     /// The graph, or on it, the next kind.
@@ -599,6 +674,7 @@ impl ResultsPanel {
         match self.store.reordered(&back.into()) {
             Ok(rows) => {
                 self.store = rows;
+                self.rev += 1;
                 self.grid.sorted = None;
                 Ok(())
             }
@@ -644,6 +720,7 @@ impl ResultsPanel {
         match self.store.reordered(&rows.into()) {
             Ok(rows) => {
                 let before = std::mem::replace(&mut self.store, rows);
+                self.rev += 1;
                 let unsorted = self.unsorted.take();
                 let sorted = self.grid.sorted;
                 let all = self.unfiltered.get_or_insert(Unfiltered {
@@ -672,6 +749,7 @@ impl ResultsPanel {
         }
         if let Some(all) = self.unfiltered.take() {
             self.store = all.store;
+            self.rev += 1;
             self.unsorted = all.unsorted;
             self.grid.sorted = all.sorted;
         }
@@ -761,7 +839,7 @@ impl ResultsPanel {
 
     /// True while the copy-as menu has the keys.
     pub fn is_modal(&self) -> bool {
-        self.picker || self.cell_edit.is_some() || self.reviewing
+        self.picker || self.cell_edit.is_some() || self.reviewing || self.graph_columns.is_some()
     }
 
     /// True when Back has something to undo here: an open menu or a
@@ -858,6 +936,22 @@ impl ResultsPanel {
             }
             return true;
         }
+        if let Some((list, _)) = self.graph_columns.as_mut() {
+            if drag {
+                return true;
+            }
+            if list.click(Position::new(column, row)) {
+                self.pick_columns();
+            } else {
+                self.graph_columns = None;
+            }
+            return true;
+        }
+        // The line over the graph opens its columns.
+        if self.view == View::Graph && self.views.get().is_some_and(|at| at.y + 1 == row) && !drag {
+            self.open_columns();
+            return true;
+        }
         if self.view != View::Data {
             return false;
         }
@@ -906,6 +1000,14 @@ fn describe(rows: usize, cells: usize) -> String {
 
 impl Component for ResultsPanel {
     fn handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Command> {
+        if let Some((list, _)) = self.graph_columns.as_mut() {
+            if list.handle(action) {
+                self.pick_columns();
+            } else {
+                self.graph_columns = None;
+            }
+            return None;
+        }
         if self.picker {
             match action {
                 Action::Input(c) => {
@@ -924,6 +1026,7 @@ impl Component for ResultsPanel {
                 Action::Messages if self.view == View::Messages => self.view = View::Data,
                 Action::Messages => self.view = View::Messages,
                 Action::Graph => self.show_graph(),
+                Action::Confirm if self.view == View::Graph => self.open_columns(),
                 Action::Back if self.view != View::Data => self.view = View::Data,
                 _ if self.view != View::Data => {}
                 _ => return self.handle_data(action, ctx),
@@ -1021,7 +1124,21 @@ impl Component for ResultsPanel {
             self.messages.render(f, inner(area), ctx);
         } else if view == View::Graph {
             f.render_widget(block, area);
-            graph::render(f, inner(area), &self.store, self.graph, ctx);
+            let mut pick = self.pick();
+            // A histogram counts every row's value, not each category's sum.
+            if self.graph == graph::Kind::Histogram {
+                pick.x = None;
+            }
+            let mut cache = self.plot_cache.borrow_mut();
+            if !matches!(&*cache, Some((p, rev, _)) if *p == pick && *rev == self.rev) {
+                let plot = graph::plot(&self.store, &pick);
+                *cache = Some((pick, self.rev, plot));
+            }
+            let plot = cache.as_ref().and_then(|(_, _, plot)| plot.as_ref());
+            graph::render(f, inner(area), plot, self.graph, ctx);
+            if let Some((list, _)) = &self.graph_columns {
+                list.render(f, area, ctx);
+            }
         } else if let Some(error) = &self.error {
             let text = Paragraph::new(Line::from(vec![
                 Span::styled(format!("{} ", ctx.icons.error), theme.danger()),

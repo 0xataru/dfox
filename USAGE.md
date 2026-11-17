@@ -323,9 +323,13 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     - pie: the first numeric column's shares, the 6 biggest and the rest as `other`
     - histogram: how the first numeric column's values spread
 
-    The X axis is the first column when it and another one are numbers, the row number
-    otherwise, labelled with the first column. It plots the first 1000 rows. **Esc**
-    goes back to Data
+    At first X is the first column that is neither a number nor an id (a status, a
+    date), and Y the first number that isn't an id (`id`, `*_id`), else the row count.
+    **Enter**, or a click on the line over the graph, drops down the columns: one X (or
+    the row number) and any Ys, the row count among them. A text X adds up each Y over
+    the rows that share it, so `SELECT * FROM orders` with X `status` plots the sum per
+    status. A histogram leaves out the values past the 1st and 99th percentiles and
+    says how many. **Esc** goes back to Data
   - each column's type under its name in the grid, `[PK]` on the key of a table's rows
   - `Total rows` and how long the query took (`Query complete 00:00:00.492`) in the
     status bar

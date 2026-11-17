@@ -1,0 +1,24 @@
+---
+source: crates/ui/dfox-tui/src/components/results/tests.rs
+expression: screen
+---
+╭ Data │ Messages │ Graph · lines ─────────────────────────╮
+│ X╭────────────────────╮ems (sums) · Enter: columns       │
+│ 1│  ( ) X: row number │                   ⢀⠔⠑┌─────────┐ │
+│  │  ( ) X: id         │                  ⡠⠃  │order_sum│ │
+│  │  ( ) X: status     │                ⡠⠊    │items⠒⠤⡀ │ │
+│  │  (•) X: day        │⠒⢄⡀           ⢀⠜      └─────────┘ │
+│  │  ( ) X: order_sum  │  ⠈⠑⠤⡀      ⢀⠔⠁                   │
+│  │  ( ) X: items      │     ⠈⠑⠢⣀  ⡠⠃                     │
+│  │  ( ) X: manager_id │         ⠉⠊                       │
+│  │  [ ] Y: row count  │                                  │
+│  │  [ ] Y: id         │                                  │
+│  │  [x] Y: order_sum  │                                  │
+│  │▸ [x] Y: items      │                                  │
+│  │  [ ] Y: manager_id │                                  │
+│  ╰────────────────────╯                                  │
+│          │                                               │
+│ 3        │⣀⣀⣀⠤⠤⠤⠤⠤⠤⠒⠒⠒⠒⠒⠢⠤⠤⠤⠤⠤⢄⣀⣀⣀⣀⣀⠤⠤⠤⠤⠤⠔⠒⠒⠒⠒⠒⠤⠤⠤⠤⠤⠤day │
+│          └────────────────────────────────────────────── │
+│ 2026-11-01                                    2026-11-05 │
+╰──────────────────────────────────────────────────────────╯

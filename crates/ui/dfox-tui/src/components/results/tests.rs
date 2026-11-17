@@ -617,24 +617,25 @@ fn p_goes_through_every_kind_of_graph_and_esc_goes_back() {
     test.layout = LayoutStyle::Workspace;
     let mut harness = Harness::new();
     harness.config.layout = LayoutStyle::Workspace;
-    let rows = [
-        ("mon", 3, 5),
-        ("tue", 6, 2),
-        ("wed", 4, 4),
-        ("thu", 8, 1),
-        ("fri", 5, 6),
-    ]
-    .into_iter()
-    .map(|(day, open, done)| {
-        vec![
-            OwnedCell::Text(day.into()),
-            OwnedCell::Int(open),
-            OwnedCell::Int(done),
-        ]
-    })
-    .collect();
-    let columns = ["day", "open", "done"]
-        .map(|c| ColumnMeta::new(c, "int4"))
+    let statuses = [
+        "new", "paid", "sent", "paid", "new", "paid", "done", "paid", "sent", "new",
+    ];
+    let rows = statuses
+        .iter()
+        .enumerate()
+        .map(|(i, status)| {
+            vec![
+                OwnedCell::Int(i as i64 + 100),
+                OwnedCell::Text((*status).into()),
+                OwnedCell::Text(format!("2026-11-{:02}", i / 2 + 1).into()),
+                OwnedCell::Decimal(format!("{}.5", (i * 37) % 90 + 10).into()),
+                OwnedCell::Int((i % 4) as i64 + 1),
+                OwnedCell::Int(7),
+            ]
+        })
+        .collect();
+    let columns = ["id", "status", "day", "order_sum", "items", "manager_id"]
+        .map(|c| ColumnMeta::new(c, "text"))
         .to_vec();
     let mut results = showing(ArrowResultSet::from_cells(columns, rows));
     for kind in graph::Kind::ALL {
@@ -643,6 +644,29 @@ fn p_goes_through_every_kind_of_graph_and_esc_goes_back() {
         let screen = render(&test, 60, 14, |f, area, ctx| results.render(f, area, ctx));
         insta::assert_snapshot!(format!("graph_{}", kind.name().replace(' ', "_")), screen);
     }
+
+    // Enter picks the columns: the day as X, the items as a second Y.
+    results.handle(Action::Graph, &mut harness.ctx());
+    results.handle(Action::Confirm, &mut harness.ctx());
+    for _ in 0..3 {
+        results.handle(Action::Down, &mut harness.ctx());
+    }
+    results.handle(Action::Confirm, &mut harness.ctx());
+    for _ in 0..7 {
+        results.handle(Action::Down, &mut harness.ctx());
+    }
+    results.handle(Action::Input(' '), &mut harness.ctx());
+    let screen = render(&test, 60, 20, |f, area, ctx| results.render(f, area, ctx));
+    insta::assert_snapshot!("graph_columns", screen);
+    results.handle(Action::Back, &mut harness.ctx());
+    assert_eq!(
+        results.graph_pick,
+        Some(graph::Pick {
+            x: Some(2),
+            ys: vec![3, 4],
+            count: false
+        })
+    );
     results.handle(Action::Back, &mut harness.ctx());
     assert_eq!(results.view, View::Data);
 }

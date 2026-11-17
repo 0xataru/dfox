@@ -16,9 +16,12 @@ use ratatui::{
 
 use crate::component::RenderCtx;
 
-/// Rows plotted.
-// shortcut: only the first rows, add paging or sampling when someone needs more.
-const MOST: usize = 1000;
+/// Rows or categories plotted.
+// shortcut: only the first ones, add sampling when someone needs more.
+const MOST: usize = 100_000;
+
+/// Rows a column's kind is judged by.
+const SAMPLE: usize = 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Kind {
@@ -72,15 +75,28 @@ impl Kind {
     }
 }
 
-/// What is plotted: X values with their labels, and each numeric column.
+/// The columns plotted: X (the row number when `None`), and the Y columns,
+/// with the row count as one more.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Pick {
+    pub x: Option<usize>,
+    pub ys: Vec<usize>,
+    pub count: bool,
+}
+
+/// What is plotted: X values with their labels, and each Y.
 #[derive(Debug, PartialEq)]
 pub struct Plot {
     pub x: String,
-    /// X is the first column's numbers, not the row number.
+    /// X is a column's numbers, not the row number or categories.
     pub numeric_x: bool,
+    /// X is categories: rows with the same one were added up.
+    pub grouped: bool,
     pub labels: Vec<String>,
     pub xs: Vec<f64>,
     pub series: Vec<(String, Vec<Option<f64>>)>,
+    /// Rows or categories there were, of which [`MOST`] at most are here.
+    pub total: usize,
 }
 
 fn number(cell: Cell) -> Option<f64> {
@@ -93,95 +109,174 @@ fn number(cell: Cell) -> Option<f64> {
     }
 }
 
-/// The X axis is the first column when it and another are numbers, the row
-/// number otherwise, labelled with the first column. Every other numeric
-/// column is a series.
-pub fn plot(result: &impl ResultSet) -> Option<Plot> {
-    let rows = result.row_count().min(MOST);
-    let columns = result.columns();
-    let numeric = |col: usize| {
-        let cells = (0..rows).filter_map(|r| result.cell(r, col));
-        let mut any = false;
-        for cell in cells {
-            match cell {
-                Cell::Null => {}
-                cell if cell.is_numeric() => any = true,
-                _ => return false,
-            }
+/// The column holds numbers, judged by its first rows.
+pub fn is_numeric(result: &impl ResultSet, col: usize) -> bool {
+    let mut any = false;
+    for r in 0..result.row_count().min(SAMPLE) {
+        match result.cell(r, col) {
+            Some(Cell::Null) | None => {}
+            Some(cell) if cell.is_numeric() => any = true,
+            Some(_) => return false,
         }
-        any
-    };
-    let numbers: Vec<usize> = (0..columns.len()).filter(|&c| numeric(c)).collect();
-    let first_is_number = numbers.first() == Some(&0);
-    let numeric_x = first_is_number && numbers.len() >= 2;
-    let ys = if numeric_x {
-        &numbers[1..]
-    } else {
-        &numbers[..]
-    };
-    if ys.is_empty() {
+    }
+    any
+}
+
+/// A key or a reference to one: numbers, but nothing to plot.
+fn is_id(name: &str) -> bool {
+    let name = name.to_lowercase();
+    name == "id" || name.ends_with("_id") || name.ends_with("_ids")
+}
+
+/// X is the first column that is neither a number nor an id, as a status
+/// or a date is, else the row number. Y is the first number that isn't an
+/// id, else the row count.
+pub fn default_pick(result: &impl ResultSet) -> Pick {
+    let columns = result.columns();
+    let x = (0..columns.len()).find(|&c| !is_id(&columns[c].name) && !is_numeric(result, c));
+    let y = (0..columns.len()).find(|&c| !is_id(&columns[c].name) && is_numeric(result, c));
+    Pick {
+        x,
+        ys: y.into_iter().collect(),
+        count: y.is_none(),
+    }
+}
+
+/// The rows as `pick` asks. A category X adds up each Y over the rows
+/// that share it, in the order they first come.
+pub fn plot(result: &impl ResultSet, pick: &Pick) -> Option<Plot> {
+    let columns = result.columns();
+    let rows = result.row_count();
+    if pick.ys.is_empty() && !pick.count {
         return None;
     }
-    let by_row = first_is_number && !numeric_x;
-    let labels = (0..rows)
-        .map(|r| match by_row {
-            true => (r + 1).to_string(),
-            false => result.cell(r, 0).map(|v| v.to_string()).unwrap_or_default(),
-        })
-        .collect();
-    let xs = (0..rows)
-        .map(|r| match numeric_x {
-            true => result.cell(r, 0).and_then(number).unwrap_or(r as f64),
-            false => (r + 1) as f64,
-        })
-        .collect();
-    let x = match by_row {
-        true => "row".to_string(),
-        false => columns[0].name.clone(),
-    };
-    let series = ys
+    let value = |r: usize, c: usize| result.cell(r, c).and_then(number);
+    let names = pick
+        .ys
         .iter()
-        .map(|&c| {
-            let values = (0..rows)
-                .map(|r| result.cell(r, c).and_then(number))
+        .map(|&c| columns[c].name.clone())
+        .chain(pick.count.then(|| "rows".to_string()));
+    let x = pick.x.filter(|&c| c < columns.len());
+    let numeric_x = x.is_some_and(|c| is_numeric(result, c));
+    if let (Some(c), false) = (x, numeric_x) {
+        let mut at: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut labels: Vec<String> = Vec::new();
+        let mut sums: Vec<Vec<Option<f64>>> = Vec::new();
+        for r in 0..rows {
+            let label = result.cell(r, c).map(|v| v.to_string()).unwrap_or_default();
+            let i = *at.entry(label.clone()).or_insert_with(|| {
+                labels.push(label);
+                sums.push(vec![None; pick.ys.len() + pick.count as usize]);
+                labels.len() - 1
+            });
+            for (k, &y) in pick.ys.iter().enumerate() {
+                if let Some(v) = value(r, y) {
+                    *sums[i][k].get_or_insert(0.0) += v;
+                }
+            }
+            if pick.count {
+                *sums[i][pick.ys.len()].get_or_insert(0.0) += 1.0;
+            }
+        }
+        let total = labels.len();
+        labels.truncate(MOST);
+        let series = names
+            .enumerate()
+            .map(|(k, name)| (name, sums.iter().take(MOST).map(|s| s[k]).collect()))
+            .collect();
+        return Some(Plot {
+            x: columns[c].name.clone(),
+            numeric_x: false,
+            grouped: true,
+            xs: (1..=labels.len()).map(|i| i as f64).collect(),
+            labels,
+            series,
+            total,
+        });
+    }
+    let shown = rows.min(MOST);
+    let series = names
+        .enumerate()
+        .map(|(k, name)| {
+            let values = (0..shown)
+                .map(|r| match pick.ys.get(k) {
+                    Some(&y) => value(r, y),
+                    None => Some(1.0),
+                })
                 .collect();
-            (columns[c].name.clone(), values)
+            (name, values)
         })
         .collect();
     Some(Plot {
-        x,
+        x: x.map_or("row".to_string(), |c| columns[c].name.clone()),
         numeric_x,
-        labels,
-        xs,
+        grouped: false,
+        labels: (0..shown)
+            .map(|r| match x {
+                Some(c) => result.cell(r, c).map(|v| v.to_string()).unwrap_or_default(),
+                None => (r + 1).to_string(),
+            })
+            .collect(),
+        xs: (0..shown)
+            .map(|r| match x {
+                Some(c) => value(r, c).unwrap_or(r as f64),
+                None => (r + 1) as f64,
+            })
+            .collect(),
         series,
+        total: rows,
     })
 }
 
 fn short(v: f64) -> String {
-    if v.fract() == 0.0 && v.abs() < 1e15 {
-        format!("{v:.0}")
+    let (n, unit) = match v.abs() {
+        a if a >= 1e9 => (v / 1e9, "B"),
+        a if a >= 1e6 => (v / 1e6, "M"),
+        a if a >= 1e4 => (v / 1e3, "k"),
+        _ => (v, ""),
+    };
+    let text = if n.fract() == 0.0 {
+        format!("{n:.0}")
+    } else if unit.is_empty() {
+        format!("{n:.2}")
     } else {
-        format!("{v:.2}")
-    }
+        format!("{n:.1}")
+    };
+    let text = match text.contains('.') {
+        true => text.trim_end_matches('0').trim_end_matches('.').to_string(),
+        false => text,
+    };
+    format!("{text}{unit}")
 }
 
-pub fn render(f: &mut Frame, area: Rect, result: &impl ResultSet, kind: Kind, ctx: &RenderCtx) {
+/// A line in the middle of `area`.
+fn centered(f: &mut Frame, area: Rect, text: &str, ctx: &RenderCtx) {
+    let [line] = Layout::vertical([Constraint::Length(1)])
+        .flex(Flex::Center)
+        .areas(area);
+    let text = Line::from(vec![
+        Span::styled(format!("{} ", ctx.icons.info), ctx.theme.key()),
+        Span::styled(text.to_string(), ctx.theme.dim()),
+    ]);
+    f.render_widget(Paragraph::new(text).centered(), line);
+}
+
+pub fn render(f: &mut Frame, area: Rect, plot: Option<&Plot>, kind: Kind, ctx: &RenderCtx) {
     let theme = ctx.theme;
-    let plot = plot(result).filter(|_| area.width >= 12 && area.height >= 4);
-    let Some(plot) = plot else {
-        let [line] = Layout::vertical([Constraint::Length(1)])
-            .flex(Flex::Center)
-            .areas(area);
-        let text = Line::from(vec![
-            Span::styled(format!("{} ", ctx.icons.info), theme.key()),
-            Span::styled(
-                "No numbers to plot. Run a query with a numeric column.",
-                theme.dim(),
-            ),
-        ]);
-        f.render_widget(Paragraph::new(text).centered(), line);
+    let Some(plot) = plot.filter(|_| area.width >= 12 && area.height >= 5) else {
+        centered(f, area, "Nothing to plot. Enter picks the columns.", ctx);
         return;
     };
+    if kind == Kind::Pie && !plot.grouped {
+        centered(
+            f,
+            area,
+            "A pie shows categories: Enter, then a text column as X.",
+            ctx,
+        );
+        return;
+    }
+    let [note, area] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
     let colors = [
         theme.accent,
         theme.success,
@@ -194,23 +289,42 @@ pub fn render(f: &mut Frame, area: Rect, result: &impl ResultSet, kind: Kind, ct
         color: &|i| colors[i % colors.len()],
         ctx,
     };
-    match kind {
-        Kind::Line => chart(f, area, &plot, &plot.series, GraphType::Line, &paint),
+    let all = plot.labels.len();
+    let shown = match kind {
+        Kind::Line => chart(f, area, plot, &plot.series, GraphType::Line, &paint),
         Kind::StackedLine => chart(
             f,
             area,
-            &plot,
+            plot,
             &stacked(&plot.series),
             GraphType::Line,
             &paint,
         ),
-        Kind::Scatter => chart(f, area, &plot, &plot.series, GraphType::Scatter, &paint),
-        Kind::Bar => bars(f, area, &plot, Direction::Vertical, &paint),
-        Kind::HorizontalBar => bars(f, area, &plot, Direction::Horizontal, &paint),
-        Kind::StackedBar => stacked_bars(f, area, &plot, &paint),
-        Kind::Pie => pie(f, area, &plot, &paint),
-        Kind::Histogram => histogram(f, area, &plot, &paint),
+        Kind::Scatter => chart(f, area, plot, &plot.series, GraphType::Scatter, &paint),
+        Kind::Bar => bars(f, area, plot, Direction::Vertical, &paint),
+        Kind::HorizontalBar => bars(f, area, plot, Direction::Horizontal, &paint),
+        Kind::StackedBar => stacked_bars(f, area, plot, &paint),
+        Kind::Pie => {
+            pie(f, area, plot, &paint);
+            all
+        }
+        Kind::Histogram => {
+            histogram(f, area, plot, &paint);
+            all
+        }
+    };
+    let ys: Vec<&str> = plot.series.iter().map(|(n, _)| n.as_str()).collect();
+    let by = if plot.grouped { " (sums)" } else { "" };
+    let mut text = match kind {
+        Kind::Histogram => format!("How {} spreads", ys.first().unwrap_or(&"")),
+        _ => format!("X {} · Y {}{by}", plot.x, ys.join(", ")),
+    };
+    if shown < plot.total {
+        let what = if plot.grouped { "categories" } else { "rows" };
+        text.push_str(&format!(" · first {shown} of {} {what}", plot.total));
     }
+    text.push_str(" · Enter: columns");
+    f.render_widget(Paragraph::new(Span::styled(text, theme.dim())), note);
 }
 
 struct Paint<'a> {
@@ -250,7 +364,14 @@ fn legend(area: Rect, names: &[&str], paint: &Paint, f: &mut Frame) {
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn chart(f: &mut Frame, area: Rect, plot: &Plot, series: &Series, kind: GraphType, paint: &Paint) {
+fn chart(
+    f: &mut Frame,
+    area: Rect,
+    plot: &Plot,
+    series: &Series,
+    kind: GraphType,
+    paint: &Paint,
+) -> usize {
     let points: Vec<Vec<(f64, f64)>> = series
         .iter()
         .map(|(_, values)| {
@@ -315,6 +436,7 @@ fn chart(f: &mut Frame, area: Rect, plot: &Plot, series: &Series, kind: GraphTyp
                 .labels([short(yb[0]), short(yb[1])]),
         );
     f.render_widget(chart, area);
+    plot.labels.len()
 }
 
 /// A bar's height out of 1000, the most `top` can be.
@@ -322,16 +444,21 @@ fn scale(v: f64, top: f64) -> u64 {
     ((v.max(0.0) / top.max(f64::MIN_POSITIVE)) * 1000.0).round() as u64
 }
 
-fn bars(f: &mut Frame, area: Rect, plot: &Plot, direction: Direction, paint: &Paint) {
+fn bars(f: &mut Frame, area: Rect, plot: &Plot, direction: Direction, paint: &Paint) -> usize {
     let top = plot
         .series
         .iter()
         .flat_map(|(_, v)| v.iter().flatten())
         .fold(0.0f64, |m, v| m.max(*v));
     let [names, area] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-    let n = plot.series.len() as u16;
+    let n = plot.series.len().max(1) as u16;
+    let groups = plot.labels.len().max(1) as u16;
     let (width, gap, fit) = match direction {
-        Direction::Vertical => (3, 1, area.width / (n * 4 + 1)),
+        Direction::Vertical => {
+            // Wide enough for the labels when there are few.
+            let width = (area.width / groups / n).saturating_sub(1).clamp(3, 12);
+            (width, 1, area.width / (n * (width + 1) + 1))
+        }
         Direction::Horizontal => (1, 0, area.height / (n + 1)),
     };
     let mut chart = BarChart::default()
@@ -361,10 +488,11 @@ fn bars(f: &mut Frame, area: Rect, plot: &Plot, direction: Direction, paint: &Pa
     let titles: Vec<&str> = plot.series.iter().map(|(n, _)| n.as_str()).collect();
     legend(names, &titles, paint, f);
     f.render_widget(chart, area);
+    plot.labels.len().min(fit as usize)
 }
 
 /// One column per row, each series a block on the ones before it.
-fn stacked_bars(f: &mut Frame, area: Rect, plot: &Plot, paint: &Paint) {
+fn stacked_bars(f: &mut Frame, area: Rect, plot: &Plot, paint: &Paint) -> usize {
     let [names, bars, labels] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Fill(1),
@@ -375,26 +503,31 @@ fn stacked_bars(f: &mut Frame, area: Rect, plot: &Plot, paint: &Paint) {
     legend(names, &titles, paint, f);
     let sums = stacked(&plot.series);
     let Some((_, totals)) = sums.last() else {
-        return;
+        return 0;
     };
     let top = totals.iter().flatten().fold(0.0f64, |m, v| m.max(*v));
     let height = bars.height as f64;
+    let groups = plot.labels.len().max(1) as u16;
+    let width = (bars.width / groups).saturating_sub(1).clamp(3, 12);
+    let fit = (bars.width / (width + 1)) as usize;
+    let block = "█".repeat(width as usize);
     let buf = f.buffer_mut();
-    for (row, label) in plot.labels.iter().enumerate().take(bars.width as usize / 4) {
-        let x = bars.x + row as u16 * 4;
+    for (row, label) in plot.labels.iter().enumerate().take(fit) {
+        let x = bars.x + row as u16 * (width + 1);
         let mut below = 0;
         for (i, (_, cumulative)) in sums.iter().enumerate() {
             let v = cumulative[row].unwrap_or(0.0).max(0.0);
             let up = ((v / top.max(f64::MIN_POSITIVE)) * height).round() as u16;
             for level in below..up.min(bars.height) {
                 let y = bars.bottom() - 1 - level;
-                buf.set_string(x, y, "███", Style::default().fg((paint.color)(i)));
+                buf.set_string(x, y, &block, Style::default().fg((paint.color)(i)));
             }
             below = below.max(up);
         }
-        let label: String = label.chars().take(3).collect();
+        let label: String = label.chars().take(width as usize).collect();
         buf.set_string(x, labels.y, label, paint.ctx.theme.dim());
     }
+    plot.labels.len().min(fit)
 }
 
 /// Slices shown, the rest go into one.
@@ -515,13 +648,25 @@ fn histogram(f: &mut Frame, area: Rect, plot: &Plot, paint: &Paint) {
     let Some((name, values)) = plot.series.first() else {
         return;
     };
-    let values: Vec<f64> = values.iter().flatten().copied().collect();
+    let mut values: Vec<f64> = values.iter().flatten().copied().collect();
+    let all = values.len();
+    // A few huge values would squeeze the rest into one bin.
+    if all >= 100 {
+        let mut sorted = values.clone();
+        sorted.sort_by(f64::total_cmp);
+        let at = |q: f64| sorted[((all - 1) as f64 * q).round() as usize];
+        let (lo, hi) = (at(0.01), at(0.99));
+        values.retain(|v| (lo..=hi).contains(v));
+    }
     let [names, area] = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-    let title = format!("{name} · {} values", values.len());
+    let mut title = format!("{name} · {} values", values.len());
+    if values.len() < all {
+        title.push_str(&format!(" · {} outliers left out", all - values.len()));
+    }
     legend(names, &[title.as_str()], paint, f);
     // Sturges' rule, as many as fit.
     let wanted = (values.len().max(1) as f64).log2().ceil() as usize + 1;
-    let counted = bins(&values, wanted.min(area.width as usize / 6).clamp(1, 20));
+    let counted = bins(&values, wanted.min(area.width as usize / 7).clamp(1, 20));
     let color = (paint.color)(0);
     let bars: Vec<Bar> = counted
         .iter()
@@ -532,7 +677,7 @@ fn histogram(f: &mut Frame, area: Rect, plot: &Plot, paint: &Paint) {
         })
         .collect();
     let chart = BarChart::new(bars)
-        .bar_width(5)
+        .bar_width(6)
         .bar_gap(1)
         .style(paint.ctx.theme.base())
         .label_style(paint.ctx.theme.dim());
@@ -555,28 +700,72 @@ mod tests {
     }
 
     #[test]
-    fn the_x_is_the_first_column_when_it_is_a_number_and_the_rest_are_series() {
-        use OwnedCell::{Int, Null, Text};
+    fn ids_are_not_plotted_and_categories_add_up() {
+        use OwnedCell::{Decimal, Int, Null, Text};
+        let row = |id, status: &str, sum: &str, manager| {
+            vec![Int(id), Text(status.into()), Decimal(sum.into()), manager]
+        };
         let r = result(
-            &["day", "sales", "note"],
+            &["id", "status", "order_sum", "manager_id"],
             vec![
-                vec![Int(1), Int(10), Text("a".into())],
-                vec![Int(2), Null, Text("b".into())],
+                row(1, "new", "10.5", Int(7)),
+                row(2, "paid", "4", Null),
+                row(3, "new", "1.5", Int(7)),
             ],
         );
-        let p = plot(&r).expect("plot");
-        assert_eq!((p.x.as_str(), p.xs.clone()), ("day", vec![1.0, 2.0]));
-        assert_eq!(p.series, [("sales".to_string(), vec![Some(10.0), None])]);
-
-        let r = result(&["name", "n"], vec![vec![Text("x".into()), Int(3)]]);
-        let p = plot(&r).expect("plot");
+        let pick = default_pick(&r);
         assert_eq!(
-            (p.x.as_str(), p.labels.clone()),
-            ("name", vec!["x".to_string()])
+            pick,
+            Pick {
+                x: Some(1),
+                ys: vec![2],
+                count: false
+            }
+        );
+        let p = plot(&r, &pick).expect("plot");
+        assert!(p.grouped);
+        assert_eq!(p.labels, ["new", "paid"]);
+        assert_eq!(
+            p.series,
+            [("order_sum".to_string(), vec![Some(12.0), Some(4.0)])]
         );
 
-        let r = result(&["name"], vec![vec![Text("x".into())]]);
-        assert_eq!(plot(&r), None);
+        let counted = Pick {
+            x: Some(1),
+            ys: vec![],
+            count: true,
+        };
+        let p = plot(&r, &counted).expect("plot");
+        assert_eq!(p.series, [("rows".to_string(), vec![Some(2.0), Some(1.0)])]);
+
+        let by_id = Pick {
+            x: Some(0),
+            ys: vec![2],
+            count: false,
+        };
+        let p = plot(&r, &by_id).expect("plot");
+        assert!(p.numeric_x && !p.grouped);
+        assert_eq!(p.xs, [1.0, 2.0, 3.0]);
+
+        let ids = result(&["id"], vec![vec![Int(1)]]);
+        assert_eq!(
+            default_pick(&ids),
+            Pick {
+                x: None,
+                ys: vec![],
+                count: true
+            }
+        );
+        assert_eq!(plot(&ids, &Pick::default()), None);
+    }
+
+    #[test]
+    fn numbers_are_short() {
+        assert_eq!(short(-998454.85), "-998.5k");
+        assert_eq!(short(1_260_000.0), "1.3M");
+        assert_eq!(short(3.5), "3.5");
+        assert_eq!(short(12000.0), "12k");
+        assert_eq!(short(7.0), "7");
     }
 
     #[test]
