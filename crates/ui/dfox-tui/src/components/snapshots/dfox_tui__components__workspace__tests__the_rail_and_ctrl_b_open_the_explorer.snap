@@ -13,7 +13,7 @@ expression: screen
    │         │     ▸ ▤ order_items ~48.2k           │                                              │
    │         │     ▸ ▤ orders ~12.4k                │                                              │
    │         │   ▸ Views 1                          │                                              │
-   │         │   ▸ Functions 1                      │query to get output.                          │
-   │         │   ▸ Procedures 1                     │                                              │
-   │         │                                      │                                              │
+   │         ╰──────────────────────────────────────╯query to get output.                          │
+   │         ╭ Connections ─────────────────────────╮                                              │
+   │         │   New connection…                    │                                              │
    ╰─────────╰──────────────────────────────────────╯──────────────────────────────────────────────╯

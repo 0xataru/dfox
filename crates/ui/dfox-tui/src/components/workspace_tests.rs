@@ -2190,3 +2190,35 @@ fn the_explain_options_drop_down_from_their_button() {
         [DbCommand::Run { sql, .. }] if sql == "EXPLAIN (VERBOSE, BUFFERS) select 1"
     ));
 }
+
+#[test]
+fn the_database_drop_down_offers_the_other_connections() {
+    let mut test = TestCtx::new();
+    test.layout = LayoutStyle::Workspace;
+    let mut harness = Harness::new();
+    harness.config.layout = LayoutStyle::Workspace;
+    let mut w = workspace();
+    w.saved = vec!["staging".into(), "local".into(), "prod".into()];
+    w.handle(Action::Explorer, &mut harness.ctx());
+    // Down off the tree's last row goes on to them.
+    w.handle(Action::Down, &mut harness.ctx());
+    assert_eq!(w.switching, Some(0));
+    insta::assert_snapshot!(render(&test, 100, 24, |f, area, ctx| w.render(f, area, ctx)));
+    w.handle(Action::Down, &mut harness.ctx());
+    assert_eq!(
+        w.handle(Action::Confirm, &mut harness.ctx()),
+        Some(Command::Connect(EntryKey::Saved("prod".into())))
+    );
+    w.handle(Action::Up, &mut harness.ctx());
+    w.handle(Action::Up, &mut harness.ctx());
+    assert_eq!(w.switching, None);
+
+    let at = w.switches.get();
+    assert_eq!(
+        w.mouse(
+            mouse(MouseEventKind::Down(MouseButton::Left), at.x + 2, at.y + 2),
+            &mut harness.ctx()
+        ),
+        Some(Command::NewConnection)
+    );
+}
