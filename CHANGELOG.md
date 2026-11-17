@@ -9,6 +9,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- A saved connection opens on the database it was last switched to: switching writes it
+  to the connection's `database`.
 - The new layout's database drop-down lists the other saved connections and
   `New connection…` under the tree: a click, or Down past the last row and Enter, opens one.
 - The new layout has **Graph** beside Messages: **p** plots the result's numeric columns

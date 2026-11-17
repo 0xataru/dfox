@@ -108,6 +108,9 @@ impl App {
         };
         // No username: the event log also goes to the debug log file.
         let switching = connecting.switch_to.is_some();
+        if switching && connection.driver != DbType::Sqlite {
+            self.keep_database(&connection.name, &database);
+        }
         self.log
             .push(format!("Connected to {} ({database})", connection.name));
         self.session = Some(Session {

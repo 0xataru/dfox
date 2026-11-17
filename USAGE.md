@@ -210,7 +210,8 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
 - **←** - Close, or go to the parent
 - **/** - Fuzzy-find a table, view, routine or database; **Enter** jumps to it, or switches
   to a database the session isn't on; **Esc** leaves the filter
-- Opening another database switches the session to it
+- Opening another database switches the session to it, and a saved connection keeps
+  it as its database, to open on it next time
 
 ### General Navigation
 - **Tab** / **Shift+Tab** - Move between the explorer, the query editor and the results
