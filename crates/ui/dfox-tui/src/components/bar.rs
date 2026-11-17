@@ -80,6 +80,16 @@ pub const NEW_TAB: Button = button(
     "New query tab",
     ["+", "+", "+"],
 );
+pub const FILTER: Button = button(
+    Click::Action(Action::Filter),
+    "Keep the rows with the cell's value",
+    ["\u{f0b0}", "⊜", "="],
+);
+pub const UNFILTER: Button = button(
+    Click::Action(Action::Unfilter),
+    "Remove sort and filter",
+    ["\u{f12d}", "⊘", "x"],
+);
 pub const LIMIT: Button = button(
     Click::Limit,
     "Rows kept per result, for this tab · click for the next",

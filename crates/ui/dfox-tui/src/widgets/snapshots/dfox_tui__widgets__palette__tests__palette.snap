@@ -1,5 +1,6 @@
 ---
-source: dfox-tui/src/widgets/palette.rs
+source: crates/ui/dfox-tui/src/widgets/palette.rs
+assertion_line: 248
 expression: "render(&test, 80, 16, |f, area, ctx| palette.render(f, area, ctx))"
 ---
 
@@ -10,6 +11,7 @@ expression: "render(&test, 80, 16, |f, area, ctx| palette.render(f, area, ctx))"
           │                                                          │
           │ Run statement/selection                               F5 │
           │ Run the whole script                            Shift+F5 │
+          │ Remove sort and filter                                 u │
           │ Results as JSON / grid                                 J │
           │ Narrow column                                          < │
           │ Previous panel                                 Shift+Tab │

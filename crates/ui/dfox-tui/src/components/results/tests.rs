@@ -584,3 +584,29 @@ fn s_sorts_by_the_column_up_down_and_back() {
     assert_eq!(values(&results), ["3", "1", "2"]);
     assert_eq!(results.grid.sorted, None);
 }
+
+#[test]
+fn filters_keep_or_drop_the_cells_value_and_u_brings_every_row_back() {
+    let mut harness = Harness::new();
+    let mut results = panel();
+    results.run(1, "SELECT 1", &mut harness.ctx());
+    send_ints(&mut results, 1, &[3, 1, 3, 2]);
+    results.on_done(1, Ok(QueryStats::default()), &mut harness.ctx());
+    let values = |r: &ResultsPanel| -> Vec<String> {
+        (0..r.store.row_count())
+            .map(|row| r.store.cell(row, 0).expect("cell").to_string())
+            .collect()
+    };
+
+    results.handle(Action::Sort, &mut harness.ctx());
+    results.handle(Action::FilterOut, &mut harness.ctx());
+    assert_eq!(values(&results), ["2", "3", "3"]);
+    assert!(harness.toast_texts().iter().any(|t| t == "3 of 4 rows"));
+    results.handle(Action::Filter, &mut harness.ctx());
+    assert_eq!(values(&results), ["2"]);
+    assert!(results.rearranged());
+
+    results.handle(Action::Unfilter, &mut harness.ctx());
+    assert_eq!(values(&results), ["3", "1", "3", "2"]);
+    assert!(!results.rearranged());
+}

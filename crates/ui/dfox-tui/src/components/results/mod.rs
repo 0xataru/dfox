@@ -78,6 +78,13 @@ fn empty() -> ArrowResultSet {
 }
 
 #[derive(Debug)]
+struct Unfiltered {
+    store: ArrowResultSet,
+    unsorted: Option<arrow_array::UInt32Array>,
+    sorted: Option<(usize, bool)>,
+}
+
+#[derive(Debug)]
 pub struct ResultsPanel {
     pub store: ArrowResultSet,
     pub error: Option<String>,
@@ -92,6 +99,8 @@ pub struct ResultsPanel {
     /// The order the rows are sorted in, row `i` being row `order[i]` as
     /// they came; `None` while unsorted.
     unsorted: Option<arrow_array::UInt32Array>,
+    /// The rows as they were before the first filter.
+    unfiltered: Option<Unfiltered>,
     pub grid: Grid,
     pub focused: bool,
     dialect: Dialect,
@@ -153,6 +162,7 @@ impl ResultsPanel {
             running: None,
             counted: None,
             unsorted: None,
+            unfiltered: None,
             grid: Grid::default(),
             focused: false,
             dialect,
@@ -370,6 +380,7 @@ impl ResultsPanel {
         self.message = None;
         self.grid = Grid::default();
         self.unsorted = None;
+        self.unfiltered = None;
         // New rows, the same view.
         if self.json.is_some() {
             self.json = Some(json::JsonView::default());
@@ -474,22 +485,9 @@ impl ResultsPanel {
             _ => Some((col, false)),
         };
         // Back to the rows as they came...
-        if let Some(order) = self.unsorted.take() {
-            let mut back = vec![0u32; order.len()];
-            for (i, from) in order.values().iter().enumerate() {
-                back[*from as usize] = i as u32;
-            }
-            match self.store.reordered(&back.into()) {
-                Ok(rows) => {
-                    self.store = rows;
-                    self.grid.sorted = None;
-                }
-                Err(err) => {
-                    self.unsorted = Some(order);
-                    ctx.toast(Level::Error, format!("Couldn't sort: {err}"));
-                    return;
-                }
-            }
+        if let Err(err) = self.unsort() {
+            ctx.toast(Level::Error, format!("Couldn't sort: {err}"));
+            return;
         }
         // ...then sorted the new way.
         let Some((col, descending)) = next else {
@@ -507,6 +505,101 @@ impl ResultsPanel {
             }
             Err(err) => ctx.toast(Level::Error, format!("Couldn't sort: {err}")),
         }
+    }
+
+    /// Puts the rows back in the order they came.
+    fn unsort(&mut self) -> Result<(), arrow_schema::ArrowError> {
+        let Some(order) = self.unsorted.take() else {
+            return Ok(());
+        };
+        let mut back = vec![0u32; order.len()];
+        for (i, from) in order.values().iter().enumerate() {
+            back[*from as usize] = i as u32;
+        }
+        match self.store.reordered(&back.into()) {
+            Ok(rows) => {
+                self.store = rows;
+                self.grid.sorted = None;
+                Ok(())
+            }
+            Err(err) => {
+                self.unsorted = Some(order);
+                Err(err)
+            }
+        }
+    }
+
+    /// The rows are sorted or filtered.
+    pub fn rearranged(&self) -> bool {
+        self.unfiltered.is_some() || self.grid.sorted.is_some()
+    }
+
+    /// Keeps the rows whose value in the cursor's column is the cursor's,
+    /// or drops them. Only the rows fetched, and only once they are all in.
+    fn filter(&mut self, keep: bool, ctx: &mut Ctx) {
+        let total = self.store.row_count();
+        if total == 0 {
+            return;
+        }
+        if self.running.is_some() || !self.store.is_complete() {
+            ctx.toast(Level::Warning, "Filter once the rows are all in");
+            return;
+        }
+        if self.edits.as_ref().is_some_and(|e| e.count() > 0) {
+            ctx.toast(Level::Warning, "Save or undo the edits before filtering");
+            return;
+        }
+        let (row, col) = self.grid.cursor();
+        let value = |row| {
+            self.store
+                .cell(row, col)
+                .map(|c| (c.is_null(), c.to_string()))
+        };
+        let Some(wanted) = value(row) else { return };
+        let rows: Vec<u32> = (0..total)
+            .filter(|&r| (value(r).as_ref() == Some(&wanted)) == keep)
+            .map(|r| r as u32)
+            .collect();
+        let shown = rows.len();
+        match self.store.reordered(&rows.into()) {
+            Ok(rows) => {
+                let before = std::mem::replace(&mut self.store, rows);
+                let unsorted = self.unsorted.take();
+                let sorted = self.grid.sorted;
+                let all = self.unfiltered.get_or_insert(Unfiltered {
+                    store: before,
+                    unsorted,
+                    sorted,
+                });
+                let all = all.store.row_count();
+                let size = self.size();
+                self.grid.click((0, col), false, size);
+                ctx.toast(Level::Info, format!("{shown} of {all} rows"));
+            }
+            Err(err) => ctx.toast(Level::Error, format!("Couldn't filter: {err}")),
+        }
+    }
+
+    /// Back to every row, in the order they came.
+    fn unfilter(&mut self, ctx: &mut Ctx) {
+        if !self.rearranged() {
+            ctx.toast(Level::Info, "Not sorted or filtered");
+            return;
+        }
+        if self.edits.as_ref().is_some_and(|e| e.count() > 0) {
+            ctx.toast(Level::Warning, "Save or undo the edits first");
+            return;
+        }
+        if let Some(all) = self.unfiltered.take() {
+            self.store = all.store;
+            self.unsorted = all.unsorted;
+            self.grid.sorted = all.sorted;
+        }
+        if let Err(err) = self.unsort() {
+            ctx.toast(Level::Error, format!("Couldn't unsort: {err}"));
+            return;
+        }
+        self.grid.sorted = None;
     }
 
     /// Redraws at an animation's pace are wanted: the fox runs while a query
@@ -744,6 +837,9 @@ impl Component for ResultsPanel {
         }
         match action {
             Action::Sort => self.sort(ctx),
+            Action::Filter => self.filter(true, ctx),
+            Action::FilterOut => self.filter(false, ctx),
+            Action::Unfilter => self.unfilter(ctx),
             Action::Inspect | Action::Confirm if self.store.row_count() > 0 => {
                 self.inspecting = !self.inspecting;
                 self.inspect_scroll.set(0);
