@@ -390,6 +390,9 @@ fn switching_database_reconnects_with_the_same_login() {
             path: path(&["postgres"])
         }]
     );
+    // It opens on `postgres` next time.
+    let saved = test.app.store.get("prod").expect("saved");
+    assert_eq!(saved.database.as_deref(), Some("postgres"));
 }
 
 #[test]

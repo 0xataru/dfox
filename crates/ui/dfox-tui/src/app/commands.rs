@@ -210,6 +210,22 @@ impl App {
 
     /// Saves a found connection whose login just worked, with its password
     /// in the keychain, under a name no saved one has. Returns that name.
+    /// A saved connection opens next time on the database it was switched to.
+    pub(super) fn keep_database(&mut self, name: &str, database: &str) {
+        let Some(mut saved) = self.store.get(name).cloned() else {
+            return;
+        };
+        if saved.database.as_deref() == Some(database) {
+            return;
+        }
+        saved.database = Some(database.to_string());
+        if let Err(err) = self.store.save(Some(name), saved) {
+            self.log.push(format!(
+                "Warning: couldn't keep {database} for {name}: {err}"
+            ));
+        }
+    }
+
     pub(super) fn remember(&mut self, mut connection: Connection, password: &str) -> String {
         let base = connection.name.clone();
         let mut n = 1;
