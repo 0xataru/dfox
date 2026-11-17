@@ -1,11 +1,11 @@
 ---
 source: crates/ui/dfox-tui/src/components/workspace_tests.rs
-assertion_line: 418
+assertion_line: 451
 expression: screen
 ---
     Query 1 × │ Query 2 × │ Query 3 × │  +
  ▤  ◆ local · shop ▾                                                  ▶   »   Ex   Ex+   ≡   ⟲   ?
-   ╭ Query ───────────────────────────────────────────────────────────────────────────────────── ⤢ ╮
+   ╭ Query │ History ─────────────────────────────────────────────────────────────────────────── ⤢ ╮
  ✎ │  1                                                                                            │
    │                                                                                               │
  ◆ ╰────────────────────────────────────────────────────────────────────────────────── Ln 1, Col 1 ╯

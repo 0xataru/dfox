@@ -9,6 +9,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The new layout has **Query | History** over the editor: History (**Ctrl+R** or a click)
+  searches the query history in place of the query instead of in a pop-up.
 - The new layout's grid shows each column's type under its name, `[PK]` on the key of a
   table's rows, and its status bar says `Total rows` and how long the query took.
 - A redesigned workspace beside the classic one: `layout = "workspace"` in `config.toml`, or

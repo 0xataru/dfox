@@ -85,6 +85,13 @@ impl HistorySearch {
         let inner = block.inner(popup);
         f.render_widget(Clear, popup);
         f.render_widget(block, popup);
+        self.render_in(f, inner, ctx);
+    }
+
+    /// The search and its matches in `inner`, as the new layout's History
+    /// shows them in place of the query.
+    pub fn render_in(&self, f: &mut Frame, inner: Rect, ctx: &RenderCtx) {
+        let theme = ctx.theme;
         if inner.height < 2 {
             return;
         }

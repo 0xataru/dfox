@@ -190,6 +190,9 @@ pub struct EditorPanel {
     /// Where the cursor was drawn, for the autocomplete popup.
     screen_cursor: Cell<Option<(u16, u16)>>,
     search: Option<HistorySearch>,
+    /// Where the new layout drew `Query`, `History` after it, on the top
+    /// border.
+    views: Cell<Option<Position>>,
     completion: Option<Completion>,
     /// The function call the cursor is in: its name, arguments, and the
     /// argument being typed.
@@ -245,6 +248,7 @@ impl EditorPanel {
             gutter: Cell::new(0),
             screen_cursor: Cell::new(None),
             search: None,
+            views: Cell::new(None),
             completion: None,
             signature: None,
             picked: None,
@@ -374,6 +378,24 @@ impl EditorPanel {
             .as_ref()
             .filter(|(version, _)| *version == self.buffer.version())
             .map(|(_, problem)| problem)
+    }
+
+    /// Which of the new layout's views is named at a point on the top
+    /// border: `Some(true)` for History, `Some(false)` for Query.
+    pub fn view_at(&self, column: u16, row: u16) -> Option<bool> {
+        let at = self.views.get().filter(|at| at.y == row)?;
+        if (at.x..at.x + 5).contains(&column) {
+            Some(false)
+        } else if (at.x + 8..at.x + 15).contains(&column) {
+            Some(true)
+        } else {
+            None
+        }
+    }
+
+    /// Back to the query from the history.
+    pub fn close_history(&mut self) {
+        self.search = None;
     }
 
     /// True while the history search has the keys.

@@ -297,6 +297,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     transaction is open, run the script, explain, explain analyze, format, history,
     keys. The mouse over one says what it does and its key, the last ones go on a
     narrow terminal
+  - **Query | History** over the editor (**Ctrl+R** or a click): History searches the
+    query history in place of the query, Enter puts the one chosen in the editor, Esc or
+    `Query` goes back
   - **Data | Messages** over the results (**m** or a click): Messages lists how each query
     of the tab went, its rows or error and time, with the server's notices, which then
     don't pop up
