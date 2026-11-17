@@ -80,7 +80,7 @@ pub enum Action {
     NextTheme,
     /// The classic layout or the redesigned workspace.
     SwitchLayout,
-    /// The results as a graph, or the other kind of graph.
+    /// The results as a graph, or the next kind of graph.
     Graph,
     /// The editor or the results fill the workspace, and back.
     Maximize,
@@ -326,7 +326,7 @@ impl Action {
             Action::Inspect => "Inspect / insert name",
             Action::JsonView => "Results as JSON / grid",
             Action::Messages => "Data / messages",
-            Action::Graph => "Graph: lines / bars",
+            Action::Graph => "Graph / next kind",
             Action::AddRow => "Add a row / open a file",
             Action::Export => "Export rows to a file",
             Action::Palette => "Command palette",

@@ -1,12 +1,11 @@
 ---
 source: crates/ui/dfox-tui/src/app/tests.rs
-assertion_line: 757
 expression: "test.snapshot(120, 32)"
 ---
 ╭ Connections 1╭ Keys ──────────────────────────────────────────────────────────────────────────────────╮──────────────╮
 │ Saved        │                                                                                        │              │
 │ ▌⠷ prod ◆ pg │ Ctrl+P            Command palette          m                 Data / messages           │              │
-│              │ F5 Ctrl+E         Run statement/selection  p                 Graph: lines / bars       │              │
+│              │ F5 Ctrl+E         Run statement/selection  p                 Graph / next kind         │              │
 │              │ Shift+F5          Run the whole script     o                 Add a row / open a file   │              │
 │              │ F7                Explain the statement    x                 Export rows to a file     │              │
 │              │ Shift+F7          Explain analyze          >                 Widen column              │              │

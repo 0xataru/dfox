@@ -527,13 +527,10 @@ impl ResultsPanel {
         }
     }
 
-    /// The graph, or on it, the other kind.
+    /// The graph, or on it, the next kind.
     fn show_graph(&mut self) {
         if self.view == View::Graph {
-            self.graph = match self.graph {
-                graph::Kind::Line => graph::Kind::Bar,
-                graph::Kind::Bar => graph::Kind::Line,
-            };
+            self.graph = self.graph.next();
         }
         self.view = View::Graph;
     }
@@ -957,6 +954,13 @@ impl Component for ResultsPanel {
                 Span::styled("Messages", style(messages)),
                 Span::styled(" │ ", theme.dim()),
                 Span::styled("Graph", style(view == View::Graph)),
+                Span::styled(
+                    match view {
+                        View::Graph => format!(" · {}", self.graph.name()),
+                        _ => String::new(),
+                    },
+                    theme.dim(),
+                ),
             ]
         } else {
             self.views.set(None);

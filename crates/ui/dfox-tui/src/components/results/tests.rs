@@ -612,18 +612,37 @@ fn filters_keep_or_drop_the_cells_value_and_u_brings_every_row_back() {
 }
 
 #[test]
-fn p_shows_the_rows_as_lines_then_bars_and_esc_goes_back() {
+fn p_goes_through_every_kind_of_graph_and_esc_goes_back() {
     let mut test = TestCtx::new();
     test.layout = LayoutStyle::Workspace;
     let mut harness = Harness::new();
     harness.config.layout = LayoutStyle::Workspace;
-    let mut results = showing(store(6));
-    results.handle(Action::Graph, &mut harness.ctx());
-    let lines = render(&test, 60, 14, |f, area, ctx| results.render(f, area, ctx));
-    insta::assert_snapshot!("graph_lines", lines);
-    results.handle(Action::Graph, &mut harness.ctx());
-    let bars = render(&test, 60, 14, |f, area, ctx| results.render(f, area, ctx));
-    insta::assert_snapshot!("graph_bars", bars);
+    let rows = [
+        ("mon", 3, 5),
+        ("tue", 6, 2),
+        ("wed", 4, 4),
+        ("thu", 8, 1),
+        ("fri", 5, 6),
+    ]
+    .into_iter()
+    .map(|(day, open, done)| {
+        vec![
+            OwnedCell::Text(day.into()),
+            OwnedCell::Int(open),
+            OwnedCell::Int(done),
+        ]
+    })
+    .collect();
+    let columns = ["day", "open", "done"]
+        .map(|c| ColumnMeta::new(c, "int4"))
+        .to_vec();
+    let mut results = showing(ArrowResultSet::from_cells(columns, rows));
+    for kind in graph::Kind::ALL {
+        results.handle(Action::Graph, &mut harness.ctx());
+        assert_eq!(results.graph, kind);
+        let screen = render(&test, 60, 14, |f, area, ctx| results.render(f, area, ctx));
+        insta::assert_snapshot!(format!("graph_{}", kind.name().replace(' ', "_")), screen);
+    }
     results.handle(Action::Back, &mut harness.ctx());
     assert_eq!(results.view, View::Data);
 }
