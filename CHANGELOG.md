@@ -54,6 +54,11 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
   history and keys. The mouse over a button says what it does and its key in the status
   bar. On a narrow terminal the last buttons go.
 
+### Fixed
+
+- The grid's last column is no longer cut at 40 characters: an explain plan's lines show
+  whole when there is room.
+
 ## [0.5.40] - 2026-11-16
 
 ### Added
