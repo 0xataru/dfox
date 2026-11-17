@@ -1431,6 +1431,10 @@ fn the_classic_layout_offers_the_new_one_once_a_run() {
             .collect()
     };
     assert_eq!(texts(&test), ["New layout: Ctrl+P, Classic / new layout"]);
+    assert_eq!(
+        test.app.toasts.items()[0].lifetime,
+        std::time::Duration::from_secs(8)
+    );
     test.app.toasts = Default::default();
     test.app
         .apply_command(Command::Connect(EntryKey::Saved("prod".into())));

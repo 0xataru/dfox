@@ -37,6 +37,7 @@ pub struct Toast {
     pub level: Level,
     pub text: String,
     pub shown: Instant,
+    pub lifetime: Duration,
 }
 
 #[derive(Debug, Default)]
@@ -50,10 +51,16 @@ impl Toasts {
     const WIDTH: u16 = 48;
 
     pub fn push(&mut self, level: Level, text: String, now: Instant) {
+        self.push_for(level, text, now, level.lifetime());
+    }
+
+    /// As [`Toasts::push`], shown for `lifetime`.
+    pub fn push_for(&mut self, level: Level, text: String, now: Instant, lifetime: Duration) {
         self.items.push(Toast {
             level,
             text,
             shown: now,
+            lifetime,
         });
         if self.items.len() > Self::MAX {
             self.items.remove(0);
@@ -64,7 +71,7 @@ impl Toasts {
     pub fn expire(&mut self, now: Instant) -> bool {
         let before = self.items.len();
         self.items
-            .retain(|toast| now.saturating_duration_since(toast.shown) < toast.level.lifetime());
+            .retain(|toast| now.saturating_duration_since(toast.shown) < toast.lifetime);
         self.items.len() != before
     }
 
@@ -129,7 +136,7 @@ fn render_toast(f: &mut Frame, area: Rect, toast: &Toast, ctx: &RenderCtx) {
     f.render_widget(Paragraph::new(line).block(block), area);
 
     // Time left, along the bottom border.
-    let lifetime = toast.level.lifetime().as_secs_f64();
+    let lifetime = toast.lifetime.as_secs_f64();
     let elapsed = ctx.now.saturating_duration_since(toast.shown).as_secs_f64();
     let left = 1.0 - (elapsed / lifetime).clamp(0.0, 1.0);
     let mut bar = ProgressBar::new(theme, Some(left), ctx.frame);

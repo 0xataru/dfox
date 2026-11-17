@@ -144,10 +144,11 @@ impl App {
             self.workspace = Some(workspace);
             if self.config.layout == LayoutStyle::Classic && !self.offered_layout {
                 self.offered_layout = true;
-                self.toasts.push(
+                self.toasts.push_for(
                     Level::Info,
                     "New layout: Ctrl+P, Classic / new layout".into(),
                     tokio::time::Instant::now(),
+                    std::time::Duration::from_secs(8),
                 );
             }
         }
