@@ -95,6 +95,12 @@ impl Forward {
                 // kubectl keeps writing a line per connection; read them so
                 // its pipe never fills.
                 tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+                let mut errors = BufReader::new(stderr).lines();
+                tokio::spawn(async move {
+                    while let Ok(Some(line)) = errors.next_line().await {
+                        log::warn!("kubectl port-forward: {line}");
+                    }
+                });
                 Ok(Forward {
                     local,
                     _stdin: stdin,
