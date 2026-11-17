@@ -9,6 +9,9 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- Explain options for Postgres in the new layout: **▾** by the explain buttons drops down
+  Verbose, Costs, Buffers, Timing, Summary, Settings and Wal to tick. Explain and explain
+  analyze use them while the app runs.
 - The new layout has buttons over the rows: add a row, delete it, save the edits, copy,
   export, and `Showing rows 1 to 9` for the rows on screen.
 - Filter the rows by the cell's value: **/** keeps the rows with it, **!** drops them, **u**

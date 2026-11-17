@@ -10,6 +10,7 @@ expression: "render(&test, 80, 24, |f, area, ctx|\nsuper::render(f, area, &super
                  │ Shift+F5          Run the whole script      │
                  │ F7                Explain the statement     │
                  │ Shift+F7          Explain analyze           │
+                 │ –                 Explain options           │
                  │ Ctrl+Space        Suggest names             │
                  │ Ctrl+R            Query history             │
                  │ Ctrl+N            New query tab             │
@@ -24,6 +25,5 @@ expression: "render(&test, 80, 24, |f, area, ctx|\nsuper::render(f, area, &super
                  │ Ctrl+A            Select all                │
                  │ Shift+←           Select left               │
                  │ Shift+→           Select right              │
-                 │ Shift+↑           Select up                 │
                  │                                             │
                  ╰── Enter change · Del default · Esc close ───╯

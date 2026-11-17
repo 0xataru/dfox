@@ -2,6 +2,7 @@
 
 pub mod bar;
 pub mod card;
+pub mod checklist;
 pub mod clusters;
 pub mod copy;
 pub mod editor;

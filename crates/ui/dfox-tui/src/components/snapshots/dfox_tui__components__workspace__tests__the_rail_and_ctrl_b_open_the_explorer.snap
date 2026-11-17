@@ -1,10 +1,10 @@
 ---
 source: crates/ui/dfox-tui/src/components/workspace_tests.rs
-assertion_line: 690
+assertion_line: 698
 expression: screen
 ---
     Query 1 × │  +
- ▤  ◆ local · shop ▾                                      ▶   »   Ex   Ex+   100k rows   ≡   ⟲   ?
+ ▤  ◆ local · shop ▾                                  ▶   »   Ex   Ex+   ▾   100k rows   ≡   ⟲   ?
    ╭ Query │ ╭ Explorer ────────────────────────────╮─────────────────────────────────────────── ⤢ ╮
  ✎ │  1 Write│   ◆ postgres                         │the cursor                                    │
    │         │ ▾ ◆ shop ●                           │                                              │

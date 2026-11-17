@@ -4,7 +4,7 @@ assertion_line: 438
 expression: "render(&test, 80, 24, |f, area, ctx| w.render(f, area, ctx))"
 ---
     Query 1 × │  +
- ▤  ◆ local · shop ▾                  ▶   »   Ex   Ex+   100k rows   ≡   ⟲   ?
+ ▤  ◆ local · shop ▾              ▶   »   Ex   Ex+   ▾   100k rows   ≡   ⟲   ?
    ╭ Query │ History ─────────────────────────────────────────────────────── ⤢ ╮
  ✎ │  1                                                                        │
    │                                                                           │
