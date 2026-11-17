@@ -22,30 +22,33 @@ impl StatusBar<'_> {
         let theme = ctx.theme;
         f.render_widget(Paragraph::new("").style(theme.surface()), area);
 
-        let right: Vec<Span> = match self.activity {
-            Some(activity) => activity,
-            None => self
-                .hints
-                .iter()
-                .flat_map(|(action, label)| {
-                    [
-                        Span::styled(format!(" {} ", ctx.keymap.hint(*action)), theme.key()),
-                        Span::styled(format!("{label} "), theme.dim()),
-                    ]
-                })
-                .collect(),
+        let mut location = vec![Span::raw(" ")];
+        location.extend(self.location);
+        let location = Line::from(location);
+        let hint = |(action, label): &(Action, &str)| {
+            [
+                Span::styled(format!(" {} ", ctx.keymap.hint(*action)), theme.key()),
+                Span::styled(format!("{label} "), theme.dim()),
+            ]
         };
-        let right = Line::from(right);
+        let right = match self.activity {
+            Some(activity) => Line::from(activity),
+            None => {
+                let mut hints = self.hints.to_vec();
+                loop {
+                    let line = Line::from(hints.iter().flat_map(hint).collect::<Vec<_>>());
+                    if hints.len() < 2 || line.width() + location.width() <= area.width as usize {
+                        break line;
+                    }
+                    hints.remove(hints.len() - 2);
+                }
+            }
+        };
         let [left_area, right_area] =
             Layout::horizontal([Constraint::Min(0), Constraint::Length(right.width() as u16)])
                 .areas(area);
 
-        let mut location = vec![Span::raw(" ")];
-        location.extend(self.location);
-        f.render_widget(
-            Paragraph::new(Line::from(location)).style(theme.surface()),
-            left_area,
-        );
+        f.render_widget(Paragraph::new(location).style(theme.surface()), left_area);
         f.render_widget(Paragraph::new(right).style(theme.surface()), right_area);
     }
 }

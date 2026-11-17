@@ -1,6 +1,5 @@
 ---
 source: crates/ui/dfox-tui/src/app/tests.rs
-assertion_line: 622
 expression: "test.snapshot(120, 32)"
 ---
 ╭ Explorer ──────────────────────╮╭ Query ─────────────────────────────────────────────────────────────────────────────╮
@@ -34,4 +33,4 @@ expression: "test.snapshot(120, 32)"
 │                                ││                                                                                    │
 │                                ││                                                                                    │
 ╰────────────────────────────────╯╰────────────────────────────────────────────────────────────────────────────────────╯
- dfox  ▌◆ prod · shop                                                   F5 run  Ctrl+P commands  F1 connections  ? keys
+ dfox  ▌◆ prod · shop                                  F5 run  Ctrl+P commands  Ctrl+B explorer  F1 connections  ? keys
