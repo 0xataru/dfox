@@ -9,6 +9,8 @@ Versions below 1.0.0 may change behaviour, keybindings and the `dfox-core` API b
 
 ### Added
 
+- The new layout's database drop-down lists the other saved connections and
+  `New connection…` under the tree: a click, or Down past the last row and Enter, opens one.
 - The new layout has **Graph** beside Messages: **p** plots the result's numeric columns
   as lines, stacked lines, points, bars, horizontal bars, stacked bars, a pie or a
   histogram, the next kind at each press of **p**, the previous one with **P**.

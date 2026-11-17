@@ -33,6 +33,8 @@ use super::{
     editor::{Checker, EditorPanel, TabLabel},
     explorer::Explorer,
     export::{DialogEvent, ExportDialog},
+    manager::EntryKey,
+    panel,
     results::{self, ResultsPanel},
     table_menu::{self, mongo_handle, mongo_key, Choice, MenuEvent, Script, TableMenu, FEW_ROWS},
 };
@@ -223,6 +225,12 @@ pub struct Workspace {
     refresh_at: Option<(tokio::time::Instant, usize)>,
     /// A transaction was opened by a query run here and not closed yet.
     pub in_transaction: bool,
+    /// The saved connections, offered under the explorer's drop-down.
+    pub saved: Vec<String>,
+    /// The connection chosen there, while the keys are on them.
+    switching: Option<usize>,
+    /// Where those connections were drawn, one per row.
+    switches: Cell<Rect>,
 }
 
 impl Workspace {
@@ -257,6 +265,9 @@ impl Workspace {
             buttons: Cell::new([Rect::default(); 2]),
             card: None,
             menu: None,
+            saved: Vec::new(),
+            switching: None,
+            switches: Cell::new(Rect::default()),
             checklist: None,
             explain_options: EXPLAIN_OPTIONS.map(|(_, _, default, _)| default),
             properties: None,
@@ -465,6 +476,7 @@ impl Workspace {
 
     fn set_focus(&mut self, panel: Panel) {
         self.focus.set(panel);
+        self.switching = None;
         self.sync_focus();
     }
 
@@ -1730,6 +1742,78 @@ impl Workspace {
         None
     }
 
+    /// The other connections, and a new one, last.
+    fn others(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = self
+            .saved
+            .iter()
+            .map(String::as_str)
+            .filter(|name| *name != self.connection)
+            .collect();
+        names.push("New connection…");
+        names
+    }
+
+    fn switch_to(&self, at: usize) -> Option<Command> {
+        let others = self.others();
+        match others.get(at) {
+            Some(_) if at + 1 == others.len() => Some(Command::NewConnection),
+            Some(name) => Some(Command::Connect(EntryKey::Saved(name.to_string()))),
+            None => None,
+        }
+    }
+
+    /// The keys while the drop-down's connections have them, or Down off
+    /// the tree's last row onto them.
+    fn switches_handle(&mut self, action: Action, ctx: &mut Ctx) -> Option<Option<Command>> {
+        if let Some(at) = self.switching {
+            match action {
+                Action::Up => self.switching = at.checked_sub(1),
+                Action::Down => self.switching = Some((at + 1).min(self.others().len() - 1)),
+                Action::Confirm => return Some(self.switch_to(at)),
+                Action::Back => self.switching = None,
+                _ => {
+                    self.switching = None;
+                    return None;
+                }
+            }
+            return Some(None);
+        }
+        if action != Action::Down {
+            return None;
+        }
+        let before = self.explorer.selected();
+        let command = self.delegate(action, ctx);
+        if self.explorer.selected() == before {
+            self.switching = Some(0);
+        }
+        Some(command)
+    }
+
+    fn render_switches(&self, f: &mut Frame, area: Rect, ctx: &RenderCtx) {
+        let theme = ctx.theme;
+        let lines: Vec<Line> = self
+            .others()
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| {
+                if self.switching == Some(i) {
+                    Line::styled(format!("{} {name}", ctx.icons.selected), theme.selection())
+                } else {
+                    Line::raw(format!("  {name}"))
+                }
+            })
+            .collect();
+        let block = panel(
+            vec![Span::raw("Connections")],
+            self.switching.is_some(),
+            ctx,
+        );
+        self.switches.set(block.inner(area));
+        f.render_widget(Clear, area);
+        f.render_widget(Paragraph::new(lines).block(block), area);
+    }
+
     /// The focused panel has a menu or search open that takes every key.
     fn modal(&self) -> bool {
         if self.card.is_some()
@@ -1772,6 +1856,10 @@ impl Workspace {
                 }
             }
             return None;
+        }
+        let switches = self.switches.get();
+        if event.kind == MouseEventKind::Down(MouseButton::Left) && switches.contains(point) {
+            return self.switch_to((event.row - switches.y) as usize);
         }
         let [explorer, editor, results] = self.areas.get();
         let under = if explorer.contains(point) {
@@ -1988,6 +2076,11 @@ impl Component for Workspace {
         if self.modal() {
             return self.delegate(action, ctx);
         }
+        if self.focus.is(Panel::Explorer) && ctx.config.layout == LayoutStyle::Workspace {
+            if let Some(command) = self.switches_handle(action, ctx) {
+                return command;
+            }
+        }
         // The autocomplete popup takes the keys that pick from it.
         let picking = matches!(
             action,
@@ -2194,9 +2287,19 @@ impl Component for Workspace {
             spot
         };
         self.buttons.set([button(editor), button(results)]);
+        self.switches.set(none);
         if !left.is_empty() {
-            f.render_widget(Clear, left);
-            self.explorer.render(f, left, ctx);
+            let tree = if workspace {
+                let height = (self.others().len() as u16 + 2).min(left.height / 2);
+                let [tree, switches] =
+                    Layout::vertical([Constraint::Fill(1), Constraint::Length(height)]).areas(left);
+                self.render_switches(f, switches, ctx);
+                tree
+            } else {
+                left
+            };
+            f.render_widget(Clear, tree);
+            self.explorer.render(f, tree, ctx);
         }
         self.render_rail(f, rail, ctx);
         self.editor().render_overlay(f, area, ctx);

@@ -131,6 +131,12 @@ impl App {
                 .with_read_only(read_only)
                 .with_language(info.language)
                 .with_caps(info.caps);
+            workspace.saved = self
+                .store
+                .connections
+                .iter()
+                .map(|c| c.name.clone())
+                .collect();
             self.with_ctx(|_, ctx| workspace.explorer.load(ctx));
             self.workspace = Some(workspace);
         }

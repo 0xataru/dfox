@@ -13,9 +13,9 @@ expression: "render(&test, 100, 20, |f, area, ctx| w.render(f, area, ctx))"
    ╰──────────│     ▸ ▤ order_items ~48.2k           │─────────────────────────────────────────────╯
    ╭ Data │ Me│     ▸ ▤ orders ~12.4k                │────────────────────────────────────────── ⤢ ╮
    │          │   ▸ Views 1                          │                                             │
-   │          │   ▸ Functions 1                      │                                             │
-   │          │   ▸ Procedures 1                     │                                             │
-   │          │                                      │                                             │
+   │          ╰──────────────────────────────────────╯                                             │
+   │          ╭ Connections ─────────────────────────╮                                             │
+   │          │   New connection…                    │                                             │
    │          ╰──────────────────────────────────────╯                                             │
    │                         ● No data output. Run a query to get output.                          │
    │                                                                                               │

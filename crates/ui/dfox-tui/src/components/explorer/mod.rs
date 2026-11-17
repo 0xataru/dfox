@@ -281,6 +281,11 @@ impl Explorer {
         }
     }
 
+    /// The selected node's path of ids.
+    pub fn selected(&self) -> Vec<String> {
+        self.state.borrow().selected().to_vec()
+    }
+
     /// Loads the tree from the top, opening the active database.
     pub fn load(&mut self, ctx: &mut Ctx) {
         self.root = Load::Loading;

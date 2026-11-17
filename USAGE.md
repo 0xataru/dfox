@@ -296,7 +296,9 @@ action. **Delete**, confirmed the same way, brings the action's default keys bac
     icon on the rail at the left drops the explorer down under the database, with its
     search (**/**) and Enter on a database to switch to it, which keeps it open.
     Choosing what to do with a table closes it, as do Esc, Ctrl+B and a second click.
-    Tab passes it by
+    Tab passes it by. Under the tree come the other saved connections and
+    `New connection…`: a click, or **↓** past the tree's last row and Enter, opens one
+
   - a toolbar at the right of the bar: run, stop, commit and rollback while a
     transaction is open, run the script, explain, explain analyze, explain options
     (Postgres: a drop-down of Verbose, Costs, Buffers, Timing, Summary, Settings and Wal to
